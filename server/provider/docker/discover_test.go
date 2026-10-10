@@ -38,8 +38,15 @@ func (e *dockerDiscoveryExecutor) IsHealthy() bool                              
 func (e *dockerDiscoveryExecutor) Reconnect() error                                { return nil }
 func (e *dockerDiscoveryExecutor) Close() error                                    { return nil }
 
-func TestDiscoverInstancesPreservesAllBindingsAndStableID(t *testing.T) {
+func setupDockerTestLogger(t *testing.T) {
+	t.Helper()
+	previous := global.APP_LOG
 	global.APP_LOG = zap.NewNop()
+	t.Cleanup(func() { global.APP_LOG = previous })
+}
+
+func TestDiscoverInstancesPreservesAllBindingsAndStableID(t *testing.T) {
+	setupDockerTestLogger(t)
 	executor := &dockerDiscoveryExecutor{output: `[{
       "Id":"abc123","Name":"/existing","State":{"Status":"running","Running":true},
       "Config":{"Image":"debian:12","Env":["OS=debian"],"Labels":{}},

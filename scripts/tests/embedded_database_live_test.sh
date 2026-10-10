@@ -29,11 +29,13 @@ configure_database_credentials
 
 daemon_pid=''
 stop_database() {
+    local exit_code=$?
     if [[ -n "$daemon_pid" ]]; then
         kill "$daemon_pid" 2>/dev/null || true
         wait "$daemon_pid" 2>/dev/null || true
         daemon_pid=''
     fi
+    return "$exit_code"
 }
 trap stop_database EXIT
 start_database() {

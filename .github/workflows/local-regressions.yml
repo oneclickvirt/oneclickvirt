@@ -1,0 +1,90 @@
+name: Local regressions
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    paths: ['server/**', 'web/**', 'scripts/**', 'action_tests/**', 'deploy/**', '.github/workflows/**', 'Dockerfile*', 'start.sh']
+  pull_request:
+    paths: ['server/**', 'web/**', 'scripts/**', 'action_tests/**', 'deploy/**', '.github/workflows/**', 'Dockerfile*', 'start.sh']
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  PYTHONDONTWRITEBYTECODE: '1'
+
+# A reusable invocation must not cancel another caller of the same workflow.
+concurrency:
+  group: local-regressions-${{ github.run_id }}-${{ github.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  scripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install local fixture dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq shellcheck python3-venv
+          python3 -m venv "$RUNNER_TEMP/ocv-local-python"
+          "$RUNNER_TEMP/ocv-local-python/bin/pip" install -r scripts/tests/requirements-live.txt
+      - name: Validate Bash contracts
+        run: |
+          mapfile -d '' scripts < <(find action_tests scripts/tests -name '*.sh' -type f -print0)
+          shellcheck --severity=error "${scripts[@]}"
+      - name: Run every classified local script regression once
+        run: '"$RUNNER_TEMP/ocv-local-python/bin/python" -B scripts/tests/run_local_tests.py'
+      - name: Audit action contracts without retaining reports
+        run: |
+          audit_dir=$(mktemp -d)
+          trap 'rm -rf "$audit_dir"' EXIT
+          python3 -B action_tests/static_audit.py --root . --output-dir "$audit_dir" --strict --min-route-coverage 82
+
+  controller-and-agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install shell assertion dependency
+        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Run native Rust tests and build the actual loopback E2E Agent
+        working-directory: server/agent
+        run: |
+          cargo test --locked --all-targets
+          cargo fmt --all -- --check
+          cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+          cargo build --locked
+      - name: Test all Go packages with race detection and shuffled order
+        working-directory: server
+        env:
+          ONECLICKVIRT_AGENT_BINARY: ${{ github.workspace }}/server/agent/target/debug/oneclickvirt-agent
+        run: go test -count=1 -race -shuffle=on -timeout=5m ./...
+      - name: Vet all controller and test packages
+        working-directory: server
+        run: go vet ./...
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run test:unit
+      - run: npm run build

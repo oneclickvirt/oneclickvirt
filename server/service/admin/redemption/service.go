@@ -212,6 +212,13 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 	if req.GpuEnabled && (!utils.SupportsContainerGPUProvider(provider.Type, "container") || !isContainerTarget) {
 		return fmt.Errorf("GPU 直通仅支持 LXD/Incus/Docker/Podman/Containerd/Orbstack 的容器实例或容器复制模式")
 	}
+	if req.GpuEnabled && !provider.GpuEnabled {
+		return fmt.Errorf("请先在节点设置中启用GPU直通")
+	}
+	if (req.CreationMode == "copy" || req.GpuEnabled) && utils.SupportsLXDContainerOptions(provider.Type, "container") &&
+		strings.EqualFold(strings.TrimSpace(provider.ExecutionRule), "api_only") {
+		return fmt.Errorf("容器复制和GPU直通需要 Agent 或 SSH 连接，请将节点执行方式改为自动或仅 SSH")
+	}
 	if !req.GpuEnabled {
 		req.GpuDeviceIds = ""
 	} else if err := validateGPUDeviceIDs(req.GpuDeviceIds); err != nil {

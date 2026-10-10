@@ -3,13 +3,21 @@
 set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RUN_ID="ocv-dbcompat-$(date +%s)-$$"
+source "$ROOT_DIR/scripts/tests/docker_fixture.sh"
 ACTIVE_CONTAINER=""
 cleanup() {
-    if [[ -n "$ACTIVE_CONTAINER" ]] && [[ "$(docker inspect --format '{{index .Config.Labels "ocv.test.run"}}' "$ACTIVE_CONTAINER" 2>/dev/null)" == "$RUN_ID" ]]; then
-        docker rm -f -v "$ACTIVE_CONTAINER" >/dev/null
+    local exit_code=$? cleanup_status=0
+    if [[ -n "$ACTIVE_CONTAINER" ]]; then
+        remove_owned_docker_fixture container "$ACTIVE_CONTAINER" "$RUN_ID" || cleanup_status=1
     fi
+    if [[ "$exit_code" == "0" && "$cleanup_status" != "0" ]]; then
+        exit_code=1
+    fi
+    return "$exit_code"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 docker info >/dev/null
 # Synthetic, disposable test credentials deliberately exercise DSN delimiters.
 export OCV_TEST_DB_PASSWORD=' test:@/?#&%+"\value '
@@ -55,7 +63,14 @@ SQL
     }
     export OCV_TEST_DB_ADDR OCV_TEST_DB_ENGINE="$engine"
     OCV_TEST_DB_ADDR="$(docker port "$ACTIVE_CONTAINER" 3306/tcp)"
-    (cd "$ROOT_DIR/server" && go test -count=1 -race -tags=dbintegration -v ./utils/dbconnect -run '^TestLive')
+    (cd "$ROOT_DIR/server" && go test -count=1 -race -shuffle=on -timeout=2m -tags=dbintegration -v ./utils/dbconnect -run '^TestLive')
+    # Use the same disposable engine for the task row-lock regression. The
+    # ordinary Go suite cannot prove MySQL locking with its SQLite fixtures.
+    docker exec -e MYSQL_PWD=ocv-disposable-test-root "$ACTIVE_CONTAINER" "$client" -uroot \
+        -e "CREATE DATABASE ocv_local_task_cancel; GRANT ALL ON ocv_local_task_cancel.* TO 'oneclickvirt'@'%';"
+    (cd "$ROOT_DIR/server" && OCV_LOCAL_MYSQL_ADDR="$OCV_TEST_DB_ADDR" \
+        OCV_LOCAL_MYSQL_PASSWORD="$OCV_TEST_DB_PASSWORD" \
+        go test -count=1 -race -timeout=45s ./service/task -run '^TestLocalMySQLCompletionSerializesCancellation$')
     docker exec -e "MYSQL_PWD=$OCV_TEST_DB_PASSWORD" "$ACTIVE_CONTAINER" "$client" -uoneclickvirt ocv_dbcompat \
         -e 'CREATE TABLE restart_sentinel (id INT PRIMARY KEY); INSERT INTO restart_sentinel VALUES (914);'
     # Restart the SAME data, not a fresh volume, and repeat all assertions.
@@ -69,7 +84,7 @@ SQL
     # Docker can reassign an ephemeral published port during restart.
     OCV_TEST_DB_ADDR="$(docker port "$ACTIVE_CONTAINER" 3306/tcp)"
     [[ "$(docker exec -e "MYSQL_PWD=$OCV_TEST_DB_PASSWORD" "$ACTIVE_CONTAINER" "$client" -uoneclickvirt ocv_dbcompat -N -B -e 'SELECT id FROM restart_sentinel')" == 914 ]] || { echo 'Data was lost across restart' >&2;exit 1; }
-    (cd "$ROOT_DIR/server" && go test -count=1 -race -tags=dbintegration -v ./utils/dbconnect -run '^TestLive')
+    (cd "$ROOT_DIR/server" && go test -count=1 -race -shuffle=on -timeout=2m -tags=dbintegration -v ./utils/dbconnect -run '^TestLive')
     cleanup
     ACTIVE_CONTAINER=""
 done

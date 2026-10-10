@@ -9,6 +9,10 @@
 set -uo pipefail
 export noninteractive=true
 
+case "${1:-}" in
+    -h|--help) printf 'Usage: bash run_module.sh <01|01-05|01,03,05|all> [server_url]\n'; exit 0 ;;
+esac
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULES_DIR="${SCRIPT_DIR}/modules"
 COMMON_DIR="${SCRIPT_DIR}/common"
@@ -46,40 +50,12 @@ if [[ -z "$MODULE_INPUT" ]]; then
     exit 1
 fi
 
-parse_modules() {
-    local input="$1"
-    local modules=()
-    if [[ "$input" == "all" ]]; then
-        for f in "${MODULES_DIR}"/*.sh; do
-            local base num
-            base=$(basename "$f")
-            if [[ "$base" =~ ^([0-9]+) ]]; then
-                num="${BASH_REMATCH[1]}"
-                modules+=("$num")
-            fi
-        done
-    elif [[ "$input" == *-* ]]; then
-        local start; start=$(echo "$input" | cut -d- -f1 | sed 's/^0*//')
-        local end_val; end_val=$(echo "$input" | cut -d- -f2 | sed 's/^0*//')
-        for ((i=start; i<=end_val; i++)); do
-            modules+=("$(printf "%02d" "$i")")
-        done
-    elif [[ "$input" == *,* ]]; then
-        IFS=',' read -ra parts <<< "$input"
-        for p in "${parts[@]}"; do
-            modules+=("$(printf "%02d" "$(echo "$p" | sed 's/^0*//')")")
-        done
-    else
-        modules+=("$(printf "%02d" "$(echo "$input" | sed 's/^0*//')")")
-    fi
-    echo "${modules[@]}"
-}
-
-read -r -a MODULES <<< "$(parse_modules "$MODULE_INPUT")"
-if [[ ${#MODULES[@]} -eq 0 ]]; then
-    log_error "No test modules selected for input: ${MODULE_INPUT}"
-    exit 1
-fi
+source "${COMMON_DIR}/module_selection.sh"
+module_selection=$(parse_test_modules "$MODULE_INPUT" "$MODULES_DIR") || exit 2
+read -r -a MODULES <<< "$module_selection"
+validate_test_modules "$MODULES_DIR" "${MODULES[@]}" || exit 2
+# Use only normalized IDs in report filenames.
+MODULE_INPUT=$(IFS=,; printf '%s' "${MODULES[*]}")
 
 if [[ -z "$SERVER_URL" ]]; then
     echo "Error: SERVER_URL not set"

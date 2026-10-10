@@ -385,16 +385,17 @@ const requireConfirmation = async (message) => {
 
 const submitUpdate = async () => {
   if (!selectedUpdateRelease.value?.canUpdate || !canStartOperation()) return
+  const version = selectedUpdateVersion.value
   const generation = dialogGeneration.current()
   const isCurrent = () => visible.value && dialogGeneration.isCurrent(generation)
   actionLoading.value = true
   try {
-    if (!await requireConfirmation(t('home.footer.updateConfirm', { version: selectedUpdateVersion.value }))) return
+    if (!await requireConfirmation(t('home.footer.updateConfirm', { version }))) return
     if (!isCurrent()) return
     infoGeneration.next()
     loading.value = false
     stopPolling()
-    const response = await startSystemUpdate(selectedUpdateVersion.value, createIdempotencyKey())
+    const response = await startSystemUpdate(version, createIdempotencyKey())
     if (!isCurrent()) return
     operation.value = response?.data || null
     ElMessage.success(t('home.footer.operationSubmitted'))
@@ -409,16 +410,17 @@ const submitUpdate = async () => {
 
 const submitRollback = async () => {
   if (!selectedRollback.value?.canApply || !canStartOperation()) return
+  const { version, backupId } = selectedRollback.value
   const generation = dialogGeneration.current()
   const isCurrent = () => visible.value && dialogGeneration.isCurrent(generation)
   actionLoading.value = true
   try {
-    if (!await requireConfirmation(t('home.footer.rollbackConfirm', { version: selectedRollback.value.version }))) return
+    if (!await requireConfirmation(t('home.footer.rollbackConfirm', { version }))) return
     if (!isCurrent()) return
     infoGeneration.next()
     loading.value = false
     stopPolling()
-    const response = await startSystemRollback(selectedRollback.value.version, selectedRollback.value.backupId, createIdempotencyKey())
+    const response = await startSystemRollback(version, backupId, createIdempotencyKey())
     if (!isCurrent()) return
     operation.value = response?.data || null
     ElMessage.success(t('home.footer.operationSubmitted'))

@@ -109,9 +109,11 @@ _lightnode_get_default_package() {
     [[ "$target_memory" =~ ^[0-9]+$ ]] || target_memory=4096
     [[ "$tier" =~ ^[0-9]+$ && "$tier" -gt 0 ]] || tier=3
     [[ "$strict" == "true" || "$strict" == "false" ]] || strict=true
+    local compact_cpu=1 compact_memory=2048
     if declare -f worker_resource_requirements >/dev/null 2>&1; then
         local required_cpu required_memory _required_disk _require_kvm
         read -r required_cpu required_memory _required_disk _require_kvm < <(worker_resource_requirements "${ENV_TYPE:-docker}")
+        read -r compact_cpu compact_memory _required_disk _require_kvm < <(worker_resource_requirements "${ENV_TYPE:-docker}" "${INSTANCE_TYPES:-both}" compact)
         if (( required_cpu > target_cpu || required_memory > target_memory )); then
             (( required_cpu > target_cpu )) && target_cpu="$required_cpu"
             (( required_memory > target_memory )) && target_memory="$required_memory"
@@ -125,8 +127,11 @@ _lightnode_get_default_package() {
         --arg zone "${LIGHTNODE_ZONE}" \
         --arg explicit "${LIGHTNODE_PACKAGE_CODE}" \
         --arg strict "$strict" \
+        --arg downsize "${ACTION_TEST_ALLOW_WORKER_DOWNSIZE:-true}" \
         --argjson target_cpu "$target_cpu" \
         --argjson target_memory "$target_memory" \
+        --argjson compact_cpu "$compact_cpu" \
+        --argjson compact_memory "$compact_memory" \
         --argjson tier "$tier" '
 def package_code: .packageCode // .code // .id // empty;
 def package_list: ((.packages // .data.packages // .data.list // .data // []) | if type == "array" then . else [] end);
@@ -157,28 +162,32 @@ def region_match:
 def zone_match:
   ($zone == "" or ((has("zoneCode") or has("zone")) | not) or ((.zoneCode // .zone // "") == $zone));
 (package_list | map(select(region_match and zone_match))) as $pkgs
-| if $explicit != "" then
+| (if $explicit != "" then
     ($pkgs
       | map(select(package_code == $explicit))
-      | map(select((cpu_cores >= $target_cpu) and (memory_mb >= $target_memory)))
+      | map(select(((cpu_cores >= $target_cpu) and (memory_mb >= $target_memory)) or
+                   ($downsize == "true" and (cpu_cores >= $compact_cpu) and (memory_mb >= $compact_memory))))
       | .[0]
       | package_code)
-  else
+  else empty end) //
+  (if $explicit == "" or $downsize == "true" then
     (($pkgs | map(select((cpu_cores == $target_cpu) and (memory_mb == $target_memory)))[0] | package_code) //
      (if $strict != "true" then ($pkgs | map(select((cpu_cores >= $target_cpu) and (memory_mb >= $target_memory))) | sort_by(cpu_cores, memory_mb) | ((.[($tier - 1)] // .[0]) | package_code)) else null end) //
+     ($pkgs | map(select((cpu_cores >= $target_cpu) and (memory_mb >= $target_memory))) | sort_by(cpu_cores, memory_mb) | .[0] | package_code) //
+     (if $downsize == "true" then ($pkgs | map(select((cpu_cores >= $compact_cpu) and (memory_mb >= $compact_memory))) | sort_by(memory_mb, cpu_cores) | last | package_code) else empty end) //
      empty)
-  end
+  else empty end)
 ') || package_code=""
 
     if [[ -z "$package_code" ]]; then
         if [[ -n "${LIGHTNODE_PACKAGE_CODE}" ]]; then
-            log_error "[lightnode] Configured LIGHTNODE_PACKAGE_CODE is unavailable or smaller than ${target_cpu}C/${target_memory}MB in region=${LIGHTNODE_REGION} zone=${LIGHTNODE_ZONE}"
+            log_error "[lightnode] Configured LIGHTNODE_PACKAGE_CODE is unavailable or cannot run the enabled resource profiles in region=${LIGHTNODE_REGION} zone=${LIGHTNODE_ZONE}"
         else
-            log_error "[lightnode] Required ${target_cpu}C/${target_memory}MB package is unavailable in region=${LIGHTNODE_REGION} zone=${LIGHTNODE_ZONE}; refusing to fall back to a smaller instance"
+            log_error "[lightnode] No usable package for the enabled resource profiles in region=${LIGHTNODE_REGION} zone=${LIGHTNODE_ZONE}"
         fi
         return 75
     fi
-    log_info "[lightnode] Using package=${package_code} (required=${target_cpu}C/${target_memory}MB tier=${tier}, strict=${strict})"
+    log_info "[lightnode] Using package=${package_code} (preferred=${target_cpu}C/${target_memory}MB tier=${tier}, downsize=${ACTION_TEST_ALLOW_WORKER_DOWNSIZE:-true}); actual resources will be checked before installation"
     echo "$package_code"
 }
 
@@ -513,6 +522,7 @@ lightnode_platform_ssh_exec() {
         local ssh_cmd=(ssh -i "${PLATFORM_SSH_KEY_FILE}" \
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
+            -o IdentitiesOnly=yes \
             -o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             -o BatchMode=yes \
             "${ssh_user}@${ip}" \
@@ -547,21 +557,27 @@ lightnode_platform_wait_ssh() {
     local ip="$1" max="${2:-300}" interval="${3:-10}" elapsed=0
     local ssh_user; ssh_user=$(get_platform_ssh_user "lightnode")
     local start_ts; start_ts=$(date +%s)
+    local last_error="" last_rc=0
     log_info "[lightnode] Waiting for SSH on ${ip} (max ${max}s)..."
     while [[ $elapsed -lt $max ]]; do
-        local ssh_ok=false
+        local ssh_error="" ssh_rc=0 auth_mode="key"
         if [[ -n "${PLATFORM_SSH_KEY_FILE:-}" && -f "${PLATFORM_SSH_KEY_FILE}" ]]; then
             local ssh_cmd=(ssh -i "${PLATFORM_SSH_KEY_FILE}" \
                 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
                 -o ConnectTimeout=8 -o ConnectionAttempts=1 \
-                -o ServerAliveInterval=8 -o ServerAliveCountMax=1 -o BatchMode=yes \
+                -o ServerAliveInterval=8 -o ServerAliveCountMax=1 -o BatchMode=yes -o IdentitiesOnly=yes \
                 "${ssh_user}@${ip}" "echo ok")
             if command -v timeout >/dev/null 2>&1; then
-                timeout 20 "${ssh_cmd[@]}" >/dev/null 2>&1 && ssh_ok=true
+                ssh_error=$(timeout 20 "${ssh_cmd[@]}" 2>&1) || ssh_rc=$?
             else
-                "${ssh_cmd[@]}" >/dev/null 2>&1 && ssh_ok=true
+                ssh_error=$("${ssh_cmd[@]}" 2>&1) || ssh_rc=$?
             fi
         elif [[ -n "${PLATFORM_SSH_PASSWORD:-}" ]]; then
+            auth_mode="password"
+            if ! command -v sshpass >/dev/null 2>&1; then
+                log_error "[lightnode] Password SSH requires sshpass; install it before retrying"
+                return 1
+            fi
             local ssh_cmd=(sshpass -e ssh \
                 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
                 -o ConnectTimeout=8 -o ConnectionAttempts=1 \
@@ -571,18 +587,30 @@ lightnode_platform_wait_ssh() {
                 -o NumberOfPasswordPrompts=1 \
                 "${ssh_user}@${ip}" "echo ok")
             if command -v timeout >/dev/null 2>&1; then
-                SSHPASS="${PLATFORM_SSH_PASSWORD}" timeout 20 "${ssh_cmd[@]}" >/dev/null 2>&1 && ssh_ok=true
+                ssh_error=$(SSHPASS="${PLATFORM_SSH_PASSWORD}" timeout 20 "${ssh_cmd[@]}" 2>&1) || ssh_rc=$?
             else
-                SSHPASS="${PLATFORM_SSH_PASSWORD}" "${ssh_cmd[@]}" >/dev/null 2>&1 && ssh_ok=true
+                ssh_error=$(SSHPASS="${PLATFORM_SSH_PASSWORD}" "${ssh_cmd[@]}" 2>&1) || ssh_rc=$?
             fi
+        else
+            log_error "[lightnode] No SSH credentials available; cannot probe ${ip}"
+            return 1
         fi
-        if $ssh_ok; then
+        if [[ $ssh_rc -eq 0 ]]; then
             log_success "[lightnode] SSH ready on ${ip}"
             return 0
         fi
+        if [[ -n "${PLATFORM_SSH_PASSWORD:-}" ]]; then
+            ssh_error=${ssh_error//"$PLATFORM_SSH_PASSWORD"/[REDACTED]}
+        fi
+        ssh_error="auth=${auth_mode}: ${ssh_error:-no SSH diagnostic output}"
+        if [[ "$ssh_error" != "$last_error" || "$ssh_rc" != "$last_rc" ]]; then
+            log_debug "[lightnode] SSH not ready on ${ip} (exit=${ssh_rc}, ${elapsed}/${max}s): ${ssh_error}"
+        fi
+        last_error="$ssh_error"
+        last_rc="$ssh_rc"
         sleep "${interval}"
         elapsed=$(($(date +%s) - start_ts))
     done
-    log_error "[lightnode] SSH timeout on ${ip} after ${max}s"
+    log_error "[lightnode] SSH timeout on ${ip} after ${max}s (last exit=${last_rc}): ${last_error}"
     return 1
 }

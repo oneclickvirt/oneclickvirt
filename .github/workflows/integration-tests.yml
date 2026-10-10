@@ -95,6 +95,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  local-regressions:
+    uses: ./.github/workflows/local-regressions.yml
+    permissions:
+      contents: read
+
   build-test-agent:
     uses: ./.github/workflows/build-test-agent.yml
     permissions:
@@ -137,8 +142,9 @@ jobs:
 
   integration-test:
     name: "Test: ${{ matrix.environment }}"
-    needs: [build-test-agent]
+    needs: [build-test-agent, local-regressions]
     env:
+      SELECTED_MODULES: ${{ inputs.modules }}
       REPORT_DIR: ${{ github.workspace }}/action_tests/reports/${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.environment }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
@@ -174,102 +180,10 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq curl sshpass python3 python3-pip mysql-client
-          pip3 install --quiet paramiko websocket-client
-
-      - name: Validate bash syntax of test scripts
-        run: |
-          set -euo pipefail
-          errors=0
-          for f in action_tests/modules/*.sh action_tests/common/*.sh action_tests/common/platforms/*.sh \
-                   action_tests/run_module.sh action_tests/run_env_test.sh scripts/tests/*.sh; do
-            [[ -f "$f" ]] || continue
-            if ! bash -n "$f" 2>/tmp/bash_syntax_err.txt; then
-              echo "::error file=${f}::Bash syntax error in ${f}:"
-              cat /tmp/bash_syntax_err.txt
-              errors=$((errors + 1))
-            fi
-          done
-          if [[ $errors -gt 0 ]]; then
-            echo "::error::${errors} bash script(s) have syntax errors. Fix before running CI."
-            exit 1
-          fi
-          echo "All bash scripts passed syntax check."
-
-      - name: Test provider image selection policy
-        run: bash scripts/tests/provider_image_selection_test.sh
-
-      - name: Test provider image instance preservation
-        run: bash scripts/tests/provider_image_instance_preservation_test.sh
-
-      - name: Test action harness failure classification
-        run: |
-          bash scripts/tests/action_harness_classification_test.sh
-          bash scripts/tests/containerd_runtime_verifier_test.sh
-          bash scripts/tests/host_ipv6_harness_probe_test.sh
-          bash scripts/tests/http_status_contract_test.sh
-          bash scripts/tests/instance_creation_result_gate_test.sh
-          bash scripts/tests/port_mapping_result_gate_test.sh
-          bash scripts/tests/port_mapping_agent_readiness_test.sh
-          bash scripts/tests/result_integrity_test.sh
-          bash scripts/tests/report_history_preservation_test.sh
-          bash scripts/tests/module_runner_integrity_test.sh
-          bash scripts/tests/lxd_dns_refresh_test.sh
-          bash scripts/tests/workflow_result_gate_test.sh
-          bash scripts/tests/action_prerequisite_test.sh
-          bash scripts/tests/cnb_snapshot_test.sh
-          python3 scripts/tests/ci_agent_assets_test.py
-
-      - name: Test real SSH output flow control and command deadlines
-        run: |
-          python3 scripts/tests/remote_ssh_io_test.py
-          python3 scripts/tests/webssh_external_probe_test.py
-          python3 scripts/tests/live_node_shell_test.py
-          python3 scripts/tests/live_uninstall_prompts_test.py
-          python3 scripts/tests/live_nested_docker_test.py
-          python3 scripts/tests/live_install_storage_test.py
-
-      - name: Test disposable panel volume cleanup with real Docker
-        run: python3 scripts/tests/live_panel_cleanup_test.py --docker
-
-      - name: Non-PVE installer failure and readiness regressions
-        run: |
-          bash scripts/tests/non_pve_initialization_test.sh
-          bash scripts/tests/local_install_modes_test.sh
-
-      - name: Test provider exec status contract
-        run: bash scripts/tests/provider_exec_status_contract_test.sh
-
-      - name: Test instance task lookup across rebuild
-        run: bash scripts/tests/instance_task_lookup_test.sh
-
-      - name: Test LXD and Incus create resource contracts
-        working-directory: ./server
-        run: go test ./provider/lxd ./provider/incus -run 'APICreateResourceContract|VMSecurityDoesNotSetContainerLimits' -count=1
-
-      - name: Test password rotation and token isolation
-        run: |
-          bash scripts/tests/user_password_rotation_test.sh
-          cd server
-          go test ./utils ./middleware ./service/auth ./service/user/notification
-
-      - name: Test IPv6 tunnel CI isolation
-        run: bash scripts/tests/ipv6_tunnel_ci_isolation_test.sh
-
-      - name: Test IPv6 acceptance cleanup safety
-        run: bash scripts/tests/ipv6_acceptance_cleanup_test.sh
-
-      - name: Test IPv6 tunnel and pool contracts
-        working-directory: ./server
-        run: go test ./service/ipv6tunnel ./service/ipv6pool
-
-      - name: Test installer lifecycle commands
-        run: |
-          bash scripts/tests/install_lifecycle_commands_test.sh
-          bash scripts/tests/download_atomic_test.sh
-
-      - name: Verify default config source consistency
-        run: bash scripts/tests/config_source_consistency_test.sh
+          sudo apt-get install -y jq curl sshpass python3 python3-venv mysql-client
+          python3 -m venv "$RUNNER_TEMP/ocv-integration-python"
+          "$RUNNER_TEMP/ocv-integration-python/bin/pip" install -r scripts/tests/requirements-live.txt
+          echo "$RUNNER_TEMP/ocv-integration-python/bin" >> "$GITHUB_PATH"
 
       - name: Verify generated Swagger docs
         working-directory: ./server
@@ -302,6 +216,7 @@ jobs:
       - name: Resolve usable cloud platforms
         id: resolve-platforms
         env:
+          REQUESTED_PLATFORM: ${{ inputs.platform }}
           ALICE_CLIENT_ID: ${{ secrets.ALICE_CLIENT_ID }}
           ALICE_CLIENT_SECRET: ${{ secrets.ALICE_CLIENT_SECRET }}
           ALICE_PUBLIC_KEY: ${{ secrets.ALICE_PUBLIC_KEY }}
@@ -342,7 +257,7 @@ jobs:
           source action_tests/common/test_framework.sh
           source action_tests/common/platform_interface.sh
 
-          requested_platform="${{ inputs.platform }}"
+          requested_platform="$REQUESTED_PLATFORM"
           if [[ "$requested_platform" == "auto" ]]; then
             candidates=(alice lightnode vultr hetzner linode rackdog skrime prepaidhost cubepath cloudsigma)
           else
@@ -443,6 +358,7 @@ jobs:
           PLATFORM_ALLOW_CONCURRENT_INSTANCES: ${{ inputs.environment == 'all' && 'true' || 'false' }}
           ACTION_TEST_LIVE_IPV6_TUNNEL: ${{ inputs.live_ipv6_tunnel && 'true' || 'false' }}
           ACTION_TEST_IPV4_ONLY: "false"
+          ACTION_TEST_PRESERVE_INSTANCES: "false"
           ACTION_TEST_CONTAINER_CPU: "2"
           ACTION_TEST_CONTAINER_MEMORY: "2048"
           # Native container providers create several guests on the shared
@@ -520,6 +436,7 @@ jobs:
           PLATFORM_SELECTION: ${{ steps.validate.outputs.platform }}
           SKIP_INSTANCE_DELETE: ${{ inputs.skip_instance_delete }}
           # Test settings
+          SELECTED_MODULES: ${{ inputs.modules }}
           ENV_TYPE: ${{ matrix.environment }}
           INSTANCE_TYPES: ${{ steps.validate.outputs.instance_types }}
           NODE_HOURS: ${{ inputs.node_hours }}
@@ -590,7 +507,7 @@ jobs:
           set +e
           bash action_tests/run_env_test.sh \
             "${{ matrix.environment }}" \
-            "${{ inputs.modules }}" \
+            "$SELECTED_MODULES" \
             "${{ steps.validate.outputs.instance_types }}" 2>&1 | tee ${{ env.REPORT_DIR }}/full-output.log
           PIPE_STATUSES=("${PIPESTATUS[@]}")
           TEST_EXIT=${PIPE_STATUSES[0]:-0}
@@ -922,7 +839,7 @@ jobs:
             echo "| Platform | ${{ inputs.platform }} |"
             echo "| Resolved Cloud Platforms | ${{ steps.resolve-platforms.outputs.platform_priority }} |"
             echo "| Instance Types | ${{ steps.validate.outputs.instance_types }} |"
-            echo "| Modules | ${{ inputs.modules }} |"
+            printf '| Modules | %s |\n' "$SELECTED_MODULES"
             echo ""
             if [[ -f "${REPORT_DIR}/${{ matrix.environment }}-report.md" ]]; then
               cat "${REPORT_DIR}/${{ matrix.environment }}-report.md"

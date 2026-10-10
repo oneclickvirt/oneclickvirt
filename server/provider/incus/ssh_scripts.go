@@ -115,40 +115,10 @@ func (i *IncusProvider) configureInstanceGPU(ctx context.Context, config provide
 	if !config.GpuEnabled {
 		return nil
 	}
-	if config.InstanceType == "vm" {
-		global.APP_LOG.Warn("GPU直通当前不支持虚拟机实例，跳过", zap.String("instance", config.Name))
-		return nil
+	if config.InstanceType != "container" {
+		return fmt.Errorf("GPU直通仅支持容器实例")
 	}
-
-	ids := strings.Split(config.GpuDeviceIds, ",")
-	if config.GpuDeviceIds == "" {
-		cmd := fmt.Sprintf("incus config device add %s gpu gpu", shellSingleQuote(config.Name))
-		if _, err := i.sshClient.Execute(cmd); err != nil {
-			return fmt.Errorf("附加GPU设备失败: %w", err)
-		}
-		global.APP_LOG.Info("已为实例附加所有GPU设备", zap.String("instance", config.Name))
-	} else {
-		for idx, rawID := range ids {
-			id := strings.TrimSpace(rawID)
-			if id == "" {
-				continue
-			}
-			deviceName := fmt.Sprintf("gpu%d", idx)
-			cmd := fmt.Sprintf("incus config device add %s %s gpu id=%s", shellSingleQuote(config.Name), shellSingleQuote(deviceName), shellSingleQuote(id))
-			if _, err := i.sshClient.Execute(cmd); err != nil {
-				global.APP_LOG.Warn("附加GPU设备失败，跳过该设备",
-					zap.String("instance", config.Name),
-					zap.String("gpuId", id),
-					zap.Error(err))
-			} else {
-				global.APP_LOG.Info("已为实例附加GPU设备",
-					zap.String("instance", config.Name),
-					zap.String("device", deviceName),
-					zap.String("gpuId", id))
-			}
-		}
-	}
-	return nil
+	return utils.ConfigureContainerGPU(ctx, i.sshClient, "incus", config.Name, config.GpuEnabled, config.GpuDeviceIds)
 }
 
 // setInstanceConfig 通用的实例配置设置方法，根据执行规则选择API或SSH

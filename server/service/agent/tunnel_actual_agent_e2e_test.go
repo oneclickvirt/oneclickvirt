@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,6 +20,23 @@ import (
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 )
+
+type lockedAgentProcessOutput struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (output *lockedAgentProcessOutput) Write(data []byte) (int, error) {
+	output.mu.Lock()
+	defer output.mu.Unlock()
+	return output.buffer.Write(data)
+}
+
+func (output *lockedAgentProcessOutput) String() string {
+	output.mu.Lock()
+	defer output.mu.Unlock()
+	return output.buffer.String()
+}
 
 // TestActualRustAgentControllerPortForward runs only when an actual Rust
 // Agent binary is supplied. The ordinary controller tunnel tests intentionally
@@ -50,13 +68,23 @@ func TestActualRustAgentControllerPortForward(t *testing.T) {
 			_ = conn.Close()
 		}
 	}))
-	t.Cleanup(controller.Close)
+	t.Cleanup(func() {
+		controller.Close()
+		for {
+			select {
+			case conn := <-accepted:
+				_ = conn.Close()
+			default:
+				return
+			}
+		}
+	})
 	wsURL := "ws" + strings.TrimPrefix(controller.URL, "http") + "/api/v1/ws/agent"
 
 	target, stopTarget := startEchoTarget(t)
 	t.Cleanup(stopTarget)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binary)
 	cmd.Dir = t.TempDir()
@@ -71,7 +99,7 @@ func TestActualRustAgentControllerPortForward(t *testing.T) {
 		"RESOURCE_COLLECT_INTERVAL=3600",
 		"RUST_LOG=warn",
 	)
-	var processOutput bytes.Buffer
+	var processOutput lockedAgentProcessOutput
 	cmd.Stdout = &processOutput
 	cmd.Stderr = &processOutput
 	if err := cmd.Start(); err != nil {
@@ -141,7 +169,18 @@ func TestActualRustAgentControllerPortForward(t *testing.T) {
 
 func startActualAgentControllerReader(t *testing.T, ws *websocket.Conn, manager *TunnelManager) {
 	t.Helper()
+	done := make(chan struct{})
+	t.Cleanup(func() {
+		_ = ws.Close()
+		manager.CloseAllSessions()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Error("actual Agent controller reader did not terminate")
+		}
+	})
 	go func() {
+		defer close(done)
 		for {
 			kind, data, err := ws.ReadMessage()
 			if err != nil {

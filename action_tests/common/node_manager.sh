@@ -334,6 +334,9 @@ create_test_node() {
     ip=$(echo "${result}" | jq -r '.ipv4 // empty' 2>/dev/null)
     password=$(echo "${result}" | jq -r '.password // empty' 2>/dev/null)
     platform_name=$(echo "${result}" | jq -r '.platform // empty' 2>/dev/null)
+    local resource_profile
+    resource_profile=$(jq -r '.resource_profile // "standard"' <<< "$result" 2>/dev/null) || return 1
+    apply_worker_resource_profile "$resource_profile" || return 1
     [[ -z "${ip}" ]] && { log_error "Cannot get IP from create response: ${result}"; return 1; }
     # try_create_with_fallback runs inside $() so ACTIVE_PLATFORM and PLATFORM_SSH_KEY_FILE
     # set within it are lost when that subshell exits. Re-initialize the platform here so
@@ -347,7 +350,7 @@ create_test_node() {
     wait_for_ssh "${ip}" 600 || { log_error "SSH never became available on ${ip}"; return 1; }
     ensure_worker_swap "${ip}" "new ${platform_name} worker" || log_warning "Continuing even though swap setup did not complete on new worker"
     log_success "Node created on '${platform_name}': ID=${id} IP=[MASKED]"
-    echo "{\"instance_id\":\"${id}\",\"ipv4\":\"${ip}\",\"password\":\"${password}\",\"platform\":\"${platform_name}\"}"
+    printf '%s\n' "$result"
 }
 
 find_local_env_install_script() {
@@ -1226,7 +1229,7 @@ VERIFY_KUBEVIRT
     local verify_output=""
     if verify_output=$(platform_exec_and_wait "${ip}" "${verify_cmd}" "$verify_timeout" 2>&1); then
         if declare -f platform_validate_worker_resources >/dev/null 2>&1 && \
-           ! platform_validate_worker_resources "$env" "$ip" "${ACTIVE_PLATFORM:-}"; then
+           ! platform_validate_worker_resources "$env" "$ip" "${ACTIVE_PLATFORM:-}" "${ACTION_TEST_WORKER_RESOURCE_PROFILE:-standard}" runtime; then
             log_warning "${env} runtime is ready, but the worker no longer satisfies its peak resource budget"
             return 75
         fi

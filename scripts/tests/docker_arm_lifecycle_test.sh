@@ -14,6 +14,8 @@ EXPECTED_AGENT_VERSION="$(sed -n 's/^const CompatibleAgentVersion = "\([^"]*\)"$
 
 RUN_ID="${GITHUB_RUN_ID:-local}-$$"
 RUN_ID="${RUN_ID//[^a-zA-Z0-9_.-]/-}"
+FIXTURE_OWNER="ocv-arm-${RUN_ID}-${RANDOM}${RANDOM}"
+source "$ROOT_DIR/scripts/tests/docker_fixture.sh"
 NETWORK="ocv-arm-lifecycle-${RUN_ID}"
 DB_CONTAINER="ocv-arm-db-${RUN_ID}"
 NO_DB_CONTAINER="ocv-arm-nodb-${RUN_ID}"
@@ -26,17 +28,19 @@ ALLINONE_STORAGE_VOLUME="ocv-arm-allinone-storage-${RUN_ID}"
 DB_PASSWORD='ArmLifecycle!Db12,@%Q'
 
 cleanup() {
-    docker rm -f \
-        "${NO_DB_CONTAINER}" \
-        "${ALLINONE_CONTAINER}" \
-        "${DB_CONTAINER}" >/dev/null 2>&1 || true
-    docker network rm "${NETWORK}" >/dev/null 2>&1 || true
-    docker volume rm \
-        "${NO_DB_VOLUME}" \
-        "${ALLINONE_DB_VOLUME}" \
-        "${ALLINONE_STORAGE_VOLUME}" >/dev/null 2>&1 || true
+    local status=0 item
+    for item in "$NO_DB_CONTAINER" "$ALLINONE_CONTAINER" "$DB_CONTAINER" "ocv-arm-config-${RUN_ID}"; do
+        remove_owned_docker_fixture container "$item" "$FIXTURE_OWNER" || status=1
+    done
+    remove_owned_docker_fixture network "$NETWORK" "$FIXTURE_OWNER" || status=1
+    for item in "$NO_DB_VOLUME" "$ALLINONE_DB_VOLUME" "$ALLINONE_STORAGE_VOLUME"; do
+        remove_owned_docker_fixture volume "$item" "$FIXTURE_OWNER" || status=1
+    done
+    return "$status"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 fail() {
     echo "ERROR: $*" >&2
@@ -155,6 +159,7 @@ start_no_db_container() {
     fi
     docker run -d \
         --name "${NO_DB_CONTAINER}" \
+        --label "ocv.test.run=${FIXTURE_OWNER}" \
         --network "${NETWORK}" \
         -p 127.0.0.1::80 \
         -v "${NO_DB_VOLUME}:/app/storage" \
@@ -164,14 +169,16 @@ start_no_db_container() {
 
 test_no_db_restart_and_upgrade() {
     echo "Testing ARM64 no-db restart and image replacement with blank DB_* environment values..."
-    docker volume create "${NO_DB_VOLUME}" >/dev/null
+    create_owned_docker_volume "$NO_DB_VOLUME" "$FIXTURE_OWNER"
 
     docker run --rm -i \
+        --name "ocv-arm-config-${RUN_ID}" --label "ocv.test.run=${FIXTURE_OWNER}" \
         -e TEST_DB_PASSWORD="${DB_PASSWORD}" \
         -v "${NO_DB_VOLUME}:/storage" \
         "${NO_DB_BASE_IMAGE}" \
         bash -s -- /app/config.yaml.default /storage/config.yaml <"${NO_DB_CONFIG_PREPARER}"
     docker run --rm \
+        --name "ocv-arm-config-${RUN_ID}" --label "ocv.test.run=${FIXTURE_OWNER}" \
         -e TEST_DB_PASSWORD="${DB_PASSWORD}" \
         -v "${NO_DB_VOLUME}:/storage" \
         "${NO_DB_BASE_IMAGE}" \
@@ -202,6 +209,7 @@ start_allinone_container() {
     local image="$1"
     docker run -d \
         --name "${ALLINONE_CONTAINER}" \
+        --label "ocv.test.run=${FIXTURE_OWNER}" \
         -p 127.0.0.1::80 \
         -e MYSQL_ROOT_PASSWORD="${DB_PASSWORD}" \
         -e MYSQL_DATABASE=oneclickvirt \
@@ -221,8 +229,8 @@ assert_allinone_marker() {
 
 test_allinone_restart_and_upgrade() {
     echo "Testing ARM64 all-in-one restart and image replacement with persistent database/storage volumes..."
-    docker volume create "${ALLINONE_DB_VOLUME}" >/dev/null
-    docker volume create "${ALLINONE_STORAGE_VOLUME}" >/dev/null
+    create_owned_docker_volume "$ALLINONE_DB_VOLUME" "$FIXTURE_OWNER"
+    create_owned_docker_volume "$ALLINONE_STORAGE_VOLUME" "$FIXTURE_OWNER"
     start_allinone_container "${ALLINONE_BASE_IMAGE}"
     wait_http "${ALLINONE_CONTAINER}" /api/v1/health
 
@@ -252,9 +260,10 @@ assert_image_arch "${NO_DB_IMAGE}"
 assert_image_arch "${ALLINONE_BASE_IMAGE}"
 assert_image_arch "${NO_DB_BASE_IMAGE}"
 
-docker network create "${NETWORK}" >/dev/null
+docker network create --label "ocv.test.run=${FIXTURE_OWNER}" "${NETWORK}" >/dev/null
 docker run -d \
     --name "${DB_CONTAINER}" \
+    --label "ocv.test.run=${FIXTURE_OWNER}" \
     --network "${NETWORK}" \
     --network-alias ocv-db \
     -e MARIADB_ROOT_PASSWORD="${DB_PASSWORD}" \

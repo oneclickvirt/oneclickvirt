@@ -5,7 +5,7 @@ test_dir=$(mktemp -d)
 trap 'rm -r "$test_dir"' EXIT
 mkdir -p "$test_dir/common" "$test_dir/modules"
 cp "$ROOT_DIR/action_tests/run_module.sh" "$test_dir/run_module.sh"
-cp "$ROOT_DIR/action_tests/common/result_integrity.sh" "$test_dir/common/"
+cp "$ROOT_DIR/action_tests/common/result_integrity.sh" "$ROOT_DIR/action_tests/common/module_selection.sh" "$test_dir/common/"
 cp "$ROOT_DIR/scripts/tests/fixtures/module-runner-framework.sh" "$test_dir/common/test_framework.sh"
 : > "$test_dir/common/node_manager.sh"
 export OCV_RUNNER_FRAMEWORK="$ROOT_DIR/action_tests/common/test_framework.sh"
@@ -38,7 +38,7 @@ run_case() {
     echo "PASS module runner: $name"
 }
 
-run_case missing '' 1 module-01-missing
+run_case missing '' 2
 run_case no_entry 'unrelated_function() { :; }' 1 module-01-entry
 run_case source_failure 'return 42' 1 module-01-load
 run_case syntax_failure 'run_module_01() {' 1 module-01-load
@@ -47,5 +47,7 @@ run_case passed_then_error 'run_module_01() { record_pass_result assertion TEST 
 run_case pass 'run_module_01() { record_pass_result assertion TEST ""; }' 0
 run_case explicit_skip 'run_module_01() { record_skip_result unsupported TEST "" "unsupported feature" FEATURE; }' 0
 run_case assertion_failure 'run_module_01() { record_fail_result assertion TEST "" true false "synthetic failure" FEATURE; return 0; }' 1
-run_case next_module_missing 'run_module_01() { record_pass_result assertion TEST ""; }' 1 module-02-missing 01,02
-echo 'Real module runner integrity tests passed (10 scenarios; no external API calls).'
+run_case next_module_missing 'run_module_01() { record_pass_result assertion TEST ""; }' 2 '' 01,02
+run_case duplicate_selection 'run_module_01() { record_pass_result assertion TEST ""; }' 0 '' 01,01,1
+jq -e -s '[.[] | select(.name == "assertion")] | length == 1' "$test_dir/duplicate_selection/results.jsonl" >/dev/null
+echo 'Real module runner integrity tests passed (11 scenarios; no external API calls).'

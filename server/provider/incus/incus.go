@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/singleflight"
@@ -30,6 +31,7 @@ type IncusProvider struct {
 	providerID       uint            // 存储providerID用于清理
 	connected        bool
 	apiHealthy       bool // API-only mode has no SSH executor to represent liveness.
+	reverseAgent     atomic.Bool
 	healthChecker    health.HealthChecker
 	version          string             // Incus 版本
 	mu               sync.RWMutex       // 保护并发访问
@@ -59,6 +61,10 @@ func (i *IncusProvider) GetType() string {
 	return "incus"
 }
 
+func (i *IncusProvider) IsReverseAgentConnection() bool {
+	return i.reverseAgent.Load()
+}
+
 func (i *IncusProvider) GetName() string {
 	return i.config.Name
 }
@@ -68,6 +74,7 @@ func (i *IncusProvider) GetSupportedInstanceTypes() []string {
 }
 
 func (i *IncusProvider) Connect(ctx context.Context, config provider.NodeConfig) error {
+	i.reverseAgent.Store(false)
 	i.config = config
 	i.providerID = config.ID // 存储providerID
 	i.connected = false
@@ -183,6 +190,7 @@ func (i *IncusProvider) Connect(ctx context.Context, config provider.NodeConfig)
 }
 
 func (i *IncusProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
+	i.reverseAgent.Store(!strings.EqualFold(strings.TrimSpace(config.ExecutionRule), "api_only"))
 	i.config = config
 	i.providerID = config.ID
 	i.connected = false
@@ -412,8 +420,15 @@ func (i *IncusProvider) ListInstances(ctx context.Context) ([]provider.Instance,
 }
 
 func (i *IncusProvider) CreateInstance(ctx context.Context, config provider.InstanceConfig) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !i.connected {
 		return fmt.Errorf("not connected")
+	}
+	forceSSHOptions, err := provider.ValidateContainerCreatePath(config, i.shouldUseSSH(), "Incus")
+	if err != nil {
+		return err
 	}
 
 	forceSSHIPv6 := requiresSSHIPv6Network(config, i.config.ID)
@@ -422,7 +437,7 @@ func (i *IncusProvider) CreateInstance(ctx context.Context, config provider.Inst
 	}
 	// 根据执行规则判断使用哪种方式
 	forceSSHInstaller := i.shouldUseWindowsInstallerSSH(ctx, &config)
-	if i.shouldUseAPI() && !forceSSHInstaller && !forceSSHIPv6 {
+	if i.shouldUseAPI() && !forceSSHInstaller && !forceSSHIPv6 && !forceSSHOptions {
 		if err := i.apiCreateInstance(ctx, config); err == nil {
 			global.APP_LOG.Debug("Incus API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
@@ -449,8 +464,15 @@ func (i *IncusProvider) CreateInstance(ctx context.Context, config provider.Inst
 }
 
 func (i *IncusProvider) CreateInstanceWithProgress(ctx context.Context, config provider.InstanceConfig, progressCallback provider.ProgressCallback) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !i.connected {
 		return fmt.Errorf("not connected")
+	}
+	forceSSHOptions, err := provider.ValidateContainerCreatePath(config, i.shouldUseSSH(), "Incus")
+	if err != nil {
+		return err
 	}
 
 	forceSSHIPv6 := requiresSSHIPv6Network(config, i.config.ID)
@@ -459,7 +481,7 @@ func (i *IncusProvider) CreateInstanceWithProgress(ctx context.Context, config p
 	}
 	// 根据执行规则判断使用哪种方式
 	forceSSHInstaller := i.shouldUseWindowsInstallerSSH(ctx, &config)
-	if i.shouldUseAPI() && !forceSSHInstaller && !forceSSHIPv6 {
+	if i.shouldUseAPI() && !forceSSHInstaller && !forceSSHIPv6 && !forceSSHOptions {
 		if err := i.apiCreateInstanceWithProgress(ctx, config, progressCallback); err == nil {
 			global.APP_LOG.Debug("Incus API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
@@ -706,12 +728,12 @@ func (i *IncusProvider) ExecuteSSHCommand(ctx context.Context, command string) (
 
 // 检查是否有 API 访问权限
 func (i *IncusProvider) hasAPIAccess() bool {
-	return i.transport != nil && i.transport.TLSClientConfig != nil
+	return !i.reverseAgent.Load() && i.transport != nil && i.transport.TLSClientConfig != nil
 }
 
 // shouldUseAPI 根据执行规则判断是否应该使用API
 func (i *IncusProvider) shouldUseAPI() bool {
-	switch i.config.ExecutionRule {
+	switch strings.ToLower(strings.TrimSpace(i.config.ExecutionRule)) {
 	case "api_only":
 		return i.hasAPIAccess()
 	case "ssh_only":
@@ -726,7 +748,7 @@ func (i *IncusProvider) shouldUseAPI() bool {
 // shouldUseSSH 根据执行规则判断是否应该使用SSH
 func (i *IncusProvider) shouldUseSSH() bool {
 	hasClient := i.sshClient.HasExecutor() && i.connected
-	switch i.config.ExecutionRule {
+	switch strings.ToLower(strings.TrimSpace(i.config.ExecutionRule)) {
 	case "api_only":
 		return false
 	case "ssh_only":
@@ -740,7 +762,7 @@ func (i *IncusProvider) shouldUseSSH() bool {
 
 // shouldFallbackToSSH 根据执行规则判断API失败时是否可以回退到SSH
 func (i *IncusProvider) shouldFallbackToSSH() bool {
-	switch i.config.ExecutionRule {
+	switch strings.ToLower(strings.TrimSpace(i.config.ExecutionRule)) {
 	case "api_only":
 		return false
 	case "ssh_only":

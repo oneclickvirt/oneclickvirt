@@ -129,4 +129,61 @@ run_case
 jq -e -s '[.[] | select(.name == "Create container instance")] | length == 1 and .[0].status == "FAIL" and .[0].actual == "409"' "$RESULTS_FILE" >/dev/null || fail "generic 409 was incorrectly classified as infrastructure"
 ! grep -Fq 'DELETE http://fixture/api/v1/admin/instances/41' "$fixture/calls" || fail "generic conflict triggered unrelated cleanup"
 
-echo "instance creation result gate tests passed"
+# Exercise unfinished tasks and rejected submissions for both instance types.
+should_test_type() { [[ "$1" == "$TESTED_TYPE" ]]; }
+env_supports_vm() { :; }
+wait_provider_active_tasks_idle() { [[ "$MOCK_IDLE" == true ]]; }
+wait_task_complete_nonfatal() {
+    printf '%s\n' poll >> "$fixture/polls"
+    jq -cn --arg status "$MOCK_TASK_STATUS" '{code:200,data:{status:$status,instanceId:41}}'
+    [[ "$MOCK_TASK_STATUS" == completed ]]
+}
+delete_instance_safe() { printf 'DELETE safe/%s\n' "$1" >> "$fixture/calls"; }
+curl() {
+    local method=GET http_output=false url="${!#}"
+    while (( $# )); do
+        case "$1" in
+            -X) method="$2"; shift ;;
+            -w) http_output=true; shift ;;
+        esac
+        shift
+    done
+    printf '%s %s\n' "$method" "$url" >> "$fixture/calls"
+    local code=200 body='{"code":200,"data":{"list":[]}}'
+    if [[ "$method" == POST && "$url" == */admin/instances ]]; then
+        code="$MOCK_CREATE_HTTP"
+        body=$(jq -cn --argjson code "$code" '{code:$code,data:{taskId:17}}')
+    fi
+    printf '%s\n' "$body"
+    [[ "$http_output" != true ]] || printf '%s\n' "$code"
+}
+for TESTED_TYPE in container vm; do
+    ENV_TYPE=incus INSTANCE_TYPES="$TESTED_TYPE"
+    MOCK_IDLE=false MOCK_TASK_STATUS=completed MOCK_CREATE_HTTP=200
+    : > "$fixture/polls"
+    run_case
+    jq -e -s 'any(.[]; .status == "FAIL" and (.name | endswith("precheck")))' "$RESULTS_FILE" >/dev/null || fail 'unresolved provider was hidden as a skip'
+    ! grep -q 'POST .*admin/instances$' "$fixture/calls" || fail 'busy provider received another create'
+    MOCK_IDLE=true MOCK_TASK_STATUS=running
+    run_case
+    jq -e -s 'any(.[]; .status == "FAIL" and (.name | contains("still running")))' "$RESULTS_FILE" >/dev/null || fail 'unfinished creation was hidden as a skip'
+    ! grep -q '^DELETE' "$fixture/calls" || fail 'unfinished creation was deleted'
+    for MOCK_CREATE_HTTP in 403 500; do
+        : > "$fixture/polls"
+        run_case
+        jq -e -s 'any(.[]; .status == "FAIL")' "$RESULTS_FILE" >/dev/null || fail 'rejected submission passed'
+        [[ ! -s "$fixture/polls" ]] || fail 'rejected response identified an unrelated task'
+        ! grep -q '^DELETE' "$fixture/calls" || fail 'rejected submission deleted an unrelated instance'
+    done
+    MOCK_CREATE_HTTP=200 MOCK_TASK_STATUS=completed
+    ACTION_TEST_PRESERVE_INSTANCES=false
+    run_case
+    jq -e -s 'all(.[]; .status != "FAIL")' "$RESULTS_FILE" >/dev/null || fail 'canonical instanceId result failed'
+    grep -q '^DELETE .*instances/41$' "$fixture/calls" || fail 'explicit cleanup was not executed'
+    ACTION_TEST_PRESERVE_INSTANCES=true
+    run_case
+    jq -e -s 'all(.[]; .status != "FAIL")' "$RESULTS_FILE" >/dev/null || fail 'preservation changed creation success'
+    ! grep -q '^DELETE' "$fixture/calls" || fail 'preserved guest was deleted'
+done
+
+echo "instance creation result gate tests passed (including busy/unfinished/rejected tasks and VM preservation)"

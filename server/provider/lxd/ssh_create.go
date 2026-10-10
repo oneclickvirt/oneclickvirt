@@ -76,7 +76,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 		updateProgress(30, "复制源容器...")
 		copyCmd := fmt.Sprintf("lxc copy %s %s", shellSingleQuote(config.CopySourceName), shellSingleQuote(config.Name))
 		global.APP_LOG.Debug("执行LXD容器复制命令", zap.String("command", copyCmd))
-		output, err := l.sshClient.Execute(copyCmd)
+		output, err := utils.ExecuteShellCommandContext(ctx, l.sshClient, copyCmd)
 		if err != nil {
 			errMsg := output
 			if errMsg == "" {
@@ -236,7 +236,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 	// 配置GPU直通（仅 LXD/Incus 容器，需要在启动前附加设备）
 	if config.GpuEnabled {
 		if err := l.configureInstanceGPU(ctx, config); err != nil {
-			global.APP_LOG.Warn("配置GPU直通失败，但继续", zap.Error(err))
+			return fmt.Errorf("配置GPU直通失败: %w", err)
 		}
 	}
 

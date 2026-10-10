@@ -126,7 +126,7 @@ LXD/Incus 等环境在 CI 中依赖远程镜像站、DNS 和 Worker 出网能力
 
 正向 API 断言可以把期望状态写成 `200|infra`（或 `200|201|infra`）。其中 `infra` 不是任意 4xx/5xx 的别名：只有响应正文明确匹配远端连接、DNS、镜像下载、节点不可达或 Provider 明确资源/磁盘容量不足等基础设施诊断时才记录 `SKIP`；普通参数、权限、重复项和业务错误仍然记录 `FAIL`，不会被当作测试通过。
 
-`26_instance_types.sh` 在创建 container/VM 类型实例前会等待同一 Provider 的活跃任务队列清空；创建任务默认最多等待 `INSTANCE_TYPE_TASK_MAX_WAIT=1800` 秒（不会低于 `INSTANCE_TASK_MAX_WAIT`）。如果任务在超时后仍处于 `pending`、`running`、`processing`、`queued` 或 `cancelling`，测试会先调用管理员取消接口并记录为可恢复的 `SKIP`，避免在创建任务仍运行时删除实例导致后续 `record not found`。
+`26_instance_types.sh` 的创建等待时间可通过 `INSTANCE_TYPE_TASK_MAX_WAIT` 调整，默认 7200 秒，且不会低于 `INSTANCE_TASK_MAX_WAIT`。等待超时计为失败；仍在执行的任务和实例会保留，排障后再处理。
 
 `29_provider_images.sh` 将 `TEST_IMAGES` 视为操作系统家族过滤器。默认会为每个匹配的“操作系统家族 + 实例类型”只选择版本最高的稳定镜像，避免同一次环境测试把 Alpine/Debian 的全部历史版本逐一创建并耗尽 Action 时限。可通过 `PROVIDER_IMAGE_MAX_PER_FAMILY_TYPE` 调整每组样本数；设置为 `0` 时恢复完整镜像矩阵。该模块使用独立的 `PROVIDER_IMAGE_TASK_MAX_WAIT` 和 `PROVIDER_IMAGE_STATUS_MAX_WAIT`，不会继承面向安装/配置任务的超长通用等待预算。
 
@@ -361,9 +361,10 @@ GitHub Actions 会自动安装所需依赖。
 | `LIGHTNODE_PRIVATE_KEY` | SSH 私钥完整内容，含 `-----BEGIN ... PRIVATE KEY-----` 头尾 |
 | `LIGHTNODE_SSH_KEY_UUID` | LightNode 账户中已上传 SSH 公钥的 UUID（在 LightNode 控制台 SSH Keys 页面查看） |
 | `LIGHTNODE_PACKAGE_TIER` | 默认 `3`，自动选套餐时优先使用第 3 档 |
-| `LIGHTNODE_TARGET_CPU` | 默认 `2`；混合容器/VM 环境会按测试峰值自动提高到至少 `4`，显式更大值不会被降低 |
-| `LIGHTNODE_TARGET_MEMORY_MB` | 默认 `4096`；混合容器/VM 环境会按测试峰值自动提高到至少 `8192`，显式更大值不会被降低 |
-| `LIGHTNODE_PACKAGE_CODE` | 可选，指定后仍会校验套餐不小于当前环境的峰值预算，不足则在创建前失败 |
+| `ACTION_TEST_ALLOW_WORKER_DOWNSIZE` | 默认 `true`；目标规格不可用时，选择可用套餐并缩小测试实例。设为 `false` 可禁用自动降级 |
+| `LIGHTNODE_TARGET_CPU` | 默认 `2`，优先选择的 CPU 核数 |
+| `LIGHTNODE_TARGET_MEMORY_MB` | 默认 `4096`，优先选择的内存容量（MB） |
+| `LIGHTNODE_PACKAGE_CODE` | 可选；指定套餐不可用或资源不足时，自动选择可用套餐 |
 | `PVE_USE_PRIVATE_IP` | PVE 安装脚本参数；LightNode + ProxmoxVE 测试默认 `false`，避免双网卡宿主重启后写入私网地址和公网网关的组合 |
 | `PVE_MAIN_INTERFACE` | PVE 安装脚本参数；LightNode + ProxmoxVE 测试默认 `eth1`，对应 LightNode 公网默认路由网口 |
 | `PVE_NAT_SUBNET` | 可选的 ProxmoxVE NAT `/24` 网段（必须以 `.0/24` 结尾）；未设置时安装脚本会避开宿主机现有路由自动选择，并将结果持久化供 Provider 与 PVE 创建脚本复用 |
@@ -421,7 +422,9 @@ GitHub Actions 会自动安装所需依赖。
 | `ACTION_TEST_QEMU_VM_MEMORY` | `1024`（仅 QEMU，覆盖 `ACTION_TEST_VM_MEMORY`） |
 | `ACTION_TEST_QEMU_VM_DISK` | `8`（仅 QEMU，覆盖 `ACTION_TEST_VM_DISK`） |
 
-`lxd`、`incus`、`proxmoxve`、`qemu`、`kubevirt` 会在创建后及安装后按实际峰值占用复核 CPU、内存、磁盘和 KVM。`both` 默认预算包含最多两个 discovery fixture、保留的基准容器以及待创建 VM，因此最低为 4C/8GB；单一 `container` 或 `vm` 测试只准备对应夹具并使用较低预算。LXD/Incus 安装器会使用根分区可用空间减 1GB 创建存储池，因此它们的宿主机磁盘门槛按测试磁盘总和加 1GB 计算；其他嵌套运行时保留 4GB 存储余量。
+资源不足时会自动缩小测试实例；仍不足以完成测试时，会报告失败。PVE/QEMU 支持在无 KVM 时使用软件模拟，LXD/Incus 的 VM 测试需要 KVM。
+
+本地回归使用 `python3 -B scripts/tests/run_local_tests.py`。先安装 `scripts/tests/requirements-live.txt` 中的依赖；这个入口只运行本地用例，临时结果自动清理。节点实测和 Docker 专项请使用各自的入口。
 
 PVE 安装是可观测的分阶段任务：首次执行写入重启标记并安装内核，Action 触发重启后会等待 SSH 连续稳定；对于未预装 `ifupdown` 的 Debian 镜像，PVE 安装器可能在首次启动时由 `ifupdown2-install.service` 安装网络组件并再次重启，测试编排器会等待该服务结束和 SSH 再次稳定后才启动第二阶段，不会并发重复执行安装脚本。可用 `PVE_IFUPDOWN2_BOOTSTRAP_MAX_WAIT`（默认复用重启等待上限）调整观察窗口。
 

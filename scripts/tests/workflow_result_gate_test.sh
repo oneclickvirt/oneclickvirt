@@ -7,6 +7,7 @@ ARM_WORKFLOW="${ROOT_DIR}/.github/workflows/arm-controller-tests.yml"
 AGENT_WORKFLOW="${ROOT_DIR}/.github/workflows/agent-regressions.yml"
 DOCKER_WORKFLOW="${ROOT_DIR}/.github/workflows/build_docker.yml"
 TEST_AGENT_WORKFLOW="${ROOT_DIR}/.github/workflows/build-test-agent.yml"
+LOCAL_WORKFLOW="${ROOT_DIR}/.github/workflows/local-regressions.yml"
 
 fail() {
     echo "workflow result gate test failed: $*" >&2
@@ -54,7 +55,7 @@ grep -Fq '::error::No module assertions were executed' "$WORKFLOW" ||
     fail "harness-only runs are still reported as successful integration tests"
 ! grep -Fq 'Module assertions were not executed in this run' "$WORKFLOW" ||
     fail "workflow still allows a harness-only run to pass"
-grep -Fq 'pip3 install --quiet paramiko websocket-client' "$WORKFLOW" ||
+grep -Fq 'bin/pip" install -r scripts/tests/requirements-live.txt' "$WORKFLOW" ||
     fail "live Agent/WebSSH dependency installation is incomplete"
 grep -Fq 'python3 action_tests/static_audit.py --root . --output-dir ${{ env.REPORT_DIR }} --strict --min-route-coverage 82' "$WORKFLOW" ||
     fail "integration workflow does not run strict static audit"
@@ -64,7 +65,7 @@ grep -Fq 'current_results="${REPORT_DIR}/${{ matrix.environment }}-results.jsonl
     fail "integration gate does not select the current environment result file"
 ! grep -Fq 'result_files=(action_tests/reports/*.jsonl)' "$WORKFLOW" ||
     fail "integration gate still includes stale reports"
-grep -Fq 'needs: [build-test-agent]' "$WORKFLOW" || fail "real Agent build is not required"
+grep -Fq 'needs: [build-test-agent, local-regressions]' "$WORKFLOW" || fail "real Agent build is not required"
 grep -Fq 'python3 scripts/validate_agent_assets.py server/assets/agent' "$WORKFLOW" ||
     fail "synthetic Agent artifacts are not rejected"
 grep -Fq '::error::Action test static audit found blocking findings' "$WORKFLOW" ||
@@ -107,5 +108,10 @@ grep -Fq 'go test -count=1 -race ./service/agent ./service/console ./api/v1/admi
 grep -Fq 'go vet ./service/agent ./service/console ./api/v1/admin' "$AGENT_WORKFLOW" ||
     fail "Agent workflow lacks controller package vetting"
 
+grep -Fq 'uses: ./.github/workflows/local-regressions.yml' "$WORKFLOW" || fail "local regressions are not required"
+grep -Fq 'go test -count=1 -race -shuffle=on -timeout=5m ./...' "$LOCAL_WORKFLOW" || fail "full Go regressions are not covered"
+grep -Fq 'ONECLICKVIRT_AGENT_BINARY:' "$LOCAL_WORKFLOW" || fail "real loopback Agent E2E remains skipped"
+grep -Fq 'npm run test:unit' "$LOCAL_WORKFLOW" || fail "frontend regressions are not covered"
+grep -Fq 'scripts/tests/run_local_tests.py' "$LOCAL_WORKFLOW" || fail "classified local suite is not covered"
 python3 "$ROOT_DIR/scripts/tests/workflow_result_gate_test.py"
 echo "Workflow result gate tests passed"

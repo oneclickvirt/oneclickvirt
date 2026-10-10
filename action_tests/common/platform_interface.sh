@@ -54,7 +54,14 @@ platform_dispatch() {
 platform_init() {
     local platform="$1"
     log_info "Initializing platform: ${platform}"
+    # A password-only provider must not inherit a previous provider's key.
+    # Reinitialize credentials even when retrying the same platform.
+    PLATFORM_SSH_KEY_FILE=""
+    PLATFORM_SSH_PASSWORD=""
+    ACTIVE_PLATFORM=""
     if ! platform_dispatch "$platform" "init"; then
+        PLATFORM_SSH_KEY_FILE=""
+        PLATFORM_SSH_PASSWORD=""
         log_error "Platform '${platform}' initialization failed"
         return 1
     fi
@@ -84,13 +91,14 @@ PLATFORM_LAST_ERROR=""
 env_needs_worker_resource_check() {
     local env_type="$1"
     case "$env_type" in
-        lxd|incus|proxmoxve|qemu|kubevirt) return 0 ;;
+        docker|podman|containerd|lxd|incus|proxmoxve|qemu|kubevirt) return 0 ;;
         *) return 1 ;;
     esac
 }
 
 worker_resource_requirements() {
     local env_type="$1" instance_types="${2:-${INSTANCE_TYPES:-both}}"
+    local profile="${3:-${ACTION_TEST_WORKER_RESOURCE_PROFILE:-standard}}"
     local min_cpu=1 min_mem_mb=2048 min_disk_gb=20 require_kvm=false
     # The nested LXD/Incus installers size their storage pool as
     # (currently-available space - 1 GiB). The resource check measures
@@ -116,23 +124,33 @@ worker_resource_requirements() {
     [[ "$vm_memory" =~ ^[0-9]+$ ]] || vm_memory=4096
     [[ "$vm_disk" =~ ^[0-9]+$ ]] || vm_disk=20
 
+    if [[ "$profile" == "compact" ]]; then
+        (( container_cpu > 1 )) && container_cpu=1
+        (( vm_cpu > 1 )) && vm_cpu=1
+        (( container_memory > 512 )) && container_memory=512
+        (( vm_memory > 512 )) && vm_memory=512
+        (( container_disk > 5 )) && container_disk=5
+        (( vm_disk > 8 )) && vm_disk=8
+    fi
+
     if env_needs_worker_resource_check "$env_type"; then
         case "$instance_types" in
             container)
                 min_cpu=$((1 + container_cpu))
-                min_mem_mb=$((256 + container_memory + 512))
-                min_disk_gb=$((container_disk + storage_overhead_gb))
+                min_mem_mb=$((256 + 2 * container_memory + 768))
+                min_disk_gb=$((8 + 2 * container_disk + storage_overhead_gb))
                 ;;
             vm)
-                min_cpu=$((1 + vm_cpu))
-                min_mem_mb=$((512 + vm_memory + 512))
-                min_disk_gb=$((vm_disk + storage_overhead_gb))
+                min_cpu=$((1 + 2 * vm_cpu))
+                min_mem_mb=$((512 + 2 * vm_memory + 1024))
+                min_disk_gb=$((8 + 2 * vm_disk + storage_overhead_gb))
                 require_kvm=true
                 ;;
             *)
                 min_cpu=$((2 + container_cpu + vm_cpu))
-                min_mem_mb=$((256 + 512 + container_memory + vm_memory + 512))
-                min_disk_gb=$((container_disk + vm_disk + storage_overhead_gb))
+                (( min_cpu < 1 + 2 * vm_cpu )) && min_cpu=$((1 + 2 * vm_cpu))
+                min_mem_mb=$((256 + 512 + container_memory + vm_memory + (container_memory > vm_memory ? container_memory : vm_memory) + 1280))
+                min_disk_gb=$((16 + container_disk + vm_disk + (container_disk > vm_disk ? container_disk : vm_disk) + storage_overhead_gb))
                 require_kvm=true
                 ;;
         esac
@@ -142,7 +160,19 @@ worker_resource_requirements() {
         if [[ "$instance_types" == "both" && "$min_mem_mb" -lt 8192 ]]; then
             min_mem_mb=8192
         fi
+        if [[ "$profile" == "compact" ]]; then
+            # Imported discovery VM + shared VM + a temporary type/image VM
+            # all consume real provider CPU quota, even when one is stopped.
+            min_cpu=2
+            [[ "$instance_types" == vm || "$instance_types" == both ]] && min_cpu=3
+            min_mem_mb=4096
+            [[ "$env_type" == "kubevirt" && "$instance_types" == "both" ]] && min_mem_mb=8192
+        fi
     fi
+
+    # These providers already select software emulation when KVM is absent.
+    # Requiring /dev/kvm here prevented their TCG lifecycle from being tested.
+    case "$env_type" in proxmoxve|qemu) require_kvm=false ;; esac
 
     local env_prefix="${env_type^^}"
     local cpu_override_name="${env_prefix}_MIN_WORKER_CPU_CORES"
@@ -172,13 +202,16 @@ worker_resource_requirements() {
 
 platform_validate_worker_resources() {
     local env_type="$1" ip="$2" platform="${3:-${ACTIVE_PLATFORM}}"
+    local profile="${4:-${ACTION_TEST_WORKER_RESOURCE_PROFILE:-standard}}"
+    local phase="${5:-host}"
+    case "$phase" in host|runtime) ;; *) log_error "Unknown resource check phase: $phase"; return 1 ;; esac
     if ! env_needs_worker_resource_check "$env_type"; then
         return 0
     fi
 
     local min_cpu nominal_mem_mb min_mem_mb min_disk_gb require_kvm
-    read -r min_cpu nominal_mem_mb min_disk_gb require_kvm < <(worker_resource_requirements "$env_type")
-    if [[ "$platform" == "lightnode" ]]; then
+    read -r min_cpu nominal_mem_mb min_disk_gb require_kvm < <(worker_resource_requirements "$env_type" "${INSTANCE_TYPES:-both}" "$profile")
+    if [[ "$platform" == "lightnode" && "$profile" != "compact" ]]; then
         local lightnode_cpu="${LIGHTNODE_TARGET_CPU:-0}"
         local lightnode_memory="${LIGHTNODE_TARGET_MEMORY_MB:-0}"
         [[ "$lightnode_cpu" =~ ^[0-9]+$ ]] || lightnode_cpu=0
@@ -190,6 +223,66 @@ platform_validate_worker_resources() {
     # after the provider's firmware/kernel reservation. Allow 1/14 (~7.1%)
     # while retaining the full nominal budget for guest and host sizing.
     min_mem_mb=$((nominal_mem_mb - nominal_mem_mb / 14))
+    local storage_cli="" pool_check=""
+    case "$env_type/$phase" in lxd/runtime) storage_cli=lxc ;; incus/runtime) storage_cli=incus ;; esac
+    if [[ -n "$storage_cli" ]]; then
+        # Before installation only the backing filesystem is available.
+        # Afterwards use the default profile's actual pool and, for sparse
+        # loop files, the backing filesystem too. Fixed-count queries avoid
+        # doing a storage lookup for each guest.
+        pool_check=$(cat <<'POOL_CHECK'
+if command -v "$storage_cli" >/dev/null 2>&1; then
+    worker_resource_jq() { jq "$@" || return 43; }
+    for dependency in "jq" "timeout"; do
+        command -v "$dependency" >/dev/null 2>&1 || { echo "WORKER_RESOURCE_INVALID: missing $dependency"; exit 43; }
+    done
+    profile_json=$(timeout 15 "$storage_cli" query /1.0/profiles/default) || { echo "WORKER_RESOURCE_INVALID: cannot read default profile"; exit 43; }
+    pool=$(printf '%s' "$profile_json" | worker_resource_jq -er '
+        (.metadata // .) | .devices | select(type == "object")
+        | [to_entries[] | .value | select(.type == "disk" and .path == "/") | .pool]
+        | select(length == 1) | .[0] | select(type == "string" and test("^[A-Za-z0-9_-]+$"))
+    ') || { echo "WORKER_RESOURCE_INVALID: ambiguous or missing root pool"; exit 43; }
+    pool_json=$(timeout 15 "$storage_cli" query "/1.0/storage-pools/$pool") || { echo "WORKER_RESOURCE_INVALID: cannot read root pool"; exit 43; }
+    pool_source=$(printf '%s' "$pool_json" | worker_resource_jq -r '
+        (.metadata // .) | .config
+        | if type != "object" then error("invalid pool config") else
+            [."volatile.initial_source", .source | select(type == "string" and length > 0)] | first // ""
+          end
+    ') || { echo "WORKER_RESOURCE_INVALID: invalid pool config"; exit 43; }
+    pool_resources=$(timeout 15 "$storage_cli" query "/1.0/storage-pools/$pool/resources") || { echo "WORKER_RESOURCE_INVALID: cannot read pool resources"; exit 43; }
+    pool_free_gb=$(printf '%s' "$pool_resources" | worker_resource_jq -er '
+        (.metadata // .) | .space
+        | select((.total | type) == "number" and (.used | type) == "number")
+        | select(.total >= 0 and .used >= 0 and .used <= .total)
+        | select(.total == (.total | floor) and .used == (.used | floor))
+        | ((.total - .used) / 1073741824 | floor)
+    ') || { echo "WORKER_RESOURCE_INVALID: invalid pool space"; exit 43; }
+    if [ "$disk_gb" -lt 1 ]; then
+        echo "WORKER_RESOURCE_INSUFFICIENT: root filesystem requires at least 1GB free"
+        exit 42
+    fi
+    disk_gb=$pool_free_gb
+    disk_required=$((disk_required - 1))
+    disk_scope="pool/$pool"
+    case "$pool_source" in
+        /dev/*) ;;
+        /*)
+            if [ -f "$pool_source" ] || [ -d "$pool_source" ]; then
+                backing_free_gb=$(df -Pk "$pool_source" 2>/dev/null | awk 'NR==2 {print int($4/1024/1024)}')
+                case "$backing_free_gb" in
+                    ''|*[!0-9]*) echo "WORKER_RESOURCE_INVALID: invalid pool backing space"; exit 43 ;;
+                esac
+                [ "$backing_free_gb" -ge "$disk_gb" ] || disk_gb=$backing_free_gb
+            else
+                echo "WORKER_RESOURCE_INVALID: root pool source is missing"
+                exit 43
+            fi
+            ;;
+    esac
+fi
+POOL_CHECK
+)
+    fi
     local check_cmd
     check_cmd=$(cat <<RESOURCE_CHECK
 set -u
@@ -199,9 +292,18 @@ cpu_count=\$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo 
 cpu_count=\${cpu_count:-0}
 disk_gb=\$(df -Pk / 2>/dev/null | awk 'NR==2 {print int(\$4/1024/1024)}')
 disk_gb=\${disk_gb:-0}
+for metric in "\${mem_mb}" "\${cpu_count}" "\${disk_gb}"; do
+    case "\$metric" in
+        ''|*[!0-9]*) echo "WORKER_RESOURCE_INVALID: non-numeric host metric"; exit 43 ;;
+    esac
+done
+disk_required=${min_disk_gb}
+disk_scope=root
+storage_cli=${storage_cli}
+${pool_check}
 kvm_state="missing"
-[ -e /dev/kvm ] && kvm_state="present"
-echo "WORKER_RESOURCE_CHECK env=${env_type} platform=${platform} memory_mb=\${mem_mb} cpu=\${cpu_count} disk_gb=\${disk_gb} kvm=\${kvm_state}"
+test -e /dev/kvm && kvm_state="present"
+echo "WORKER_RESOURCE_CHECK env=${env_type} platform=${platform} memory_mb=\${mem_mb} cpu=\${cpu_count} disk_gb=\${disk_gb} disk_scope=\${disk_scope} kvm=\${kvm_state}"
 if [ "\${mem_mb}" -lt "${min_mem_mb}" ]; then
     echo "WORKER_RESOURCE_INSUFFICIENT: memory_mb=\${mem_mb} required>=${min_mem_mb}"
     exit 42
@@ -210,11 +312,11 @@ if [ "\${cpu_count}" -lt "${min_cpu}" ]; then
     echo "WORKER_RESOURCE_INSUFFICIENT: cpu=\${cpu_count} required>=${min_cpu}"
     exit 42
 fi
-if [ "\${disk_gb}" -lt "${min_disk_gb}" ]; then
-    echo "WORKER_RESOURCE_INSUFFICIENT: disk_gb=\${disk_gb} required>=${min_disk_gb}"
+if [ "\${disk_gb}" -lt "\${disk_required}" ]; then
+    echo "WORKER_RESOURCE_INSUFFICIENT: disk_gb=\${disk_gb} required>=\${disk_required}"
     exit 42
 fi
-if [ "${require_kvm}" = "true" ] && [ ! -e /dev/kvm ]; then
+if [ "${require_kvm}" = "true" ] && ! test -e /dev/kvm; then
     echo "WORKER_RESOURCE_INSUFFICIENT: /dev/kvm missing"
     exit 42
 fi
@@ -229,15 +331,27 @@ RESOURCE_CHECK
     if output=$(platform_ssh_exec "$ip" "$check_cmd" 90 2>&1); then
         [[ -n "$output" ]] && printf '%s\n' "$output" >&2
         log_success "Worker resources satisfy ${env_type} requirements"
+        if [[ "$profile" == "compact" ]]; then
+            apply_worker_resource_profile compact || return 1
+            log_warning "Using compact worker profile: container=${ACTION_TEST_CONTAINER_CPU}C/${ACTION_TEST_CONTAINER_MEMORY}MB/${ACTION_TEST_CONTAINER_DISK}G, VM=${ACTION_TEST_VM_CPU}C/${ACTION_TEST_VM_MEMORY}MB/${ACTION_TEST_VM_DISK}G"
+        fi
         return 0
     fi
     [[ -n "$output" ]] && printf '%s\n' "$output" >&2
+    if [[ "$profile" != "compact" && "${ACTION_TEST_ALLOW_WORKER_DOWNSIZE:-true}" == "true" && "$output" == *"WORKER_RESOURCE_INSUFFICIENT:"* ]]; then
+        log_warning "Preferred ${env_type} worker size is unavailable; checking the compact guest profile"
+        platform_validate_worker_resources "$env_type" "$ip" "$platform" compact "$phase"
+        return $?
+    fi
     log_warning "Worker resources do not satisfy ${env_type} requirements on ${platform}"
     return 75
 }
 
 try_create_with_fallback() {
     local env_type="$1" hours="${2:-8}"
+    if declare -f apply_worker_resource_profile >/dev/null 2>&1; then
+        apply_worker_resource_profile standard || return 1
+    fi
     local enabled_platforms
     enabled_platforms=$(get_enabled_platforms)
     if [[ -z "$enabled_platforms" ]]; then
@@ -344,9 +458,15 @@ try_create_with_fallback() {
                     all_resource_exhausted=false
                     continue
                 fi
+                if ! platform_validate_worker_resources "$env_type" "$reuse_ip" "$platform"; then
+                    log_error "[hetzner] As-is worker cannot accommodate the selected tests"
+                    all_resource_exhausted=false
+                    continue
+                fi
                 log_success "[hetzner] Reusing existing installed worker ${keep_id}"
                 jq -cn --arg id "$keep_id" --arg ip "$reuse_ip" --arg password "$PLATFORM_REUSE_INSTANCE_PASSWORD" \
-                    '{instance_id:$id,ipv4:$ip,password:$password,platform:"hetzner"}'
+                    --arg profile "${ACTION_TEST_WORKER_RESOURCE_PROFILE:-standard}" \
+                    '{instance_id:$id,ipv4:$ip,password:$password,platform:"hetzner",resource_profile:$profile}'
                 return 0
             fi
             if should_reinstall "$platform"; then
@@ -393,7 +513,7 @@ try_create_with_fallback() {
                             fi
                         fi
                         PLATFORM_FAILURE_REASON=""
-                        echo "$result"
+                        jq -c --arg profile "${ACTION_TEST_WORKER_RESOURCE_PROFILE:-standard}" '. + {resource_profile:$profile}' <<< "$result" 2>/dev/null || return 1
                         return 0
                     else
                         log_error "[${platform}] Reinstall returned no IP. Raw result: ${result}"
@@ -466,7 +586,7 @@ try_create_with_fallback() {
                     fi
                 fi
                 PLATFORM_FAILURE_REASON=""
-                echo "$result"
+                jq -c --arg profile "${ACTION_TEST_WORKER_RESOURCE_PROFILE:-standard}" '. + {resource_profile:$profile}' <<< "$result" 2>/dev/null || return 1
                 return 0
             else
                 log_error "[${platform}] create_instance returned no IP. Raw result: ${result}"

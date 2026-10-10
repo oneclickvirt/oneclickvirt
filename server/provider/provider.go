@@ -20,6 +20,12 @@ type NodeConfig = provider.ProviderNodeConfig
 // ProgressCallback 进度回调函数类型
 type ProgressCallback func(percentage int, message string)
 
+// ReverseAgentConnection lets callers reject a cached direct connection
+// after a node has switched to the reverse Agent transport (or back).
+type ReverseAgentConnection interface {
+	IsReverseAgentConnection() bool
+}
+
 // RecoveryInstanceIdentity is the provider-side runtime identity captured by
 // an authoritative discovery pass.  It is intentionally credential-free.  A
 // clustered provider may require Node in addition to the guest ID and type;

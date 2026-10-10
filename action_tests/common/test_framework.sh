@@ -39,10 +39,65 @@ ACTION_TEST_CONTAINER_DISK="${ACTION_TEST_CONTAINER_DISK:-5}"
 ACTION_TEST_VM_CPU="${ACTION_TEST_VM_CPU:-2}"
 ACTION_TEST_VM_MEMORY="${ACTION_TEST_VM_MEMORY:-4096}"
 ACTION_TEST_VM_DISK="${ACTION_TEST_VM_DISK:-20}"
+ACTION_TEST_ALLOW_WORKER_DOWNSIZE="${ACTION_TEST_ALLOW_WORKER_DOWNSIZE:-true}"
+ACTION_TEST_WORKER_RESOURCE_PROFILE="${ACTION_TEST_WORKER_RESOURCE_PROFILE:-standard}"
+
+# Preserve generic sizes when switching from a nested runtime back to a
+# native container runtime in the same shell or an inherited module process.
+for _resource_name in ACTION_TEST_CONTAINER_CPU ACTION_TEST_CONTAINER_MEMORY ACTION_TEST_CONTAINER_DISK ACTION_TEST_VM_CPU ACTION_TEST_VM_MEMORY ACTION_TEST_VM_DISK; do
+    _resource_generic="${_resource_name}_GENERIC"
+    printf -v "$_resource_generic" '%s' "${!_resource_generic:-${!_resource_name}}"
+    export "$_resource_generic"
+done
+unset _resource_name _resource_generic
+
+apply_worker_resource_profile() {
+    local profile="${1:-standard}" name value limit baseline
+    case "$profile" in standard|compact) ;; *) log_error "Unknown worker resource profile: ${profile}"; return 1 ;; esac
+    # Keep the configured sizes across subshell/process boundaries. Switching
+    # back to standard must not retain a previous worker's compact sizes.
+    for name in ACTION_TEST_CONTAINER_CPU ACTION_TEST_VM_CPU ACTION_TEST_CONTAINER_MEMORY ACTION_TEST_VM_MEMORY ACTION_TEST_CONTAINER_DISK ACTION_TEST_VM_DISK; do
+        baseline="${name}_STANDARD"
+        value="${!name}"
+        [[ "${ACTION_TEST_WORKER_RESOURCE_PROFILE:-standard}" != compact ]] || value="${!baseline:-$value}"
+        [[ "$value" =~ ^[1-9][0-9]*$ && ${#value} -le 6 ]] || return 1
+    done
+    for name in ACTION_TEST_CONTAINER_CPU ACTION_TEST_VM_CPU ACTION_TEST_CONTAINER_MEMORY ACTION_TEST_VM_MEMORY ACTION_TEST_CONTAINER_DISK ACTION_TEST_VM_DISK; do
+        baseline="${name}_STANDARD"
+        value="${!name}"
+        [[ "${ACTION_TEST_WORKER_RESOURCE_PROFILE:-standard}" != compact ]] || value="${!baseline:-$value}"
+        printf -v "$baseline" '%s' "$value"
+        export "$baseline"
+        if [[ "$profile" == compact ]]; then
+            limit=1
+            case "$name" in
+                *MEMORY) limit=512 ;;
+                *CONTAINER_DISK) limit=5 ;;
+                *VM_DISK) limit=8 ;;
+            esac
+            (( value > limit )) && value="$limit"
+        fi
+        printf -v "$name" '%s' "$value"
+        export "$name"
+    done
+    ACTION_TEST_WORKER_RESOURCE_PROFILE="$profile"
+    export ACTION_TEST_WORKER_RESOURCE_PROFILE
+}
 
 configure_action_test_resources_for_env() {
-    local env_type="$1"
+    local env_type="$1" resource_name
+    apply_worker_resource_profile standard || return 1
     case "$env_type" in
+        docker|podman|containerd)
+            case "${ACTION_TEST_CONFIGURED_ENV:-}" in
+                lxd|incus|proxmoxve|qemu|kubevirt)
+                    for resource_name in ACTION_TEST_CONTAINER_CPU ACTION_TEST_CONTAINER_MEMORY ACTION_TEST_CONTAINER_DISK ACTION_TEST_VM_CPU ACTION_TEST_VM_MEMORY ACTION_TEST_VM_DISK; do
+                        local generic_name="${resource_name}_GENERIC"
+                        printf -v "$resource_name" '%s' "${!generic_name}"
+                    done
+                    ;;
+            esac
+            ;;
         kubevirt)
             WORKER_SWAP_MB="${KUBEVIRT_WORKER_SWAP_MB:-4096}"
             ACTION_TEST_CONTAINER_CPU="${ACTION_TEST_KUBEVIRT_CONTAINER_CPU:-1}"
@@ -86,8 +141,14 @@ configure_action_test_resources_for_env() {
             ACTION_TEST_VM_DISK="${ACTION_TEST_QEMU_VM_DISK:-8}"
             ;;
     esac
+    ACTION_TEST_CONFIGURED_ENV="$env_type"
+    export ACTION_TEST_CONFIGURED_ENV
     export ACTION_TEST_CONTAINER_CPU ACTION_TEST_CONTAINER_MEMORY ACTION_TEST_CONTAINER_DISK
     export ACTION_TEST_VM_CPU ACTION_TEST_VM_MEMORY ACTION_TEST_VM_DISK
+    for resource_name in ACTION_TEST_CONTAINER_CPU ACTION_TEST_VM_CPU ACTION_TEST_CONTAINER_MEMORY ACTION_TEST_VM_MEMORY ACTION_TEST_CONTAINER_DISK ACTION_TEST_VM_DISK; do
+        printf -v "${resource_name}_STANDARD" '%s' "${!resource_name}"
+        export "${resource_name}_STANDARD"
+    done
 }
 
 DB_NAME="${DB_NAME:-oneclickvirt}"
@@ -337,6 +398,24 @@ is_infrastructure_failure_detail() {
         'dial tcp [^ ]+:22: i/o timeout|dial tcp [^ ]+:22: connect: connection refused|failed to connect to SSH server|no route to host|network is unreachable|connection reset by peer|temporary failure in name resolution|temporary failure resolving|could not resolve host|curl: \(6\)|(can.t|cannot) lock file .*((pve-config-[0-9]+\.lock)|(qemu-server/lock-[0-9]+\.conf)).*(timeout|timed out)|远程下载.*(status [0-9]+|lookup|temporary failure|resolving|temp script execution failed|all download methods failed)|remote download.*(status [0-9]+|lookup|temporary failure|resolving|temp script execution failed|all download methods failed)|下载.*镜像失败: 远程下载|download failed - all mirrors unreachable|all mirrors unreachable|lookup .* on \[::1\]:53|lookup (images\.lxd\.canonical\.com|images\.linuxcontainers\.org|github\.com|raw\.githubusercontent\.com)|read udp .*:53: read: connection refused|no matches for kind "DataVolume".*ensure CRDs are installed first|datavolumes\.cdi\.kubevirt\.io.*not found|SSH.*(连接|connect).*(失败|failed|超时|timeout|拒绝|refused)|(远程|Provider|provider|节点|Worker|worker).*连接.*(失败|failed|超时|timeout|拒绝|refused)|agent.*(offline|unreachable|未连接)|provider.*(unreachable|offline)'
 }
 
+is_http_infrastructure_response() {
+    local http_code="$1" body="$2" api_code json_body
+    [[ "$http_code" =~ ^[45][0-9][0-9]$ ]] || return 1
+    case "$http_code" in 401|403|404) return 1 ;; esac
+    if json_body=$(printf '%s' "$body" | jq -e -s \
+        'select(length == 1 and (.[0] | type) == "object")' 2>/dev/null); then
+        api_code=$(jq -r '.[0].code // empty' <<< "$json_body" 2>/dev/null) || return 1
+        [[ "$api_code" =~ ^[45][0-9][0-9]$ ]] || return 1
+        case "$api_code" in 401|403|404) return 1 ;; esac
+    else
+        # Plain text is accepted only when it is an unambiguous remote
+        # infrastructure diagnostic. A response containing JSON delimiters but
+        # failing to parse is a malformed API response and must fail closed.
+        case "$body" in *'{'*|*'}'*) return 1 ;; esac
+    fi
+    is_infrastructure_failure_detail "$body"
+}
+
 is_vm_runtime_infrastructure_failure_detail() {
     local detail="$1" environment="${2:-${ENV_TYPE:-}}"
     case "$environment" in
@@ -581,7 +660,8 @@ test_api() {
         -H "Content-Type: application/json" -X "${method}")
     [[ -n "$token" ]] && args+=(-H "Authorization: Bearer ${token}")
     [[ -n "$data" ]] && args+=(-d "$data")
-    local resp; resp=$(curl "${args[@]}" "${SERVER_URL}${url}" 2>&1) || true
+    local resp transport_status=0
+    resp=$(curl "${args[@]}" "${SERVER_URL}${url}" 2>&1) || transport_status=$?
     local code; code=$(echo "$resp" | tail -1)
     local body; body=$(echo "$resp" | sed '$d')
     sleep 0.3
@@ -595,17 +675,18 @@ test_api() {
     local infra_match=false
     IFS='|' read -ra exp_codes <<< "$expected"
     for ec in "${exp_codes[@]}"; do
-        if [[ "$code" == "$ec" ]]; then
+        if [[ "$transport_status" == 0 && "$code" == "$ec" ]]; then
             match=true
             break
         fi
-        if [[ "$ec" == "infra" && "$code" =~ ^[45][0-9][0-9]$ ]] && is_infrastructure_failure_detail "$body"; then
+        if [[ "$transport_status" == 0 && "$ec" == "infra" ]] && is_http_infrastructure_response "$code" "$body"; then
             match=true
             infra_match=true
             break
         fi
     done
     if [[ "$match" == "false" ]]; then
+        [[ "$transport_status" == 0 ]] || code="transport-${transport_status} (HTTP ${code})"
         FAILED_TESTS=$((FAILED_TESTS + 1))
         log_error "${name} - expected HTTP ${expected}, got HTTP ${code}"
         # Capture service logs on failure (timestamp-based)
@@ -635,6 +716,18 @@ test_api() {
 # Retry wrapper
 test_api_retry() {
     local name="$1" method="$2" url="$3" expected="$4" data="${5:-}" retries="${6:-3}" interval="${7:-5}" group="${8:-default}" token="${9-$ADMIN_TOKEN}"
+    # A timed-out mutation may already have reached the server. Submit it
+    # once; its task/status endpoint owns subsequent progress checks.
+    case "$method" in
+        GET|HEAD) ;;
+        *) test_api "$name" "$method" "$url" "$expected" "$data" "$group" "$token"; return $? ;;
+    esac
+    if [[ ! "$retries" =~ ^[1-9][0-9]?$ || ! "$interval" =~ ^[0-9]{1,3}$ ]]; then
+        record_fail_result "$name retry settings" "HARNESS" "$url" "positive retry count and bounded interval" "invalid" "Invalid retries/interval" "$group"
+        return 1
+    fi
+    (( retries > 3 )) && retries=3
+    (( interval > 120 )) && interval=120
     local i=0
     while [[ $i -lt $retries ]]; do
         i=$((i + 1))
@@ -643,7 +736,9 @@ test_api_retry() {
         # Save RESULTS_FILE byte offset so we can undo the intermediate FAIL record on non-final retries
         local _results_before=0
         local _results_len=${#TEST_RESULTS_JSON[@]}
-        [[ -n "${RESULTS_FILE:-}" && -f "$RESULTS_FILE" ]] && _results_before=$(wc -c < "$RESULTS_FILE" 2>/dev/null || echo 0)
+        if [[ -n "${RESULTS_FILE:-}" && -f "$RESULTS_FILE" ]]; then
+            _results_before=$(wc -c < "$RESULTS_FILE" 2>/dev/null | tr -d '[:space:]') || return 1
+        fi
         local _body_file
         _body_file=$(mktemp)
         if test_api "$name" "$method" "$url" "$expected" "$data" "$group" "$token" > "$_body_file"; then
@@ -655,11 +750,16 @@ test_api_retry() {
         if [[ $i -lt $retries ]]; then
             # Undo the FAIL record written to RESULTS_FILE so it is not counted as a permanent failure
             if [[ -n "${RESULTS_FILE:-}" && -f "$RESULTS_FILE" && $_results_before -ge 0 ]]; then
-                if [[ "$_results_before" == "0" ]]; then
+                if (( _results_before == 0 )); then
                     : > "$RESULTS_FILE"
                 else
-                    head -c "$_results_before" "$RESULTS_FILE" > "${RESULTS_FILE}.retry_tmp" 2>/dev/null && \
-                        mv "${RESULTS_FILE}.retry_tmp" "$RESULTS_FILE" 2>/dev/null || true
+                    local retry_file
+                    retry_file=$(mktemp "${RESULTS_FILE}.retry.XXXXXX") || return 1
+                    if ! head -c "$_results_before" "$RESULTS_FILE" > "$retry_file" || ! mv "$retry_file" "$RESULTS_FILE"; then
+                        rm -f "$retry_file"
+                        log_error "Cannot restore result history before retrying ${name}"
+                        return 1
+                    fi
                 fi
             fi
             while [[ ${#TEST_RESULTS_JSON[@]} -gt $_results_len ]]; do
@@ -700,7 +800,8 @@ test_api_json_value() {
     [[ -n "$token" ]] && args+=(-H "Authorization: Bearer ${token}")
     [[ -n "$data" ]] && args+=(-d "$data")
 
-    local resp; resp=$(curl "${args[@]}" "${SERVER_URL}${url}" 2>&1) || true
+    local resp transport_status=0
+    resp=$(curl "${args[@]}" "${SERVER_URL}${url}" 2>&1) || transport_status=$?
     local code; code=$(echo "$resp" | tail -1)
     local body; body=$(echo "$resp" | sed '$d')
     sleep 0.3
@@ -708,10 +809,11 @@ test_api_json_value() {
     local http_match=false
     IFS='|' read -ra exp_codes <<< "$expected_http"
     for ec in "${exp_codes[@]}"; do
-        [[ "$code" == "$ec" ]] && { http_match=true; break; }
+        [[ "$transport_status" == 0 && "$code" == "$ec" ]] && { http_match=true; break; }
     done
 
     if [[ "$http_match" == "false" ]]; then
+        [[ "$transport_status" == 0 ]] || code="transport-${transport_status} (HTTP ${code})"
         FAILED_TESTS=$((FAILED_TESTS + 1))
         log_error "${name} - expected HTTP ${expected_http}, got HTTP ${code}"
         local error_logs=""

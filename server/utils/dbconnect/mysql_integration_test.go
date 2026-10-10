@@ -37,6 +37,10 @@ func liveSettings(t *testing.T) (model.MysqlConfig, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		t.Fatal("refusing a non-loopback database fixture")
+	}
 	return model.MysqlConfig{Path: host, Port: port, Username: "oneclickvirt", Password: os.Getenv("OCV_TEST_DB_PASSWORD"), Dbname: "ocv_dbcompat", Config: dbconnect.DefaultParams, MaxIdleConns: 3, MaxOpenConns: 7, MaxLifetime: 73}, engine
 }
 
@@ -85,7 +89,10 @@ func TestLiveConnectionCompatibility(t *testing.T) {
 			// Some MariaDB releases expose both legacy and modern aliases. A
 			// repair is required only when the server actually lacks the name;
 			// successful direct use is equally valid compatibility.
-			pool, _ := db.DB()
+			pool, err := db.DB()
+			if err != nil {
+				t.Fatal(err)
+			}
 			if pool.Stats().MaxOpenConnections != 7 {
 				t.Fatal("pool tuning overwritten")
 			}

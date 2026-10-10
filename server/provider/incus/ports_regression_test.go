@@ -20,6 +20,13 @@ import (
 	"oneclickvirt/utils"
 )
 
+func TestMain(m *testing.M) {
+	if global.APP_LOG == nil {
+		global.APP_LOG = zap.NewNop()
+	}
+	os.Exit(m.Run())
+}
+
 func TestIncusProxyRemovalWithoutIPKeepsOtherFamily(t *testing.T) {
 	for _, ipv6 := range []bool{false, true} {
 		executor := &recordingIncusPortsExecutor{}

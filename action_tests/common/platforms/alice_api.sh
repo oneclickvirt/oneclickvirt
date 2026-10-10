@@ -86,16 +86,73 @@ _alice_get_instance_ip() {
 }
 
 _alice_get_min_package_id() {
-    local r; r=$(alice_get_permissions)
+    local env_type="${1:-${ENV_TYPE:-docker}}"
+    local r; r=$(alice_get_permissions) || return 1
     local body; body=$(alice_parse_body "$r")
     local http_code; http_code=$(alice_parse_code "$r")
     log_debug "[alice] GET /evo/permissions HTTP ${http_code}"
-    local allow; allow=$(echo "$body" | jq -r '.data.allow_packages // empty' 2>/dev/null)
-    if [[ -z "$allow" ]]; then
-        log_error "[alice] No allow_packages in permissions response"
+    if [[ "$http_code" != "200" && "$http_code" != "202" ]]; then
+        log_error "[alice] Cannot read allowed packages (HTTP ${http_code})"
         return 1
     fi
-    echo "${allow%%|*}"
+    local allow_filter='.data.allow_packages
+        | if type == "string" then split("|") elif type == "array" then map(tostring) else [] end
+        | map(select(test("^[1-9][0-9]*$"))) | unique | select(length > 0)'
+    local allow
+    if ! allow=$(printf '%s' "$body" | jq -ce "$allow_filter" 2>/dev/null); then
+        log_error "[alice] No valid allow_packages in permissions response"
+        return 1
+    fi
+
+    local min_cpu=1 min_memory=2048 min_disk=20 _require_kvm=false
+    local compact_cpu=1 compact_memory=2048 compact_disk=20
+    if declare -f worker_resource_requirements >/dev/null 2>&1; then
+        read -r min_cpu min_memory min_disk _require_kvm < <(worker_resource_requirements "$env_type")
+        read -r compact_cpu compact_memory compact_disk _require_kvm < <(worker_resource_requirements "$env_type" "${INSTANCE_TYPES:-both}" compact)
+    fi
+    r=$(alice_get_plans) || return 1
+    body=$(alice_parse_body "$r")
+    http_code=$(alice_parse_code "$r")
+    if [[ "$http_code" != "200" ]]; then
+        log_error "[alice] Cannot read plan resources (HTTP ${http_code})"
+        return 1
+    fi
+    # Alice's plan catalog reports memory in MiB and disk in GiB. Use the
+    # complete catalog once; IDs and permission order do not describe sizes.
+    # shellcheck disable=SC2016 # These are jq variables, not shell variables.
+    local plan_filter='def number: try tonumber catch 0;
+        (if type == "array" then . else .data end)
+        | if type != "array" then error("invalid plan catalog") else . end
+        | map(select(type == "object")
+            | select((.id | tostring) as $id | $allow | index($id))
+            | {id: (.id | tostring), cpu: (.cpu | number), memory: (.memory | number), disk: (.disk | number)}) as $plans
+        | (($plans | map(select(.cpu >= $cpu and .memory >= $memory and .disk >= $disk))
+              | sort_by(.cpu, .memory, .disk, (.id | tonumber)) | .[0] | select(. != null) | . + {profile:"standard"}) //
+           (if $downsize == "true" then
+              ($plans | map(select(.cpu >= $compact_cpu and .memory >= $compact_memory and .disk >= $compact_disk))
+                | sort_by(.memory, .cpu, .disk, (.id | tonumber)) | last | select(. != null) | . + {profile:"compact"})
+            else empty end))
+        | [.id, .profile, .cpu, .memory, .disk] | @tsv'
+    local selection pkg profile selected_cpu selected_memory selected_disk
+    if ! selection=$(printf '%s' "$body" | jq -r --argjson allow "$allow" \
+        --argjson cpu "$min_cpu" --argjson memory "$min_memory" --argjson disk "$min_disk" \
+        --argjson compact_cpu "$compact_cpu" --argjson compact_memory "$compact_memory" --argjson compact_disk "$compact_disk" \
+        --arg downsize "${ACTION_TEST_ALLOW_WORKER_DOWNSIZE:-true}" \
+        "$plan_filter" 2>/dev/null); then
+        log_error "[alice] Invalid plan catalog"
+        return 1
+    fi
+    if [[ -z "$selection" ]]; then
+        log_warning "[alice] No allowed plan can run ${env_type}/${INSTANCE_TYPES:-both} with the enabled resource profiles; no instance will be created"
+        return 75
+    fi
+    read -r pkg profile selected_cpu selected_memory selected_disk <<< "$selection"
+    if [[ "$profile" == "compact" ]]; then
+        log_warning "[alice] Preferred worker size unavailable; selected usable smaller plan=${pkg} (${selected_cpu}C/${selected_memory}MB/${selected_disk}GB)"
+    else
+        log_info "[alice] Selected plan=${pkg} for ${env_type}/${INSTANCE_TYPES:-both} (${selected_cpu}C/${selected_memory}MB/${selected_disk}GB)"
+    fi
+    printf '%s\n' "$pkg"
 }
 
 _alice_get_os_id_for_plan() {
@@ -237,7 +294,7 @@ alice_platform_init() {
 alice_platform_create_instance() {
     local env_type="$1" hours="${2:-8}"
     log_info "[alice] Creating instance: env=${env_type} hours=${hours}"
-    local pkg; pkg=$(_alice_get_min_package_id) || return 1
+    local pkg; pkg=$(_alice_get_min_package_id "$env_type") || return $?
     local os_name="debian"
     [[ "${env_type}" == "lxd" ]] && os_name="ubuntu"
     local os_id; os_id=$(_alice_get_os_id_for_plan "${pkg}" "${os_name}") || return 1
@@ -289,14 +346,18 @@ alice_platform_reinstall_instance() {
     local id="$1" os_name="${2:-debian}"
     log_info "[alice] Rebuilding instance ${id} (os=${os_name})..."
     # Get the plan_id from instance list so we can look up an os_id for that plan
-    local list_resp; list_resp=$(alice_list_instances_raw)
-    local list_body; list_body=$(alice_parse_body "$list_resp")
-    # Handle both {"data":[...]} and bare array response formats; handle "instance id" key
-    local list_items; list_items=$(echo "$list_body" | jq -c 'if type == "array" then . elif .data then .data else [] end' 2>/dev/null)
-    local plan_id; plan_id=$(echo "$list_items" | jq -r --arg id "$id" '.[] | select((.["instance id"] // .id // .instance_id | tostring) == $id) | .plan_id // empty' 2>/dev/null)
-    if [[ -z "$plan_id" ]]; then
-        log_warning "[alice] Could not determine plan_id from list, using permissions"
-        plan_id=$(_alice_get_min_package_id) || return 1
+    local list_resp list_body list_code plan_id
+    list_resp=$(alice_list_instances_raw) || return 1
+    list_body=$(alice_parse_body "$list_resp")
+    list_code=$(alice_parse_code "$list_resp")
+    [[ "$list_code" == 200 ]] || { log_error "[alice] Cannot resolve the existing worker plan (HTTP ${list_code})"; return 1; }
+    local plan_filter='(if type == "array" then . else .data end)
+        | if type != "array" then error("invalid inventory") else . end
+        | map(select((.["instance id"] // .id // .instance_id | tostring) == $id))
+        | select(length == 1) | .[0].plan_id | tostring | select(test("^[1-9][0-9]*$"))'
+    if ! plan_id=$(jq -er --arg id "$id" "$plan_filter" <<< "$list_body" 2>/dev/null); then
+        log_error "[alice] Existing worker has no unambiguous plan ID; refusing to guess a rebuild image from another plan"
+        return 1
     fi
     local os_id; os_id=$(_alice_get_os_id_for_plan "${plan_id}" "${os_name}") || return 1
     local ssh_key_id; ssh_key_id=$(_alice_get_ssh_key_id) || ssh_key_id=""

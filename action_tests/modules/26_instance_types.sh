@@ -38,8 +38,9 @@ run_module_26() {
     if should_test_type "container" && env_supports_container; then
         log_info "Testing container-specific operations"
         if ! wait_provider_active_tasks_idle "$PROVIDER_ID" "provider ${PROVIDER_ID} before container type test" "$ADMIN_TOKEN" "$type_task_wait" 10; then
-            record_skip_result "Create type-test container precheck" "GET" "/api/v1/admin/tasks?page=1&pageSize=100" "provider still has active tasks after ${type_task_wait}s; leaving them to finish" "$group"
-            return 0
+            record_fail_result "Create type-test container precheck" "GET" "/api/v1/admin/tasks?page=1&pageSize=100" \
+                "idle provider" "unresolved" "Could not establish an idle provider within ${type_task_wait}s; leaving existing tasks intact" "$group"
+            return 1
         fi
 
         local ct_img_provider_type="${ENV_TYPE:-docker}"
@@ -83,11 +84,11 @@ run_module_26() {
         local ct_id=""
         local ct_created=false
 
-        if [[ -n "$ct_task" ]]; then
+        if [[ "$ct_request_ok" == "true" && -n "$ct_task" ]]; then
             local ct_task_resp=""
             if ct_task_resp=$(wait_task_complete_nonfatal "$SERVER_URL" "$ct_task" "$ADMIN_TOKEN" "$type_task_wait" 10); then
                 ct_created=true
-                ct_id=$(echo "$ct_task_resp" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
+                ct_id=$(echo "$ct_task_resp" | jq -r '.data.instance_id // .data.instanceId // .data.result.id // empty' 2>/dev/null)
                 if [[ -z "$ct_id" ]]; then
                     record_fail_result "Create type-test container task result" "GET" "/api/v1/admin/tasks/${ct_task}" "instance id" "missing" "$ct_task_resp" "$group"
                     ct_created=false
@@ -101,7 +102,8 @@ run_module_26() {
                     local ct_task_actual; ct_task_actual=$(safe_jq "$ct_task_resp" '.data.status // .message // .msg // "failed"' 'failed')
                     if is_active_task_status "$ct_task_actual"; then
                         ct_id=""
-                        record_skip_result "Create type-test container task (still running)" "GET" "/api/v1/admin/tasks/${ct_task}" "task remained ${ct_task_actual} after ${type_task_wait}s; leaving it to finish" "$group"
+                        record_fail_result "Create type-test container task (still running)" "GET" "/api/v1/admin/tasks/${ct_task}" \
+                            "completed" "$ct_task_actual" "Task did not finish within ${type_task_wait}s; leaving it intact" "$group"
                     else
                         record_fail_result "Create type-test container task" "GET" "/api/v1/admin/tasks/${ct_task}" "completed" "$ct_task_actual" "$ct_task_resp" "$group"
                     fi
@@ -170,8 +172,9 @@ run_module_26() {
     if should_test_type "vm" && env_supports_vm; then
         log_info "Testing VM-specific operations"
         if ! wait_provider_active_tasks_idle "$PROVIDER_ID" "provider ${PROVIDER_ID} before VM type test" "$ADMIN_TOKEN" "$type_task_wait" 10; then
-            record_skip_result "Create type-test VM precheck" "GET" "/api/v1/admin/tasks?page=1&pageSize=100" "provider still has active tasks after ${type_task_wait}s; leaving them to finish" "$group"
-            return 0
+            record_fail_result "Create type-test VM precheck" "GET" "/api/v1/admin/tasks?page=1&pageSize=100" \
+                "idle provider" "unresolved" "Could not establish an idle provider within ${type_task_wait}s; leaving existing tasks intact" "$group"
+            return 1
         fi
 
         local vm_img_provider_type="${ENV_TYPE:-docker}"
@@ -211,11 +214,11 @@ run_module_26() {
         local vm_id=""
         local vm_created=false
 
-        if [[ -n "$vm_task" ]]; then
+        if [[ "$vm_request_ok" == "true" && -n "$vm_task" ]]; then
             local vm_task_resp=""
             if vm_task_resp=$(wait_task_complete_nonfatal "$SERVER_URL" "$vm_task" "$ADMIN_TOKEN" "$type_task_wait" 10); then
                 vm_created=true
-                vm_id=$(echo "$vm_task_resp" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
+                vm_id=$(echo "$vm_task_resp" | jq -r '.data.instance_id // .data.instanceId // .data.result.id // empty' 2>/dev/null)
                 if [[ -z "$vm_id" ]]; then
                     record_fail_result "Create type-test VM task result" "GET" "/api/v1/admin/tasks/${vm_task}" "instance id" "missing" "$vm_task_resp" "$group"
                     vm_created=false
@@ -232,7 +235,8 @@ run_module_26() {
                     local vm_task_actual; vm_task_actual=$(safe_jq "$vm_task_resp" '.data.status // .message // .msg // "failed"' 'failed')
                     if is_active_task_status "$vm_task_actual"; then
                         vm_id=""
-                        record_skip_result "Create type-test VM task (still running)" "GET" "/api/v1/admin/tasks/${vm_task}" "task remained ${vm_task_actual} after ${type_task_wait}s; leaving it to finish" "$group"
+                        record_fail_result "Create type-test VM task (still running)" "GET" "/api/v1/admin/tasks/${vm_task}" \
+                            "completed" "$vm_task_actual" "Task did not finish within ${type_task_wait}s; leaving it intact" "$group"
                     else
                         record_fail_result "Create type-test VM task" "GET" "/api/v1/admin/tasks/${vm_task}" "completed" "$vm_task_actual" "$vm_task_resp" "$group"
                     fi
@@ -258,9 +262,13 @@ run_module_26() {
                 record_fail_result "Type-test VM running" "GET" "/api/v1/admin/instances/${vm_id}" "running" "$vm_status_actual" "$vm_status_resp" "$group"
             fi
 
-            # Cleanup
-            local vm_delete_resp; vm_delete_resp=$(test_api "Delete test VM" "DELETE" "/api/v1/admin/instances/${vm_id}" "200" "" "$group" "$ADMIN_TOKEN") || vm_delete_resp=""
-            [[ -n "$vm_delete_resp" ]] && wait_instance_operation_settled "$vm_id" "$vm_delete_resp" "deleted" "delete type-test VM ${vm_id}" "$ADMIN_TOKEN" || true
+            if [[ "${ACTION_TEST_PRESERVE_INSTANCES:-true}" != "false" ]]; then
+                record_skip_result "Preserve type-test VM" "DELETE" "/api/v1/admin/instances/${vm_id}" \
+                    "ACTION_TEST_PRESERVE_INSTANCES=true; leaving the created VM" "$group"
+            else
+                local vm_delete_resp; vm_delete_resp=$(test_api "Delete test VM" "DELETE" "/api/v1/admin/instances/${vm_id}" "200" "" "$group" "$ADMIN_TOKEN") || vm_delete_resp=""
+                [[ -n "$vm_delete_resp" ]] && wait_instance_operation_settled "$vm_id" "$vm_delete_resp" "deleted" "delete type-test VM ${vm_id}" "$ADMIN_TOKEN" || true
+            fi
         elif [[ -n "$vm_id" ]]; then
             delete_instance_safe "$vm_id" "$ADMIN_TOKEN" 180 || true
         else

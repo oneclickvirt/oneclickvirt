@@ -717,6 +717,9 @@ func (i *IncusProvider) apiApplyPortMappings(ctx context.Context, instanceName s
 }
 
 func (i *IncusProvider) apiCreateInstanceWithProgress(ctx context.Context, config provider.InstanceConfig, progressCallback provider.ProgressCallback) error {
+	if _, err := provider.ValidateContainerCreatePath(config, false, "Incus"); err != nil {
+		return err
+	}
 	// 进度更新辅助函数
 	updateProgress := func(percentage int, message string) {
 		if progressCallback != nil {

@@ -56,6 +56,15 @@ func GetProviderService() *ProviderService {
 	return providerServiceInstance
 }
 
+// ProviderConnectionModeMatches uses the row already read by the caller; it
+// performs no I/O and does not add a database lookup to cached operations.
+func ProviderConnectionModeMatches(instance provider.Provider, record providerModel.Provider) bool {
+	if connection, ok := instance.(provider.ReverseAgentConnection); ok {
+		return connection.IsReverseAgentConnection() == record.IsReverseAgent()
+	}
+	return true
+}
+
 // InitializeProviders 从数据库加载并初始化所有配置的Providers
 func (ps *ProviderService) InitializeProviders() error {
 	// 检查数据库是否可用
@@ -273,7 +282,7 @@ func (ps *ProviderService) loadProviderWithOptionsLocked(ctx context.Context, db
 	}
 
 	isAPIOnly := strings.EqualFold(strings.TrimSpace(dbProvider.ExecutionRule), "api_only")
-	if dbProvider.ConnectionType == "agent" && !isAPIOnly {
+	if dbProvider.IsReverseAgent() {
 		// 对于支持 Agent 模式的 Provider（如 Docker/Podman/Containerd），
 		// 注入基于 AgentHub WebSocket 的执行器代替 SSH。
 		if AgentExecutorFactory == nil {

@@ -44,4 +44,35 @@ fi
     exit 1
 }
 
-echo "HTTP status contract tests passed (PASS/SKIP/FAIL)."
+for code in 401 403 404; do
+    for side in http api; do
+        MOCK_CODE=502
+        MOCK_BODY='{"code":502,"message":"SSH connection timeout"}'
+        if [[ "$side" == http ]]; then
+            MOCK_CODE="$code"
+        else
+            MOCK_BODY=$(jq -cn --argjson code "$code" '{code:$code,message:"SSH connection timeout"}')
+        fi
+        if test_api "protected $side $code" GET /protected "200|infra" "" contract >/dev/null; then
+            echo "$side $code was hidden as infrastructure" >&2
+            exit 1
+        fi
+        [[ "$(jq -s -r '.[-1].status' "$RESULTS_FILE")" == FAIL ]]
+    done
+done
+
+MOCK_CODE=502
+MOCK_BODY='SSH connection timeout'
+test_api "plain infrastructure response" GET /plain-infra "200|infra" "" contract >/dev/null || {
+    echo 'plain infrastructure diagnostic was not classified as SKIP' >&2
+    exit 1
+}
+for MOCK_BODY in 'SSH connection timeout: {' '{"message":"SSH connection timeout"}' \
+    $'{"code":502,"message":"SSH connection timeout"}\n{"code":502}'; do
+    if test_api "malformed infrastructure body" GET /invalid "200|infra" "" contract >/dev/null; then
+        echo 'malformed API response became a successful infrastructure skip' >&2
+        exit 1
+    fi
+done
+
+echo "HTTP status contract tests passed (PASS/SKIP/FAIL and protected errors)."

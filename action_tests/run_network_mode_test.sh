@@ -155,6 +155,12 @@ _reinstall_worker() {
     }
     local new_ip; new_ip=$(echo "$reinstall_result" | jq -r '.ipv4 // empty' 2>/dev/null)
     [[ -n "$new_ip" ]] && WORKER_IP="$new_ip" && ACTIVE_INSTANCE_IP="$new_ip"
+    local new_password; new_password=$(safe_jq "$reinstall_result" '.password // empty' '')
+    if [[ -n "$new_password" ]]; then
+        PLATFORM_SSH_PASSWORD="$new_password"
+        NODE_PASSWORD="$new_password"
+        WORKER_PASSWORD="$new_password"
+    fi
 
     # Wait for SSH after reinstall (OS may have a new IP or same IP with new host keys)
     log_info "Waiting for SSH after OS reinstall (max 600s)..."
@@ -456,6 +462,8 @@ if [[ -z "$WORKER_IP" ]]; then
         exit 75
     fi
     WORKER_INFO="$WORKER_INFO_JSON"
+    worker_resource_profile=$(safe_jq "$WORKER_INFO" '.resource_profile // "standard"' 'standard')
+    apply_worker_resource_profile "$worker_resource_profile" || exit 1
     WORKER_ID=$(safe_jq "$WORKER_INFO" '.instance_id // empty' '')
     WORKER_IP=$(safe_jq "$WORKER_INFO" '.ipv4 // empty' '')
     NODE_PASSWORD=$(safe_jq "$WORKER_INFO" '.password // empty' '')
@@ -468,6 +476,7 @@ if [[ -z "$WORKER_IP" ]]; then
         ACTIVE_INSTANCE_ID="$WORKER_ID"
         ACTIVE_INSTANCE_IP="$WORKER_IP"
     fi
+    [[ -z "$NODE_PASSWORD" ]] || PLATFORM_SSH_PASSWORD="$NODE_PASSWORD"
     log_success "Worker node created: ID=${WORKER_ID} IP=${WORKER_IP}"
 else
     log_info "Using existing worker: IP=${WORKER_IP}"

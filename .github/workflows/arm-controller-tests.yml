@@ -98,6 +98,8 @@ jobs:
         run: bash scripts/tests/docker_arm_lifecycle_test.sh
 
   arm-controller-test:
+    env:
+      SELECTED_MODULES: ${{ inputs.modules }}
     name: "ARM64 Controller Tests"
     needs: [build-test-agent]
     runs-on: ubuntu-24.04-arm
@@ -344,7 +346,7 @@ jobs:
           mkdir -p action_tests/reports
 
           export noninteractive=true
-          MODULES_INPUT="${{ inputs.modules || '01,02,03,04,05,06,07,08,17,20,21,25' }}"
+          MODULES_INPUT="${SELECTED_MODULES:-01,02,03,04,05,06,07,08,17,20,21,25}"
 
           rm -f action_tests/reports/*.jsonl
           export RESULTS_FILE="action_tests/reports/arm-controller-results.jsonl"

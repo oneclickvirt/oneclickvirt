@@ -126,27 +126,30 @@ assert_worker_budget() {
     [[ "$actual_kvm" == "$expected_kvm" ]] || fail "${env}/${types} KVM requirement ${actual_kvm}, expected ${expected_kvm}"
 }
 
-assert_worker_budget qemu both 4 8192 20 true
-assert_worker_budget kubevirt both 4 8192 20 true
-assert_worker_budget lxd both 4 8192 41 true
-assert_worker_budget incus both 4 8192 41 true
-assert_worker_budget lxd container 2 4096 21 false
-assert_worker_budget lxd vm 2 4096 21 true
-assert_worker_budget incus container 2 4096 21 false
-assert_worker_budget incus vm 2 4096 21 true
-assert_worker_budget proxmoxve both 4 8192 20 true
-assert_worker_budget qemu container 2 4096 20 false
-assert_worker_budget qemu vm 2 4096 20 true
+assert_worker_budget qemu both 4 8192 44 false
+assert_worker_budget kubevirt both 4 8192 32 true
+assert_worker_budget lxd both 4 8192 77 true
+assert_worker_budget incus both 4 8192 77 true
+assert_worker_budget lxd container 2 4096 49 false
+assert_worker_budget lxd vm 3 4096 49 true
+assert_worker_budget incus container 2 4096 49 false
+assert_worker_budget incus vm 3 4096 49 true
+assert_worker_budget proxmoxve both 4 8192 44 false
+assert_worker_budget qemu container 2 4096 28 false
+assert_worker_budget qemu vm 3 4096 28 false
 
 for nested_env in lxd incus proxmoxve qemu kubevirt; do
     env_needs_worker_resource_check "$nested_env" || fail "${nested_env} bypasses worker resource validation"
 done
-if env_needs_worker_resource_check docker; then
-    fail "Docker should not require nested-virtualization worker validation"
-fi
+for native_env in docker podman containerd; do
+    env_needs_worker_resource_check "$native_env" || fail "${native_env} bypasses memory/disk validation"
+    configure_action_test_resources_for_env "$native_env"
+    read -r _cpu _memory _disk native_kvm < <(worker_resource_requirements "$native_env" container)
+    [[ "$native_kvm" == false ]] || fail "${native_env} requires VM acceleration"
+done
 
 lightnode_get_packages() {
-    printf '%s\n200\n' '{"packages":[{"packageCode":"small","cpu":2,"memory":4},{"packageCode":"peak","cpu":4,"memory":8},{"packageCode":"large","cpu":8,"memory":16}]}'
+    printf '%s\n200\n' '{"packages":[{"packageCode":"small","cpu":2,"memory":4},{"packageCode":"compact","cpu":3,"memory":4},{"packageCode":"peak","cpu":4,"memory":8},{"packageCode":"large","cpu":8,"memory":16}]}'
 }
 LIGHTNODE_REGION="test-region"
 LIGHTNODE_ZONE="test-zone"
@@ -169,9 +172,14 @@ LIGHTNODE_STRICT_RECOMMENDED_SPEC=true
 LIGHTNODE_PACKAGE_CODE="small"
 LIGHTNODE_TARGET_CPU=2
 LIGHTNODE_TARGET_MEMORY_MB=4096
+ACTION_TEST_ALLOW_WORKER_DOWNSIZE=false
 if _lightnode_get_default_package >/dev/null 2>&1; then
     fail "LightNode accepted an explicit package below the qemu/both peak budget"
 fi
+ACTION_TEST_ALLOW_WORKER_DOWNSIZE=true
+[[ "$(_lightnode_get_default_package)" == "peak" ]] || fail "LightNode retained a worker below the minimum VM quota"
+LIGHTNODE_PACKAGE_CODE="compact"
+[[ "$(_lightnode_get_default_package)" == "compact" ]] || fail "LightNode refused an explicitly requested usable compact worker"
 LIGHTNODE_PACKAGE_CODE="large"
 [[ "$(_lightnode_get_default_package)" == "large" ]] || fail "LightNode rejected an explicit package above the peak budget"
 LIGHTNODE_PACKAGE_CODE=""
@@ -187,7 +195,7 @@ platform_ssh_exec() {
 platform_validate_worker_resources qemu 192.0.2.10 lightnode >/dev/null 2>&1 || fail "valid qemu/both worker check was rejected"
 grep -Fq 'required>=4' "$RESOURCE_COMMAND_FILE" || fail "worker validation command does not enforce the 4 CPU peak budget"
 grep -Fq 'required>=7607' "$RESOURCE_COMMAND_FILE" || fail "worker validation command does not allow measured 8 GiB cloud overhead"
-grep -Fq '/dev/kvm missing' "$RESOURCE_COMMAND_FILE" || fail "worker validation command does not enforce nested virtualization"
+grep -Fq 'if [ "false" = "true" ]' "$RESOURCE_COMMAND_FILE" || fail "QEMU software emulation was blocked by a KVM requirement"
 configure_action_test_resources_for_env incus
 INSTANCE_TYPES=container
 platform_validate_worker_resources incus 192.0.2.10 hetzner >/dev/null 2>&1 || fail "valid 4 GiB Incus worker check was rejected"
@@ -199,6 +207,7 @@ MOCK_RESOURCE_CHECK_RESULT=1
 resource_check_rc=0
 platform_validate_worker_resources qemu 192.0.2.10 lightnode >/dev/null 2>&1 || resource_check_rc=$?
 [[ "$resource_check_rc" == "75" ]] || fail "insufficient worker resources should return infrastructure status 75"
+MOCK_RESOURCE_CHECK_RESULT=0
 rm -f "$RESOURCE_COMMAND_FILE"
 
 MOCK_EXEC_MODE="selective"
@@ -372,8 +381,9 @@ grep -Fq 'Worker cleanup failed; retaining IDs for diagnosis' "$NETWORK_MODE_TES
     fail "network-mode cleanup failure is not surfaced by the EXIT trap"
 
 INTEGRATION_WORKFLOW="${ROOT_DIR}/.github/workflows/integration-tests.yml"
-grep -Fq 'bash scripts/tests/action_harness_classification_test.sh' "$INTEGRATION_WORKFLOW" ||
-    fail "the harness regression test is not enforced by the integration workflow"
+LOCAL_TEST_MANIFEST="${ROOT_DIR}/scripts/tests/run_local_tests.py"
+grep -Fq 'action_harness_classification_test.sh' "$LOCAL_TEST_MANIFEST" ||
+    fail "the harness regression test is not included in the required local suite"
 PORT_MAPPING_MODULE="${ROOT_DIR}/action_tests/modules/13_port_mappings.sh"
 DOMAIN_MODULE="${ROOT_DIR}/action_tests/modules/15_domains.sh"
 CHECKIN_MODULE="${ROOT_DIR}/action_tests/modules/22_checkin.sh"

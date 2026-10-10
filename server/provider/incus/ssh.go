@@ -263,7 +263,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 		updateProgress(30, "复制源容器...")
 		copyCmd := fmt.Sprintf("incus copy %s %s", shellSingleQuote(config.CopySourceName), shellSingleQuote(config.Name))
 		global.APP_LOG.Debug("执行Incus容器复制命令", zap.String("command", copyCmd))
-		output, err := i.sshClient.Execute(copyCmd)
+		output, err := utils.ExecuteShellCommandContext(ctx, i.sshClient, copyCmd)
 		if err != nil {
 			errMsg := output
 			if errMsg == "" {
@@ -362,7 +362,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 	// 配置GPU直通（仅 LXD/Incus 容器，需要在启动前附加设备）
 	if config.GpuEnabled {
 		if err := i.configureInstanceGPU(ctx, config); err != nil {
-			global.APP_LOG.Warn("配置GPU直通失败，但继续", zap.Error(err))
+			return fmt.Errorf("配置GPU直通失败: %w", err)
 		}
 	}
 

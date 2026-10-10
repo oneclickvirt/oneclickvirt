@@ -578,6 +578,9 @@ func (l *LXDProvider) apiApplyPortMappings(ctx context.Context, instanceName str
 }
 
 func (l *LXDProvider) apiCreateInstanceWithProgress(ctx context.Context, config provider.InstanceConfig, progressCallback provider.ProgressCallback) error {
+	if _, err := provider.ValidateContainerCreatePath(config, false, "LXD"); err != nil {
+		return err
+	}
 	// 进度更新辅助函数
 	updateProgress := func(percentage int, message string) {
 		if progressCallback != nil {

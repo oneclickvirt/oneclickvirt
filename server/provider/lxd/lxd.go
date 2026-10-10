@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/singleflight"
@@ -30,6 +31,7 @@ type LXDProvider struct {
 	providerID       uint // 存储providerID用于清理
 	connected        bool
 	apiHealthy       bool // API-only mode has no SSH executor to represent liveness.
+	reverseAgent     atomic.Bool
 	healthChecker    health.HealthChecker
 	version          string             // LXD 版本
 	mu               sync.RWMutex       // 保护并发访问
@@ -59,6 +61,10 @@ func (l *LXDProvider) GetType() string {
 	return "lxd"
 }
 
+func (l *LXDProvider) IsReverseAgentConnection() bool {
+	return l.reverseAgent.Load()
+}
+
 func (l *LXDProvider) GetName() string {
 	return l.config.Name
 }
@@ -68,6 +74,7 @@ func (l *LXDProvider) GetSupportedInstanceTypes() []string {
 }
 
 func (l *LXDProvider) Connect(ctx context.Context, config provider.NodeConfig) error {
+	l.reverseAgent.Store(false)
 	l.config = config
 	l.providerID = config.ID // 存储providerID
 	l.connected = false
@@ -187,6 +194,7 @@ func (l *LXDProvider) Connect(ctx context.Context, config provider.NodeConfig) e
 }
 
 func (l *LXDProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
+	l.reverseAgent.Store(!strings.EqualFold(strings.TrimSpace(config.ExecutionRule), "api_only"))
 	l.config = config
 	l.providerID = config.ID
 	l.connected = false
@@ -419,8 +427,15 @@ func (l *LXDProvider) ListInstances(ctx context.Context) ([]provider.Instance, e
 }
 
 func (l *LXDProvider) CreateInstance(ctx context.Context, config provider.InstanceConfig) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !l.connected {
 		return fmt.Errorf("not connected")
+	}
+	forceSSHOptions, err := provider.ValidateContainerCreatePath(config, l.shouldUseSSH(), "LXD")
+	if err != nil {
+		return err
 	}
 
 	forceSSHIPv6 := requiresSSHIPv6Network(config, l.config.ID)
@@ -429,7 +444,7 @@ func (l *LXDProvider) CreateInstance(ctx context.Context, config provider.Instan
 	}
 	// 根据执行规则判断使用哪种方式
 	forceSSHInstaller := l.shouldUseWindowsInstallerSSH(ctx, &config)
-	if l.shouldUseAPI() && !forceSSHInstaller && !forceSSHIPv6 {
+	if l.shouldUseAPI() && !forceSSHInstaller && !forceSSHIPv6 && !forceSSHOptions {
 		if err := l.apiCreateInstance(ctx, config); err == nil {
 			global.APP_LOG.Debug("LXD API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
@@ -456,8 +471,15 @@ func (l *LXDProvider) CreateInstance(ctx context.Context, config provider.Instan
 }
 
 func (l *LXDProvider) CreateInstanceWithProgress(ctx context.Context, config provider.InstanceConfig, progressCallback provider.ProgressCallback) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !l.connected {
 		return fmt.Errorf("not connected")
+	}
+	forceSSHOptions, err := provider.ValidateContainerCreatePath(config, l.shouldUseSSH(), "LXD")
+	if err != nil {
+		return err
 	}
 
 	forceSSHIPv6 := requiresSSHIPv6Network(config, l.config.ID)
@@ -466,7 +488,7 @@ func (l *LXDProvider) CreateInstanceWithProgress(ctx context.Context, config pro
 	}
 	// 根据执行规则判断使用哪种方式
 	forceSSHInstaller := l.shouldUseWindowsInstallerSSH(ctx, &config)
-	if l.shouldUseAPI() && !forceSSHInstaller && !forceSSHIPv6 {
+	if l.shouldUseAPI() && !forceSSHInstaller && !forceSSHIPv6 && !forceSSHOptions {
 		if err := l.apiCreateInstanceWithProgress(ctx, config, progressCallback); err == nil {
 			global.APP_LOG.Debug("LXD API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
@@ -717,12 +739,12 @@ func (l *LXDProvider) ExecuteSSHCommand(ctx context.Context, command string) (st
 
 // 检查是否有 API 访问权限
 func (l *LXDProvider) hasAPIAccess() bool {
-	return l.transport != nil && l.transport.TLSClientConfig != nil
+	return !l.reverseAgent.Load() && l.transport != nil && l.transport.TLSClientConfig != nil
 }
 
 // shouldUseAPI 根据执行规则判断是否应该使用API
 func (l *LXDProvider) shouldUseAPI() bool {
-	switch l.config.ExecutionRule {
+	switch strings.ToLower(strings.TrimSpace(l.config.ExecutionRule)) {
 	case "api_only":
 		return l.hasAPIAccess()
 	case "ssh_only":
@@ -737,7 +759,7 @@ func (l *LXDProvider) shouldUseAPI() bool {
 // shouldUseSSH 根据执行规则判断是否应该使用SSH
 func (l *LXDProvider) shouldUseSSH() bool {
 	hasClient := l.sshClient.HasExecutor() && l.connected
-	switch l.config.ExecutionRule {
+	switch strings.ToLower(strings.TrimSpace(l.config.ExecutionRule)) {
 	case "api_only":
 		return false
 	case "ssh_only":
@@ -751,7 +773,7 @@ func (l *LXDProvider) shouldUseSSH() bool {
 
 // shouldFallbackToSSH 根据执行规则判断API失败时是否可以回退到SSH
 func (l *LXDProvider) shouldFallbackToSSH() bool {
-	switch l.config.ExecutionRule {
+	switch strings.ToLower(strings.TrimSpace(l.config.ExecutionRule)) {
 	case "api_only":
 		return false
 	case "ssh_only":

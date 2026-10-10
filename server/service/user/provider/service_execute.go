@@ -93,6 +93,13 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		global.APP_LOG.Error("Provider不可用", zap.Uint("taskId", task.ID), zap.Uint("providerId", instance.ProviderID), zap.Error(err))
 		return err
 	}
+	if taskReq.GpuEnabled && !dbProvider.GpuEnabled {
+		return fmt.Errorf("请先在节点设置中启用GPU直通")
+	}
+	if (isCopyMode || taskReq.GpuEnabled) && utils.SupportsLXDContainerOptions(dbProvider.Type, instance.InstanceType) &&
+		strings.EqualFold(strings.TrimSpace(dbProvider.ExecutionRule), "api_only") {
+		return fmt.Errorf("容器复制和GPU直通需要 Agent 或 SSH 连接，请将节点执行方式改为自动或仅 SSH")
+	}
 
 	// 复制副本避免共享状态，立即创建Provider字段的本地副本
 	localProviderID := dbProvider.ID
@@ -130,7 +137,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 	providerSvc := providerService.GetProviderService()
 	providerInstance, exists := providerSvc.GetProviderByID(instance.ProviderID)
 
-	if !exists || !providerInstance.IsConnected() {
+	if !exists || !providerService.ProviderConnectionModeMatches(providerInstance, dbProvider) || !providerInstance.IsConnected() {
 		// 缓存中不存在或连接已失效时，强制重载，避免命中 stale provider 导致 "not connected"
 		global.APP_LOG.Debug("Provider未连接或连接失效，尝试重载",
 			zap.Uint("providerId", localProviderID),
@@ -183,7 +190,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 				}
 			}
 		}
-		if !exists || !providerInstance.IsConnected() {
+		if !exists || !providerService.ProviderConnectionModeMatches(providerInstance, dbProvider) || !providerInstance.IsConnected() {
 			err := fmt.Errorf("Provider ID %d 连接后仍然不可用", localProviderID)
 			global.APP_LOG.Error("Provider连接后仍然不可用",
 				zap.Uint("taskId", task.ID),

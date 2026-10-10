@@ -12,10 +12,15 @@ test_container="ocv-firewall-regression-$(date +%Y%m%d%H%M%S)-$$"
 test_container_id=""
 test_log=$(mktemp "${TMPDIR:-/tmp}/ocv-firewall.XXXXXX")
 cleanup() {
+    local exit_code=$? cleanup_status=0
     if [[ -n "$test_container_id" ]]; then
-        docker rm -f "$test_container_id" >/dev/null
+        docker rm -f "$test_container_id" >/dev/null || cleanup_status=1
     fi
-    rm -f "$test_log"
+    rm -f "$test_log" || cleanup_status=1
+    if [[ "$exit_code" == "0" && "$cleanup_status" != "0" ]]; then
+        exit_code=1
+    fi
+    return "$exit_code"
 }
 trap cleanup EXIT
 diagnose_firewall_runner() {
@@ -82,7 +87,7 @@ for xtables_mode in nft legacy; do
     fi
     : > "$test_log"
     set +e
-    OCV_FIREWALL_TEST_CONTAINER="$test_container" go test -count=1 -p 1 \
+    OCV_FIREWALL_TEST_CONTAINER="$test_container" go test -count=1 -p 1 -timeout=2m \
         -tags firewall_integration -run '^TestFirewallIntegration' -v \
         ./provider/firewall ./provider/incus ./provider/lxd >"$test_log" 2>&1
     test_rc=$?

@@ -25,32 +25,42 @@ _m29_delete_or_preserve_instance() {
     delete_instance_safe "$instance_id" "$token" "$timeout"
 }
 
+_m29_record_failure() {
+    local name="$1" method="$2" endpoint="$3" detail="$4" expected="$5" actual="$6"
+    failed=$((failed + 1))
+    record_fail_result "$name" "$method" "$endpoint" "$expected" "$actual" "$detail" "$group"
+}
+
+_m29_record_unavailable() {
+    if is_infrastructure_failure_detail "$4"; then
+        _m29_record_skip "$@"
+    else
+        _m29_record_failure "$@"
+    fi
+}
+
 _m29_create_instance_nonfatal() {
-    local name="$1" data="$2"
-    local endpoint="/api/v1/admin/instances"
-    local raw http_code body api_code api_msg
+    local name="$1" data="$2" endpoint="/api/v1/admin/instances"
+    local raw http_code body api_code transport_status=0
+    M29_CREATE_BODY=""
     raw=$(curl -s -w '\n%{http_code}' --max-time 120 \
         -H "Authorization: Bearer ${ADMIN_TOKEN}" \
         -H "Content-Type: application/json" \
-        -X POST -d "$data" "${SERVER_URL}${endpoint}" 2>/dev/null) || true
-    http_code=$(echo "$raw" | tail -1)
-    body=$(echo "$raw" | sed '$d')
-    api_code=$(echo "$body" | jq -r '.code // empty' 2>/dev/null)
-    api_msg=$(echo "$body" | jq -r '.msg // .message // empty' 2>/dev/null)
-
-    if [[ "$http_code" == "200" && ( "$api_code" == "200" || -z "$api_code" ) ]]; then
-        TOTAL_TESTS=$((TOTAL_TESTS + 1))
-        PASSED_TESTS=$((PASSED_TESTS + 1))
-        log_success "$name"
-        report_add_pass "$name" "POST" "$endpoint"
-        _record_result "$name" "POST" "$endpoint" "PASS" "HTTP/API 200" "${http_code}/${api_code:-empty}" "" "$group"
+        -X POST -d "$data" "${SERVER_URL}${endpoint}" 2>/dev/null) || transport_status=$?
+    http_code=$(printf '%s\n' "$raw" | tail -1)
+    body=$(printf '%s\n' "$raw" | sed '$d')
+    api_code=$(printf '%s' "$body" | jq -r '.code // empty' 2>/dev/null) || api_code=""
+    if [[ "$transport_status" == 0 && "$http_code" =~ ^20[01]$ && "$api_code" == 200 ]]; then
+        record_pass_result "$name" POST "$endpoint" "HTTP/API 200 or 201" "$http_code/$api_code" "" "$group"
         M29_CREATE_BODY="$body"
         return 0
     fi
-
-    _m29_record_skip "$name" "POST" "$endpoint" \
-        "provider rejected image instance creation (HTTP=${http_code:-none}, API=${api_code:-none}, msg=${api_msg:-none})" \
-        "HTTP/API 200" "${http_code:-none}/${api_code:-none}"
+    local detail="transport=${transport_status}, HTTP=${http_code:-none}, API=${api_code:-none}; ${body}"
+    if [[ "$transport_status" == 0 ]] && is_http_infrastructure_response "$http_code" "$body"; then
+        _m29_record_unavailable "$name" POST "$endpoint" "$detail" "HTTP/API 200 or 201" "$http_code/$api_code"
+    else
+        _m29_record_failure "$name" POST "$endpoint" "$detail" "HTTP/API 200 or 201" "$http_code/$api_code"
+    fi
     return 1
 }
 
@@ -202,7 +212,9 @@ run_module_29() {
         # likely has a systemic issue and further attempts are futile.
         if [[ $consecutive_fails -ge $max_consecutive_fails ]]; then
             log_warning "Too many consecutive image creation failures (${consecutive_fails}/${max_consecutive_fails}); skipping remaining selected images"
-            break
+            _m29_record_skip "Remaining image ${idx}" HARNESS module-29 \
+                "Stopped after three consecutive creation failures" "image lifecycle" "not executed"
+            continue
         fi
 
         local selected_entry; selected_entry=$(echo "$selected_images_json" | jq -c ".[$idx]" 2>/dev/null)
@@ -215,14 +227,16 @@ run_module_29() {
             continue
         fi
 
-        # Skip if we've already tested this image name (deduplication)
-        if [[ -n "${seen_images[$img_name]:-}" ]]; then
+        # Names can be shared by container and VM catalogs.
+        local image_key
+        image_key=$(jq -cn --arg name "$img_name" --arg type "$img_type" --arg arch "$img_arch" '[$name,$type,$arch]')
+        if [[ -n "${seen_images[$image_key]:-}" ]]; then
             log_debug "Skipping duplicate image: ${img_name}"
             continue
         fi
 
         # Mark as seen before testing so we never repeat
-        seen_images[$img_name]=1
+        seen_images[$image_key]=1
         tested=$((tested + 1))
         local test_label="Image[${tested}]: ${img_name} (${img_type}, arch=${img_arch:-${provider_arch}})"
         log_info "Testing: ${test_label}"
@@ -240,12 +254,15 @@ run_module_29() {
         fi
 
         # -- Create instance with this image --
-        local inst_data
-        if [[ "$img_type" == "vm" ]]; then
-            inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"vm\",\"image\":\"${img_name}\",\"cpu\":${ACTION_TEST_VM_CPU},\"memory\":${ACTION_TEST_VM_MEMORY},\"disk\":${ACTION_TEST_VM_DISK},\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
+        local inst_data guest_cpu guest_memory guest_disk
+        if [[ "$img_type" == vm ]]; then
+            guest_cpu="$ACTION_TEST_VM_CPU" guest_memory="$ACTION_TEST_VM_MEMORY" guest_disk="$ACTION_TEST_VM_DISK"
         else
-            inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"${img_name}\",\"cpu\":${ACTION_TEST_CONTAINER_CPU},\"memory\":${ACTION_TEST_CONTAINER_MEMORY},\"disk\":${ACTION_TEST_CONTAINER_DISK},\"bandwidth\":1000,\"network_type\":\"nat_ipv4\"}"
+            guest_cpu="$ACTION_TEST_CONTAINER_CPU" guest_memory="$ACTION_TEST_CONTAINER_MEMORY" guest_disk="$ACTION_TEST_CONTAINER_DISK"
         fi
+        inst_data=$(jq -cn --argjson provider "$PROVIDER_ID" --arg type "$img_type" --arg image "$img_name" \
+            --argjson cpu "$guest_cpu" --argjson memory "$guest_memory" --argjson disk "$guest_disk" \
+            '{provider_id:$provider,instance_type:$type,image:$image,cpu:$cpu,memory:$memory,disk:$disk,bandwidth:1000,network_type:"nat_ipv4"}') || return 1
 
         local create_resp M29_CREATE_BODY=""
         if ! _m29_create_instance_nonfatal "Create ${test_label}" "$inst_data"; then
@@ -253,9 +270,9 @@ run_module_29() {
             continue
         fi
         create_resp="$M29_CREATE_BODY"
-        consecutive_fails=0  # reset on successful request; later provider task failures are recorded as skips
+        consecutive_fails=0
 
-        local task_id; task_id=$(echo "$create_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
+        local task_id; task_id=$(echo "$create_resp" | jq -r '.data.task_id // .data.taskId // empty' 2>/dev/null)
         local inst_id=""
 
         # Handle async task-based creation
@@ -263,7 +280,7 @@ run_module_29() {
             log_info "Waiting for optional creation task: ${task_id}"
             local task_result task_ok=true
             task_result=$(wait_task_complete_nonfatal "$SERVER_URL" "$task_id" "$ADMIN_TOKEN" "$PROVIDER_IMAGE_TASK_MAX_WAIT" 10) || task_ok=false
-            inst_id=$(echo "$task_result" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
+            inst_id=$(echo "$task_result" | jq -r '.data.instance_id // .data.instanceId // .data.result.id // empty' 2>/dev/null)
             if [[ "$task_ok" != "true" ]]; then
                 local task_status task_error
                 task_status=$(echo "$task_result" | jq -r '.data.status // "failed"' 2>/dev/null)
@@ -273,8 +290,8 @@ run_module_29() {
                 fi
                 [[ -n "$inst_id" ]] && _m29_delete_or_preserve_instance "$inst_id" "$ADMIN_TOKEN" \
                     "$PROVIDER_IMAGE_TASK_MAX_WAIT" "$test_label" "$group" >/dev/null 2>&1 || true
-                _m29_record_skip "Create ${test_label}" "POST" "/api/v1/admin/instances" \
-                    "provider creation task ended with status=${task_status:-failed}; ${task_error:-skipping this image}" \
+                _m29_record_unavailable "Create ${test_label}" "POST" "/api/v1/admin/instances" \
+                    "provider creation task ended with status=${task_status:-failed}; ${task_error:-missing task error}" \
                     "completed task with instance id" "task=${task_id}"
                 consecutive_fails=$((consecutive_fails + 1))
                 continue
@@ -283,18 +300,11 @@ run_module_29() {
             inst_id=$(echo "$create_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
         fi
 
-        # Fallback: if no instance ID from response, find the most recently created instance with this image
-        if [[ -z "$inst_id" ]]; then
-            log_info "Instance ID not in response, querying instance list for image: ${img_name}"
-            sleep 2
-            local list_resp; list_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-                "${SERVER_URL}/api/v1/admin/instances?page=1&pageSize=10&status=creating" 2>/dev/null) || true
-            inst_id=$(echo "$list_resp" | jq -r '[.data.list[]? | select(.image=="'"${img_name}"'")] | sort_by(.id) | last | .id // .ID // empty' 2>/dev/null)
-        fi
-
-        if [[ -z "$inst_id" ]]; then
-            _m29_record_skip "Create ${test_label}" "POST" "/api/v1/admin/instances" \
-                "no instance ID was returned or discoverable after creation request" "instance id" "empty"
+        # Creation must identify its own task/instance. An image-only lookup
+        # could claim or delete an unrelated instance from another run.
+        if [[ ! "$inst_id" =~ ^[1-9][0-9]*$ ]]; then
+            _m29_record_failure "Create ${test_label}" POST /api/v1/admin/instances \
+                "Creation response/task did not identify its instance" "positive instance id" "${inst_id:-empty}"
             consecutive_fails=$((consecutive_fails + 1))
             continue
         fi
@@ -302,9 +312,10 @@ run_module_29() {
         log_info "Created instance ${inst_id} with image ${img_name}"
 
         # -- Wait for instance to reach running state --
-        if ! wait_instance_status_nonfatal "$inst_id" "running" "$PROVIDER_IMAGE_STATUS_MAX_WAIT" 10 "$ADMIN_TOKEN" "image-test instance ${inst_id}" > /dev/null; then
-            _m29_record_skip "Run ${test_label}" "GET" "/api/v1/admin/instances/${inst_id}" \
-                "instance did not reach running state; provider/image combination is unavailable in this run" \
+        local running_result=""
+        if ! running_result=$(wait_instance_status_nonfatal "$inst_id" "running" "$PROVIDER_IMAGE_STATUS_MAX_WAIT" 10 "$ADMIN_TOKEN" "image-test instance ${inst_id}"); then
+            _m29_record_unavailable "Run ${test_label}" "GET" "/api/v1/admin/instances/${inst_id}" \
+                "Instance did not reach running state: ${running_result:-no status response}" \
                 "running" "not-running"
             _m29_delete_or_preserve_instance "$inst_id" "$ADMIN_TOKEN" \
                 "$PROVIDER_IMAGE_TASK_MAX_WAIT" "$test_label" "$group" >/dev/null 2>&1 || true
@@ -313,21 +324,22 @@ run_module_29() {
         fi
 
         # -- Verify instance exists and has expected state --
-        local verify_resp; verify_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-            "${SERVER_URL}/api/v1/admin/instances/${inst_id}" 2>/dev/null) || true
+        local verify_resp verify_transport=0
+        verify_resp=$(curl -fsS --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/instances/${inst_id}" 2>/dev/null) || verify_transport=$?
         local verify_code; verify_code=$(echo "$verify_resp" | jq -r '.code // empty' 2>/dev/null)
         local inst_status; inst_status=$(echo "$verify_resp" | jq -r '.data.status // empty' 2>/dev/null)
         local inst_image; inst_image=$(echo "$verify_resp" | jq -r '.data.image // empty' 2>/dev/null)
 
-        if [[ "$verify_code" == "200" ]]; then
+        if [[ "$verify_transport" == 0 && "$verify_code" == "200" && "$inst_status" == running ]]; then
             TOTAL_TESTS=$((TOTAL_TESTS + 1))
             PASSED_TESTS=$((PASSED_TESTS + 1))
             log_info "Instance ${inst_id} status: ${inst_status}, image: ${inst_image}"
             report_add_pass "Verify ${test_label}" "GET" "/api/v1/admin/instances/${inst_id}"
             _record_result "Verify ${test_label}" "GET" "/api/v1/admin/instances/${inst_id}" "PASS" "200" "200" "" "$group"
         else
-            _m29_record_skip "Verify ${test_label}" "GET" "/api/v1/admin/instances/${inst_id}" \
-                "created image-test instance could not be read back" "200" "${verify_code:-empty}"
+            _m29_record_failure "Verify ${test_label}" "GET" "/api/v1/admin/instances/${inst_id}" \
+                "Created image-test instance could not be read back in running state: ${verify_resp}" "200/running" "${verify_code:-empty}/${inst_status:-empty}"
             _m29_delete_or_preserve_instance "$inst_id" "$ADMIN_TOKEN" \
                 "$PROVIDER_IMAGE_TASK_MAX_WAIT" "$test_label" "$group" >/dev/null 2>&1 || true
             continue
@@ -344,28 +356,27 @@ run_module_29() {
         elif [[ "$delete_status" -eq 2 ]]; then
             continue
         else
-            _m29_record_skip "Delete ${test_label}" "DELETE" "/api/v1/admin/instances/${inst_id}" \
+            _m29_record_failure "Delete ${test_label}" "DELETE" "/api/v1/admin/instances/${inst_id}" \
                 "delete operation did not settle; cleanup was requested but provider did not confirm deletion" \
                 "deleted" "not-confirmed"
             continue
         fi
 
-        # -- Verify deleted --
-        local del_verify; del_verify=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-            "${SERVER_URL}/api/v1/admin/instances/${inst_id}" 2>/dev/null) || true
-        local del_code; del_code=$(echo "$del_verify" | jq -r '.code // empty' 2>/dev/null)
-        if [[ "$del_code" != "200" ]]; then
-            log_success "Verified instance ${inst_id} deleted (image: ${img_name})"
-            _record_result "Verify deleted ${test_label}" "GET" "/api/v1/admin/instances/${inst_id}" "PASS" "404" "$del_code" "" "$group"
+        # A lost connection or empty body does not prove deletion.
+        local del_verify="" del_transport=0 del_http del_body del_code
+        del_verify=$(curl -s -w '\n%{http_code}' --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/instances/${inst_id}" 2>/dev/null) || del_transport=$?
+        del_http=$(printf '%s\n' "$del_verify" | tail -1)
+        del_body=$(printf '%s\n' "$del_verify" | sed '$d')
+        del_code=$(jq -r '.code // empty' <<< "$del_body" 2>/dev/null) || del_code=""
+        if [[ "$del_transport" == 0 && "$del_http" == 404 && "$del_code" == 404 ]]; then
+            record_pass_result "Verify deleted ${test_label}" GET "/api/v1/admin/instances/${inst_id}" "404" "404" "" "$group"
             passed=$((passed + 1))
         else
-            _m29_record_skip "Verify deleted ${test_label}" "GET" "/api/v1/admin/instances/${inst_id}" \
-                "instance still exists after delete verification; another cleanup attempt was issued" \
-                "404" "200"
-            # Retry cleanup only when preservation was explicitly disabled.
-            _m29_delete_or_preserve_instance "$inst_id" "$ADMIN_TOKEN" \
-                "$PROVIDER_IMAGE_TASK_MAX_WAIT" "$test_label" "$group" >/dev/null 2>&1 || true
+            _m29_record_failure "Verify deleted ${test_label}" GET "/api/v1/admin/instances/${inst_id}" \
+                "Deletion was not confirmed: ${del_body}" "HTTP/API 404" "transport=${del_transport}, ${del_http}/${del_code}"
         fi
+
     done
 
     log_section "Image test summary: tested=${tested} passed=${passed} skipped=${skipped} failed=${failed}"

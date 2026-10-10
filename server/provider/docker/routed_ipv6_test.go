@@ -123,6 +123,7 @@ func TestDockerRoutedIPv6OnlyUsesRoutedNetworkAtCreate(t *testing.T) {
 }
 
 func TestDockerManualIPv6RequiresResponderReadiness(t *testing.T) {
+	setupDockerTestLogger(t)
 	tests := []struct {
 		name      string
 		outputs   []string
@@ -160,6 +161,7 @@ func TestDockerManualIPv6RequiresResponderReadiness(t *testing.T) {
 }
 
 func TestDockerTunnelIPv6SkipsNDPResponder(t *testing.T) {
+	setupDockerTestLogger(t)
 	executor := &routedDockerExecutor{
 		outputs: []string{"", dockerIPv6NetworkModeManual, "false", "valid"},
 	}

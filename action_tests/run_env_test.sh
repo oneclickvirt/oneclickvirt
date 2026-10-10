@@ -29,6 +29,19 @@ esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMMON_DIR="${SCRIPT_DIR}/common"
+source "${COMMON_DIR}/module_selection.sh"
+module_selection=$(parse_test_modules "${2:-all}" "${SCRIPT_DIR}/modules") || exit 2
+read -r -a selected_modules <<< "$module_selection"
+validate_test_modules "${SCRIPT_DIR}/modules" "${selected_modules[@]}" || exit 2
+case "${3:-container}" in
+    container|vm|both) ;;
+    *) printf 'Invalid instance types: %s\n' "$3" >&2; exit 2 ;;
+esac
+_node_hours_arg="${NODE_HOURS:-8}"
+if [[ ! "$_node_hours_arg" =~ ^[1-9][0-9]*$ || "${#_node_hours_arg}" -gt 3 ]]; then
+    printf 'NODE_HOURS must be a positive integer of at most three digits\n' >&2
+    exit 2
+fi
 REPORT_DIR="${REPORT_DIR:-${SCRIPT_DIR}/reports}"
 mkdir -p "$REPORT_DIR"
 
@@ -56,7 +69,7 @@ source "${COMMON_DIR}/node_manager.sh"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 export ENV_TYPE="${1:-docker}"
-MODULES="${2:-all}"
+MODULES=$(IFS=,; printf '%s' "${selected_modules[*]}")
 RAW_INSTANCE_TYPES="${3:-container}"
 NODE_HOURS="${NODE_HOURS:-8}"
 MASTER_PORT="${MASTER_PORT:-8888}"
@@ -97,6 +110,7 @@ record_harness_skip_and_exit() {
 # before preflight so early exits still finalize the report.
 _cleanup_on_exit() {
     local exit_code=$?
+    local cleanup_failed=false
     if [[ $exit_code -eq 75 ]]; then
         log_skip "Harness skipped due to a transient infrastructure condition (exit 75)"
     elif [[ $exit_code -ne 0 ]]; then
@@ -111,6 +125,7 @@ _cleanup_on_exit() {
             # bounded cleanup attempt; never report a failed cleanup as a
             # successful test run.
             log_error "Worker cleanup failed; retaining IDs for retry: ${CREATED_IDS}"
+            cleanup_failed=true
         fi
     fi
     if [[ -f "$SERVER_PID_FILE" ]]; then
@@ -122,6 +137,11 @@ _cleanup_on_exit() {
         rm -rf "${ACTION_TEST_SERVER_WORKDIR}" 2>/dev/null || true
     fi
     report_finalize 2>/dev/null || true
+    if [[ "$cleanup_failed" == "true" && "$exit_code" == "0" ]]; then
+        exit_code=1
+    fi
+    trap - EXIT
+    exit "$exit_code"
 }
 trap _cleanup_on_exit EXIT
 
@@ -212,6 +232,8 @@ if ! WORKER_INFO_JSON=$(normalize_json_body "$WORKER_INFO"); then
     exit 75
 fi
 WORKER_INFO="$WORKER_INFO_JSON"
+worker_resource_profile=$(safe_jq "$WORKER_INFO" '.resource_profile // "standard"' 'standard')
+apply_worker_resource_profile "$worker_resource_profile" || exit 1
 WORKER_ID_VAL=$(safe_jq "$WORKER_INFO" '.instance_id // empty' '')
 export WORKER_IP; WORKER_IP=$(safe_jq "$WORKER_INFO" '.ipv4 // empty' '')
 export NODE_PASSWORD; NODE_PASSWORD=$(safe_jq "$WORKER_INFO" '.password // empty' '')

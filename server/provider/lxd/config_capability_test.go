@@ -46,4 +46,8 @@ func TestLXDAPIAccessRequiresLoadedTLSConfig(t *testing.T) {
 	if !provider.hasAPIAccess() {
 		t.Fatal("loaded TLS config did not enable API access")
 	}
+	provider.reverseAgent.Store(true)
+	if provider.hasAPIAccess() || provider.shouldUseAPI() {
+		t.Fatal("reverse Agent used a stale certificate to enable a controller API request")
+	}
 }

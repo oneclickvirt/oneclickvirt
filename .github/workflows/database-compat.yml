@@ -31,12 +31,6 @@ jobs:
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
-      - name: Unit and installation safety regressions
-        run: |
-          (cd server && go test -count=1 -race ./config ./core ./global ./utils/dbconnect ./utils/dbcompat ./service/system ./initialize/...)
-          bash scripts/tests/all_in_one_entrypoint_test.sh
-          bash scripts/tests/database_config_apply_test.sh
-          bash scripts/tests/database_install_safety_test.sh
       - name: Real engine, wrong config, initialization and persistent restart
         env:
           OCV_TEST_DB_IMAGES: ${{ matrix.image }}
