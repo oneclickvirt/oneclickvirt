@@ -28,6 +28,12 @@ type NetworkConfig struct {
 
 // configureInstanceNetwork 配置实例网络
 func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provider.InstanceConfig, networkConfig NetworkConfig) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// 检查是否启用IPv6
 	hasIPv6 := networkConfig.NetworkType == "nat_ipv4_ipv6" || networkConfig.NetworkType == "dedicated_ipv4_ipv6" || networkConfig.NetworkType == "ipv6_only"
 	var routedIPv6 *provider.RoutedIPv6Config
@@ -42,6 +48,9 @@ func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provi
 	}
 	if strings.TrimSpace(requestedIPv6) != "" && !hasIPv6 {
 		return fmt.Errorf("已分配静态IPv6，但实例网络类型 %s 未启用IPv6", networkConfig.NetworkType)
+	}
+	if networkConfig.NetworkType == "no_port_mapping" {
+		return l.configureUnmappedInstanceNetwork(ctx, config, networkConfig)
 	}
 
 	global.APP_LOG.Debug("LXD网络配置IPv6检测",
@@ -123,7 +132,7 @@ func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provi
 		}
 	}
 	// 停止实例进行网络配置
-	if err := l.stopInstanceForConfig(config.Name); err != nil {
+	if err := l.stopInstanceForConfig(ctx, config.Name); err != nil {
 		return fmt.Errorf("停止实例进行配置失败: %w", err)
 	}
 
@@ -221,7 +230,7 @@ func (l *LXDProvider) configureIPv6AndPortMappings(ctx context.Context, config p
 	if networkConfig.NetworkType != "nat_ipv4_ipv6" && networkConfig.NetworkType != "ipv6_only" {
 		return nil
 	}
-	if err := l.stopInstanceForConfig(config.Name); err != nil {
+	if err := l.stopInstanceForConfig(ctx, config.Name); err != nil {
 		return fmt.Errorf("停止实例配置IPv6端口映射失败: %w", err)
 	}
 	ipv6Config := networkConfig
