@@ -12,6 +12,7 @@ import (
 	"oneclickvirt/provider"
 	"oneclickvirt/utils"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -158,6 +159,17 @@ func (d *DockerProvider) sshCreateInstance(ctx context.Context, config provider.
 
 // sshCreateInstanceWithProgress 创建实例并报告进度
 func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, config provider.InstanceConfig, progressCallback provider.ProgressCallback) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if config.CopyMode && config.CopySourceName == config.Name {
+		return fmt.Errorf("复制源与目标不能相同")
+	}
+	if err := utils.RequireRuntimeContainerAbsent(ctx, d.sshClient, d.runtime.CLI, config.Name); err != nil {
+		return err
+	}
+	createOwner := uuid.NewString()
+
 	// 进度更新辅助函数
 	updateProgress := func(percentage int, message string) {
 		if progressCallback != nil {
@@ -172,7 +184,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	updateProgress(10, "开始创建Docker实例...")
 
 	// 预检：确保容器运行时 CLI 可用，避免后续命令以 127 失败且错误不明确
-	if _, err := d.sshClient.Execute(fmt.Sprintf("command -v %s >/dev/null 2>&1", d.runtime.CLI)); err != nil {
+	if _, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, fmt.Sprintf("command -v %s >/dev/null 2>&1", d.runtime.CLI)); err != nil {
 		return fmt.Errorf("%s 命令不可用，请确认 provider 节点已安装并在 PATH 中: %w", d.runtime.CLI, err)
 	}
 
@@ -215,16 +227,20 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			return fmt.Errorf("源容器名称格式无效: %s", config.CopySourceName)
 		}
 		updateProgress(25, "从源容器创建临时镜像...")
-		if _, err := d.sshClient.Execute(fmt.Sprintf("%s inspect %s >/dev/null 2>&1", d.runtime.CLI, shellSingleQuote(config.CopySourceName))); err != nil {
+		if _, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, fmt.Sprintf("%s inspect %s >/dev/null 2>&1", d.runtime.CLI, shellSingleQuote(config.CopySourceName))); err != nil {
 			return fmt.Errorf("源容器 %s 不存在或不可访问: %w", config.CopySourceName, err)
 		}
-		copyImageName := "oneclickvirt_copy_" + strings.ToLower(strings.NewReplacer("_", "-", ".", "-", "/", "-").Replace(config.Name))
+		copyImageName := strings.ReplaceAll(createOwner, "-", "") + "_oneclickvirt_copy_" + strings.ToLower(strings.NewReplacer("_", "-", ".", "-", "/", "-").Replace(config.Name))
 		commitCmd := fmt.Sprintf("%s commit %s %s", d.runtime.CLI, shellSingleQuote(config.CopySourceName), shellSingleQuote(copyImageName))
-		if out, err := d.sshClient.ExecuteWithTimeout(commitCmd, 10*time.Minute); err != nil {
+		defer func() {
+			if err := utils.RemoveUnusedRuntimeImage(d.sshClient, d.runtime.CLI, copyImageName); err != nil {
+				global.APP_LOG.Debug("复制镜像清理未完成，保留供使用或排障", zap.String("image", copyImageName), zap.Error(err))
+			}
+		}()
+		if out, err := utils.ExecuteShellCommandTimeoutContext(ctx, d.sshClient, commitCmd, 10*time.Minute); err != nil {
 			return fmt.Errorf("从源容器创建临时镜像失败: %w; output: %s", err, utils.TruncateString(out, 300))
 		}
 		imageNameWithPrefix = copyImageName
-		defer d.sshClient.Execute(fmt.Sprintf("%s rmi -f %s >/dev/null 2>&1 || true", d.runtime.CLI, shellSingleQuote(copyImageName)))
 	} else {
 		// 首先检查镜像是否存在
 		imageExistsResult := d.imageExists(imageNameWithPrefix)
@@ -302,7 +318,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 
 				// 打标为 oneclickvirt_ 前缀以匹配后续流程
 				tagCmd := fmt.Sprintf("%s tag %s %s", d.runtime.CLI, shellSingleQuote(config.Image), shellSingleQuote(imageNameWithPrefix))
-				if tagOutput, tagErr := d.sshClient.Execute(tagCmd); tagErr != nil {
+				if tagOutput, tagErr := utils.ExecuteShellCommandContext(ctx, d.sshClient, tagCmd); tagErr != nil {
 					global.APP_LOG.Warn("镜像打标失败，后续流程可能使用原始镜像名",
 						zap.String("rawImage", utils.TruncateString(config.Image, 64)),
 						zap.String("targetImage", utils.TruncateString(imageNameWithPrefix, 64)),
@@ -320,29 +336,10 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		}
 	}
 
-	updateProgress(70, "清理同名残留容器...")
-	// 预先清理任何同名的残留容器（包括停止、失败或创建失败的容器）
-	// 这可以避免端口冲突和容器名称冲突
-	cleanupCmd := fmt.Sprintf("%s ps -a --filter %s -q | xargs -r %s rm -f", d.runtime.CLI, containerNameFilter(config.Name), d.runtime.CLI)
-	global.APP_LOG.Debug("创建前清理同名容器",
-		zap.String("instance", utils.TruncateString(config.Name, 32)),
-		zap.String("command", cleanupCmd))
-
-	cleanupOutput, cleanupErr := d.sshClient.Execute(cleanupCmd)
-	if cleanupErr != nil {
-		global.APP_LOG.Debug("清理同名容器失败（可忽略）",
-			zap.String("instance", utils.TruncateString(config.Name, 32)),
-			zap.String("output", utils.TruncateString(cleanupOutput, 200)),
-			zap.Error(cleanupErr))
-	} else if cleanupOutput != "" {
-		global.APP_LOG.Debug("已清理同名残留容器",
-			zap.String("instance", utils.TruncateString(config.Name, 32)),
-			zap.String("cleanedContainers", utils.TruncateString(cleanupOutput, 200)))
-	}
-
 	updateProgress(72, "构建Docker run命令...")
 	// 构建 run 命令
 	cmd := fmt.Sprintf("%s run -d --name %s", d.runtime.CLI, shellSingleQuote(config.Name))
+	cmd += " --label " + shellSingleQuote("oneclickvirt.create-token="+createOwner)
 
 	// 检查是否启用IPv6网络（支持标准的网络类型值）
 	networkType := d.config.NetworkType
@@ -589,16 +586,24 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		zap.String("command", utils.TruncateString(cmd, 200)))
 
 	effectiveCmd := cmd
-	output, err := d.sshClient.Execute(effectiveCmd)
+	output, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, effectiveCmd)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if err != nil && gpuOptStr != "" {
 		global.APP_LOG.Warn("Docker GPU参数创建失败，自动回退为无GPU创建",
 			zap.String("name", utils.TruncateString(config.Name, 32)),
 			zap.String("output", utils.TruncateString(output, 300)),
 			zap.Error(err))
-		_, _ = d.sshClient.Execute(fmt.Sprintf("%s rm -f %s 2>/dev/null || true", d.runtime.CLI, shellSingleQuote(config.Name)))
+		if cleanupErr := utils.RemoveOwnedRuntimeContainer(ctx, d.sshClient, d.runtime.CLI, config.Name, createOwner); cleanupErr != nil {
+			return fmt.Errorf("创建回退前清理失败: %w", cleanupErr)
+		}
 		cmdNoGPU := strings.Replace(cmd, gpuOptStr, "", 1)
 		effectiveCmd = cmdNoGPU
-		output, err = d.sshClient.Execute(effectiveCmd)
+		output, err = utils.ExecuteShellCommandContext(ctx, d.sshClient, effectiveCmd)
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 	if err != nil {
 		diagnostics := d.collectCreateDiagnostics(config.Name)
@@ -608,83 +613,29 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			zap.String("output", utils.TruncateString(output, 2000)),
 			zap.String("diagnostics", utils.TruncateString(diagnostics, 4000)),
 			zap.Error(err))
-		if strings.Contains(output, "iptables") && (strings.Contains(output, "No chain") || strings.Contains(output, "no chain")) {
-			// Auto-repair: restart the container runtime to recreate iptables chains
-			if repairErr := d.repairIptablesChains(config.Name); repairErr != nil {
-				global.APP_LOG.Error("iptables自动确认失败",
-					zap.String("name", utils.TruncateString(config.Name, 32)),
-					zap.Error(repairErr))
-				return fmt.Errorf("Docker iptables chains missing and auto-repair failed: %w; output: %s; diagnostics: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000), utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
-			}
-			// Retry container creation after repair
-			global.APP_LOG.Info("iptables确认完成，重试创建容器",
-				zap.String("name", utils.TruncateString(config.Name, 32)))
-			output, err = d.sshClient.Execute(effectiveCmd)
-			if err != nil {
-				diagnostics = d.collectCreateDiagnostics(config.Name)
-				global.APP_LOG.Error("iptables确认后创建容器仍然失败",
-					zap.String("name", utils.TruncateString(config.Name, 32)),
-					zap.String("output", utils.TruncateString(output, 2000)),
-					zap.String("diagnostics", utils.TruncateString(diagnostics, 4000)),
-					zap.Error(err))
-				return fmt.Errorf("failed to create container after iptables repair: %w; output: %s; diagnostics: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000), utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
-			}
-		} else {
-			return fmt.Errorf("failed to create container: %w; output: %s; diagnostics: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000), utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
-		}
+		return fmt.Errorf("failed to create container: %w; output: %s; diagnostics: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000), utils.TruncateString(strings.TrimSpace(diagnostics), 8000))
 	}
-	if err := d.connectDockerAdditionalNetworks(config.Name, networkSelection); err != nil {
+	if err := d.connectDockerAdditionalNetworks(config.Name, networkSelection, ctx); err != nil {
+		if cleanupErr := utils.RemoveOwnedRuntimeContainer(ctx, d.sshClient, d.runtime.CLI, config.Name, createOwner); cleanupErr != nil {
+			return fmt.Errorf("%w; cleanup: %v", err, cleanupErr)
+		}
 		return err
 	}
 
 	// 等待容器完全启动并验证状态
 	updateProgress(96, "等待容器完全启动...")
 
-	maxWaitTime := 30 * time.Second
-	checkInterval := 6 * time.Second
-	startTime := time.Now()
-	isRunning := false
-
-	for {
-		if time.Since(startTime) > maxWaitTime {
-			global.APP_LOG.Warn("等待容器启动超时，但继续执行",
-				zap.String("name", utils.TruncateString(config.Name, 32)))
-			break
-		}
-
-		time.Sleep(checkInterval)
-
-		// 检查容器状态
-		statusOutput, err := d.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, shellSingleQuote(config.Name)))
-		if err == nil {
-			status := strings.ToLower(strings.TrimSpace(statusOutput))
-			if status == "running" {
-				isRunning = true
-				global.APP_LOG.Debug("Docker容器已确认运行",
-					zap.String("name", utils.TruncateString(config.Name, 32)),
-					zap.Duration("wait_time", time.Since(startTime)))
-				break
-			}
-		}
-
-		global.APP_LOG.Debug("等待容器启动",
-			zap.String("name", config.Name),
-			zap.Duration("elapsed", time.Since(startTime)))
+	if err := d.ensureContainerRunning(ctx, config.Name); err != nil {
+		return fmt.Errorf("新建容器未就绪: %w", err)
 	}
 
-	if !isRunning {
-		global.APP_LOG.Warn("无法确认容器运行状态，继续执行后续操作",
-			zap.String("name", utils.TruncateString(config.Name, 32)))
-	}
+	d.ensureContainerNetworkRouting()
 
-	// 对于podman/containerd，确保宿主机iptables路由规则存在（使容器网络可以正常访问外网）
-	if d.runtime.IPv4Subnet != "" {
-		d.ensureContainerNetworkRouting()
-	}
-
-	// 配置SSH密码
 	updateProgress(97, "配置SSH密码...")
 	if err := d.configureInstanceSSHPassword(ctx, config); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		// SSH密码设置失败也不应该阻止实例创建，记录错误即可
 		global.APP_LOG.Warn("配置SSH密码失败", zap.Error(err))
 	}
@@ -692,6 +643,9 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	// 获取并更新实例的PrivateIP（确保pmacct配置使用正确的内网IP）
 	updateProgress(97, "获取实例内网IP...")
 	if privateIP, err := d.getContainerPrivateIP(config.Name); err == nil && privateIP != "" {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		// 更新数据库中的PrivateIP
 		var instance providerModel.Instance
 		if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, d.config.ID).First(&instance).Error; err == nil {
@@ -708,12 +662,18 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	}
 
 	// 初始化流量监控
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	updateProgress(98, "初始化流量监控...")
 	if err := d.initializePmacctMonitoring(ctx, config); err != nil {
 		// pmacct监控初始化失败也不应该阻止实例创建，记录错误即可
 		global.APP_LOG.Warn("初始化流量监控失败", zap.Error(err))
 	}
 
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	updateProgress(100, "Docker实例创建完成")
 	global.APP_LOG.Info("容器实例创建成功", zap.String("name", utils.TruncateString(config.Name, 32)))
 	return nil
@@ -736,19 +696,25 @@ func dockerNetworkOptionFlags(selection utils.ContainerNetworkSelection) string 
 	return appendDockerNetworkOptions("", selection)
 }
 
-func (d *DockerProvider) connectDockerAdditionalNetworks(name string, selection utils.ContainerNetworkSelection) error {
+func (d *DockerProvider) connectDockerAdditionalNetworks(name string, selection utils.ContainerNetworkSelection, contexts ...context.Context) error {
+	ctx := context.Background()
+	if len(contexts) > 0 && contexts[0] != nil {
+		ctx = contexts[0]
+	}
 	if selection.RoutedVeth {
 		command, err := provider.RoutedIPv6VethAttachCommand(d.runtime.CLI, name, selection)
 		if err != nil {
 			return fmt.Errorf("构造隧道路由IPv6 veth命令失败: %w", err)
 		}
-		output, execErr := d.sshClient.Execute(command)
+		output, execErr := utils.ExecuteShellCommandContext(ctx, d.sshClient, command)
 		if execErr == nil {
 			return nil
 		}
-		_, _ = d.sshClient.Execute(fmt.Sprintf("%s rm -f %s 2>/dev/null || true", d.runtime.CLI, shellSingleQuote(name)))
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		diagnostics := d.collectCreateDiagnostics(name)
-		return fmt.Errorf("附加隧道路由IPv6 veth失败，已删除新建容器: %w; output: %s; diagnostics: %s",
+		return fmt.Errorf("附加隧道路由IPv6 veth失败，保留容器供排障: %w; output: %s; diagnostics: %s",
 			execErr, utils.TruncateString(strings.TrimSpace(output), 4000), utils.TruncateString(strings.TrimSpace(diagnostics), 6000))
 	}
 	for _, network := range selection.AdditionalNetworks {
@@ -760,13 +726,15 @@ func (d *DockerProvider) connectDockerAdditionalNetworks(name string, selection 
 			command += fmt.Sprintf(" --ip6=%s", shellSingleQuote(selection.StaticIPv6))
 		}
 		command += fmt.Sprintf(" %s %s", shellSingleQuote(network), shellSingleQuote(name))
-		output, err := d.sshClient.Execute(command)
+		output, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, command)
 		if err == nil {
 			continue
 		}
-		_, _ = d.sshClient.Execute(fmt.Sprintf("%s rm -f %s 2>/dev/null || true", d.runtime.CLI, shellSingleQuote(name)))
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		diagnostics := d.collectCreateDiagnostics(name)
-		return fmt.Errorf("附加隧道路由IPv6网络失败，已删除新建容器: %w; output: %s; diagnostics: %s",
+		return fmt.Errorf("附加隧道路由IPv6网络失败，保留容器供排障: %w; output: %s; diagnostics: %s",
 			err, utils.TruncateString(strings.TrimSpace(output), 4000), utils.TruncateString(strings.TrimSpace(diagnostics), 6000))
 	}
 	return nil
@@ -802,53 +770,6 @@ func (d *DockerProvider) collectCreateDiagnostics(name string) string {
 		}
 	}
 	return strings.Join(parts, "\n\n")
-}
-
-// repairIptablesChains restarts the container runtime service to recreate iptables/nftables chains.
-// It first removes any failed container, then restarts only the specific daemon service.
-func (d *DockerProvider) repairIptablesChains(containerName string) error {
-	// Remove the partially-created container first (if any)
-	if containerName != "" {
-		rmCmd := fmt.Sprintf("%s rm -f %s 2>/dev/null || true", d.runtime.CLI, shellSingleQuote(containerName))
-		_, _ = d.sshClient.Execute(rmCmd)
-	}
-
-	// Map provider type to systemd service name
-	serviceName := ""
-	switch d.runtime.ProviderType {
-	case "docker", "orbstack":
-		serviceName = "docker"
-	case "podman":
-		serviceName = "podman"
-	case "containerd":
-		serviceName = "containerd"
-	default:
-		serviceName = d.runtime.ProviderType
-	}
-
-	global.APP_LOG.Info("正在重启容器运行时以确认iptables chains",
-		zap.String("service", serviceName),
-		zap.String("provider_type", d.runtime.ProviderType))
-
-	restartCmd := fmt.Sprintf("systemctl restart %s", serviceName)
-	output, err := d.sshClient.Execute(restartCmd)
-	if err != nil {
-		return fmt.Errorf("restart %s failed: %s: %w", serviceName, output, err)
-	}
-
-	// Wait for the service to be ready
-	time.Sleep(5 * time.Second)
-
-	// Verify the service is running
-	checkCmd := fmt.Sprintf("systemctl is-active %s", serviceName)
-	status, err := d.sshClient.Execute(checkCmd)
-	if err != nil || !strings.Contains(strings.TrimSpace(status), "active") {
-		return fmt.Errorf("%s service not active after restart: %s", serviceName, strings.TrimSpace(status))
-	}
-
-	global.APP_LOG.Info("容器运行时重启完成",
-		zap.String("service", serviceName))
-	return nil
 }
 
 // ensureContainerNetworkRouting 确保宿主机上的iptables路由规则存在

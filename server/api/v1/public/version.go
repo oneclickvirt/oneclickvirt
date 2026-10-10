@@ -20,6 +20,7 @@ import (
 type VersionInfo struct {
 	ServerVersion          string `json:"server_version"`
 	CompatibleAgentVersion string `json:"compatible_agent_version"`
+	CurrentAgentVersion    string `json:"current_agent_version"`
 	LatestVersion          string `json:"latest_version,omitempty"`
 	UpdateAvailable        bool   `json:"update_available"`
 	VersionCheckStatus     string `json:"version_check_status"`
@@ -60,6 +61,7 @@ func GetVersion(c *gin.Context) {
 	common.ResponseSuccess(c, VersionInfo{
 		ServerVersion:          constant.DisplayVersion(),
 		CompatibleAgentVersion: constant.CompatibleAgentVersion,
+		CurrentAgentVersion:    constant.CurrentAgentVersion,
 		LatestVersion:          latest,
 		UpdateAvailable:        isVersionNewer(latest, constant.ServerVersion),
 		VersionCheckStatus:     status,

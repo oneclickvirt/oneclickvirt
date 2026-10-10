@@ -80,6 +80,7 @@ func InternalIPToVMIDCandidates(ip string) []int {
 }
 
 type ProxmoxProvider struct {
+	reverseAgent      bool
 	probeWG           sync.WaitGroup // initial Agent probes; tests/shutdown can join them
 	probeCancel       context.CancelFunc
 	natDataPlaneGroup singleflight.Group // Coalesces concurrent NAT data-plane reconciliation.
@@ -152,6 +153,9 @@ func (p *ProxmoxProvider) GetSupportedInstanceTypes() []string {
 }
 
 func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfig) error {
+	p.mu.Lock()
+	p.reverseAgent = false
+	p.mu.Unlock()
 	p.config = config
 	p.connected = false
 	p.apiHealthy = false
@@ -317,6 +321,7 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 
 func (p *ProxmoxProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
 	p.mu.Lock()
+	p.reverseAgent = true
 	if p.probeCancel != nil {
 		p.probeCancel()
 	}
@@ -740,7 +745,7 @@ func (p *ProxmoxProvider) hasAPIAccess() bool {
 
 // shouldUseAPI 根据执行规则判断是否应该使用API
 func (p *ProxmoxProvider) shouldUseAPI() bool {
-	switch p.config.ExecutionRule {
+	switch strings.ToLower(strings.TrimSpace(p.config.ExecutionRule)) {
 	case "api_only":
 		return p.hasAPIAccess()
 	case "ssh_only":
@@ -748,7 +753,7 @@ func (p *ProxmoxProvider) shouldUseAPI() bool {
 	case "auto":
 		fallthrough
 	default:
-		return p.hasAPIAccess()
+		return p.hasAPIAccess() && !p.IsReverseAgentConnection()
 	}
 }
 
@@ -757,7 +762,7 @@ func (p *ProxmoxProvider) shouldUseSSH() bool {
 	p.mu.RLock()
 	client := p.sshClient
 	p.mu.RUnlock()
-	switch p.config.ExecutionRule {
+	switch strings.ToLower(strings.TrimSpace(p.config.ExecutionRule)) {
 	case "api_only":
 		return false
 	case "ssh_only":
@@ -877,7 +882,7 @@ func parseProxmoxVMIDOutput(output string) (string, error) {
 
 // shouldFallbackToSSH 根据执行规则判断 API失败时是否可以回退到SSH
 func (p *ProxmoxProvider) shouldFallbackToSSH() bool {
-	switch p.config.ExecutionRule {
+	switch strings.ToLower(strings.TrimSpace(p.config.ExecutionRule)) {
 	case "api_only":
 		return false
 	case "ssh_only":
@@ -998,4 +1003,10 @@ func (p *ProxmoxProvider) supportsCloneFstrim() bool {
 func init() {
 	provider.RegisterProvider("proxmox", NewProxmoxProvider)
 	provider.RegisterProvider("proxmoxve", NewProxmoxProvider)
+}
+
+func (p *ProxmoxProvider) IsReverseAgentConnection() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.reverseAgent
 }

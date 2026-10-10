@@ -1,7 +1,8 @@
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import i18n from '@/i18n'
 
 const t = (...args) => i18n.global.t(...args)
+let pastePending = false
 
 /**
  * 复制文本到剪贴板
@@ -24,12 +25,14 @@ export async function copyToClipboard(text, successMessage, errorMessage) {
   try {
     // 优先使用现代的 Clipboard API
     // 此API要求安全上下文（HTTPS或localhost）
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text)
-      if (successMessage) {
-        ElMessage.success(successMessage)
+    if (navigator.clipboard?.writeText && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(text)
+        if (successMessage) ElMessage.success(successMessage)
+        return true
+      } catch {
+        // Permission denial can still allow a user-initiated legacy copy.
       }
-      return true
     }
 
     // 降级方案：使用传统的 document.execCommand
@@ -47,6 +50,7 @@ export async function copyToClipboard(text, successMessage, errorMessage) {
     
     // 到DOM
     document.body.appendChild(textArea)
+    const previousFocus = document.activeElement
     
     try {
       // 聚焦并选中文本
@@ -68,6 +72,7 @@ export async function copyToClipboard(text, successMessage, errorMessage) {
     } finally {
       // 无论成功与否，都要移除临时元素
       document.body.removeChild(textArea)
+      previousFocus?.focus?.({ preventScroll: true })
     }
   } catch (error) {
     console.error('复制失败:', error)
@@ -81,35 +86,34 @@ export async function copyToClipboard(text, successMessage, errorMessage) {
 /**
  * Read text from the system clipboard.
  *
- * Clipboard reads are only available to a focused page in a secure context;
- * unlike writes, there is no reliable execCommand fallback. Returning null
- * keeps callers from accidentally sending an incomplete paste to a session.
+ * Prefer the Clipboard API in a secure context. On HTTP pages, or when the
+ * browser denies permission, use a focused multiline input so the browser's
+ * native paste event can still provide the text without sending a partial
+ * command to the session.
  *
  * @param {string} errorMessage - Message shown when the read fails
  * @param {string} unavailableMessage - Message shown when the API cannot be used
  * @returns {Promise<string|null>} - Clipboard text, or null on failure
  */
 export async function readFromClipboard(errorMessage, unavailableMessage) {
-  if (errorMessage === undefined) errorMessage = t('common.pasteFailed')
-  if (unavailableMessage === undefined) unavailableMessage = t('common.clipboardUnavailable')
-
-  if (typeof navigator === 'undefined'
-    || !navigator.clipboard
-    || typeof navigator.clipboard.readText !== 'function'
-    || typeof window === 'undefined'
-    || !window.isSecureContext) {
-    ElMessage.error(unavailableMessage)
-    return null
-  }
-
+  if (pastePending) return null
+  pastePending = true
   try {
-    return await navigator.clipboard.readText()
-  } catch (error) {
-    console.error('读取剪贴板失败:', error)
-    if (errorMessage) {
-      ElMessage.error(errorMessage)
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.readText
+      && typeof window !== 'undefined' && window.isSecureContext) {
+      try { return await navigator.clipboard.readText() } catch { /* use native paste input */ }
     }
+    const result = await ElMessageBox.prompt(t('common.terminalPasteHint'), t('common.paste'), {
+      inputType: 'textarea',
+      confirmButtonText: t('common.paste'),
+      cancelButtonText: t('common.cancel'),
+      closeOnClickModal: false,
+    })
+    return result.value
+  } catch {
     return null
+  } finally {
+    pastePending = false
   }
 }
 

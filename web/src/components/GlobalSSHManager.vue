@@ -472,31 +472,61 @@ const openSSHInNewWindow = (conn) => {
       // ── 复制/粘贴辅助函数 ────────────────────────────────────────
       function copySelectionToClipboard() {
         var selection = terminal.getSelection();
-        if (selection) {
-          try {
-            navigator.clipboard.writeText(selection).catch(function() {});
-          } catch (e) {
-            var textarea = document.createElement('textarea');
-            textarea.value = selection;
-            textarea.style.position = 'fixed';
-            textarea.style.opacity = '0';
-            document.body.appendChild(textarea);
-            textarea.select();
-            try { document.execCommand('copy'); } catch (ex) {}
-            document.body.removeChild(textarea);
+        if (!selection) return;
+        function legacyCopy() {
+          var previousFocus = document.activeElement;
+          var textarea = document.createElement('textarea');
+          textarea.value = selection;
+          textarea.style.position = 'fixed';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.select();
+          try { document.execCommand('copy'); } finally {
+            textarea.remove();
+            if (previousFocus) previousFocus.focus();
           }
         }
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(selection).catch(legacyCopy);
+        } else legacyCopy();
       }
 
-      function pasteFromClipboard() {
-        if (!websocket || websocket.readyState !== WebSocket.OPEN) return;
+      var pastePending = false;
+      async function pasteFromClipboard() {
+        if (pastePending || !websocket || websocket.readyState !== WebSocket.OPEN) return;
+        pastePending = true;
+        var pasteSocket = websocket;
         try {
-          navigator.clipboard.readText().then(function(text) {
-            if (websocket && websocket.readyState === WebSocket.OPEN) {
-              websocket.send(text);
-            }
-          }).catch(function() {});
-        } catch (e) {}
+          var text;
+          if (navigator.clipboard && window.isSecureContext) {
+            try { text = await navigator.clipboard.readText(); } catch (e) {}
+          }
+          if (text === undefined) {
+            text = await new Promise(function(resolve) {
+              var dialog = document.createElement('dialog');
+              var hint = document.createElement('p');
+              hint.textContent = ${JSON.stringify(t('common.terminalPasteHint'))};
+              var input = document.createElement('textarea');
+              input.rows = 6;
+              input.cols = 50;
+              var send = document.createElement('button');
+              send.textContent = ${JSON.stringify(t('common.paste'))};
+              var cancel = document.createElement('button');
+              cancel.textContent = ${JSON.stringify(t('common.cancel'))};
+              function finish(value) { dialog.close(); dialog.remove(); resolve(value); }
+              send.onclick = function() { finish(input.value); };
+              cancel.onclick = function() { finish(null); };
+              dialog.oncancel = function(event) { event.preventDefault(); finish(null); };
+              dialog.append(hint, input, document.createElement('br'), send, cancel);
+              document.body.appendChild(dialog);
+              dialog.showModal();
+              input.focus();
+            });
+          }
+          if (text !== null && websocket === pasteSocket && pasteSocket.readyState === WebSocket.OPEN) {
+            terminal.paste(text);
+          }
+        } finally { pastePending = false; terminal.focus(); }
       }
 
       // ── 右键上下文菜单 ────────────────────────────────────────────
@@ -537,6 +567,7 @@ const openSSHInNewWindow = (conn) => {
 
       // ── 键盘快捷键 ────────────────────────────────────────────────
       terminal.attachCustomKeyEventHandler(function(event) {
+        if (event.type !== 'keydown') return true;
         var hasSelection = terminal.hasSelection();
         var ctrlOrCmd = isMac ? event.metaKey : event.ctrlKey;
         var shift = event.shiftKey;
@@ -554,12 +585,10 @@ const openSSHInNewWindow = (conn) => {
           return false;
         }
         if (event.shiftKey && event.code === 'Insert') {
-          pasteFromClipboard();
-          return false;
+          return true;
         }
         if (ctrlOrCmd && shift && event.code === 'KeyV') {
-          pasteFromClipboard();
-          return false;
+          return true;
         }
         return true;
       });

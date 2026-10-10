@@ -116,7 +116,7 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v7
       with:
-        node-version: '22'
+        node-version: '24'
         cache: 'npm'
         cache-dependency-path: web/package-lock.json
 
@@ -182,24 +182,21 @@ jobs:
         sed -i "s/const ServerVersion = \".*\"/const ServerVersion = \"${TAG_NAME}\"/" server/constant/version.go
         AGENT_VERSION=$(sed -n 's/^version = "\([^"]*\)"/\1/p' server/agent/Cargo.toml | head -1)
         MIN_AGENT_VERSION=$(sed -n 's/^const CompatibleAgentVersion = "\([^"]*\)"/\1/p' server/constant/version.go)
+        CURRENT_AGENT_VERSION=$(sed -n 's/^const CurrentAgentVersion = "\([^"]*\)"/\1/p' server/constant/version.go)
         test -n "${AGENT_VERSION}"
-        test "${AGENT_VERSION}" = "${MIN_AGENT_VERSION}"
+        test "${AGENT_VERSION}" = "${CURRENT_AGENT_VERSION}"
+        python3 - "${AGENT_VERSION}" "${MIN_AGENT_VERSION}" <<'PY'
+        import sys
+        version, minimum = (tuple(map(int, value.split('.'))) for value in sys.argv[1:])
+        assert version >= minimum, 'Agent release is below the minimum compatible version'
+        PY
         echo "Updated controller release tag to: ${TAG_NAME}; minimum Agent API version: ${MIN_AGENT_VERSION}"
         cat server/constant/version.go
-
-    - name: Cache npm dependencies
-      uses: actions/cache@v6
-      with:
-        path: web/node_modules
-        key: ${{ runner.os }}-npm-${{ hashFiles('web/package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-npm-
 
     - name: Build Vue web application
       run: |
         cd web
-        npm ci || npm install
-        npm install @rollup/rollup-linux-x64-gnu --save-dev --force
+        npm ci --include=optional
         npm run test:unit
         npm run build
         cd dist

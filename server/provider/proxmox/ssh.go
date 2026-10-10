@@ -69,17 +69,17 @@ func (p *ProxmoxProvider) sshStartKnownInstance(ctx context.Context, vmid, insta
 	var statusCommand, startCommand string
 	switch instanceType {
 	case "vm":
-		statusCommand = fmt.Sprintf("qm status %s", vmid)
+		statusCommand = fmt.Sprintf("LC_ALL=C NO_COLOR=1 qm status %s", vmid)
 		startCommand = fmt.Sprintf("qm start %s", vmid)
 	case "container":
-		statusCommand = fmt.Sprintf("pct status %s", vmid)
+		statusCommand = fmt.Sprintf("LC_ALL=C NO_COLOR=1 pct status %s", vmid)
 		startCommand = fmt.Sprintf("pct start %s", vmid)
 	default:
 		return fmt.Errorf("unknown instance type: %s", instanceType)
 	}
 
 	statusOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, statusCommand)
-	if err == nil && strings.Contains(statusOutput, "status: running") {
+	if err == nil && parsePVEStatusOutput(statusOutput) == "running" {
 		// 实例已经在运行，等待3秒认为启动成功
 		if err := utils.SleepContext(ctx, 3*time.Second); err != nil {
 			return err
@@ -95,7 +95,7 @@ func (p *ProxmoxProvider) sshStartKnownInstance(ctx context.Context, vmid, insta
 	startOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, startCommand)
 	if err != nil {
 		statusAfter, statusErr := utils.ExecuteShellCommandContext(ctx, p.sshClient, statusCommand)
-		if statusErr == nil && strings.Contains(statusAfter, "status: running") {
+		if statusErr == nil && parsePVEStatusOutput(statusAfter) == "running" {
 			global.APP_LOG.Debug("Proxmox启动命令失败后状态已变为运行，继续流程",
 				zap.String("id", vmid),
 				zap.String("vmid", vmid),
@@ -136,7 +136,7 @@ func (p *ProxmoxProvider) sshStartKnownInstance(ctx context.Context, vmid, insta
 		statusOutput, err := utils.ExecuteShellCommandContext(waitCtx, p.sshClient, statusCommand)
 		lastStatus = strings.TrimSpace(statusOutput)
 		lastStatusErr = err
-		if err == nil && strings.Contains(statusOutput, "status: running") {
+		if err == nil && parsePVEStatusOutput(statusOutput) == "running" {
 			// 实例已经启动
 			global.APP_LOG.Debug("Proxmox实例已成功启动",
 				zap.String("id", vmid),
@@ -223,12 +223,12 @@ func (p *ProxmoxProvider) sshStopInstance(ctx context.Context, id string) error 
 	// 执行停止命令
 	stopOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, command)
 	if err != nil {
-		statusCommand := fmt.Sprintf("pct status %s", vmid)
+		statusCommand := fmt.Sprintf("LC_ALL=C NO_COLOR=1 pct status %s", vmid)
 		if instanceType == "vm" {
-			statusCommand = fmt.Sprintf("qm status %s", vmid)
+			statusCommand = fmt.Sprintf("LC_ALL=C NO_COLOR=1 qm status %s", vmid)
 		}
 		statusAfter, statusErr := utils.ExecuteShellCommandContext(ctx, p.sshClient, statusCommand)
-		if statusErr == nil && strings.Contains(statusAfter, "status: stopped") {
+		if statusErr == nil && parsePVEStatusOutput(statusAfter) == "stopped" {
 			return nil
 		}
 		return fmt.Errorf("failed to stop %s %s: %w; output: %s; status: %s", instanceType, vmid, err, utils.TruncateString(strings.TrimSpace(stopOutput), 8000), utils.TruncateString(strings.TrimSpace(statusAfter), 2000))
@@ -238,7 +238,7 @@ func (p *ProxmoxProvider) sshStopInstance(ctx context.Context, id string) error 
 		zap.String("id", utils.TruncateString(id, 50)),
 		zap.String("vmid", vmid),
 		zap.String("type", instanceType))
-	return nil
+	return p.waitStopped(ctx, vmid, instanceType)
 }
 
 func (p *ProxmoxProvider) sshRestartInstance(ctx context.Context, id string) error {

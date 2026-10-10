@@ -1,18 +1,13 @@
 # OneClickVirt All-in-One Container
 
 ARG GO_VERSION=1.25.0
-FROM node:22-slim AS frontend-builder
+FROM node:24-slim AS frontend-builder
 ARG TARGETARCH
 ARG NODE_OPTIONS=--max-old-space-size=1024
 ENV NODE_OPTIONS=${NODE_OPTIONS}
 WORKDIR /app/web
 COPY web/package*.json ./
 RUN npm ci --include=optional
-RUN if [ "$TARGETARCH" = "amd64" ]; then \
-        npm install --no-save @rollup/rollup-linux-x64-gnu; \
-    elif [ "$TARGETARCH" = "arm64" ]; then \
-        npm install --no-save @rollup/rollup-linux-arm64-gnu; \
-    fi
 COPY web/ ./
 RUN npm run build
 

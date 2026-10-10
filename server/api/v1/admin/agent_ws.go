@@ -36,6 +36,17 @@ var wsUpgrader = websocket.Upgrader{
 //	@Param			secret	query	string	true	"Agent 鉴权密钥"
 //	@Router			/ws/agent [get]
 func AgentWebSocket(c *gin.Context) {
+	// Probe the same proxy/TLS path without authenticating or replacing an
+	// existing Agent connection. No database or Hub access is needed.
+	if c.Query("probe") == "1" {
+		conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
+		if err == nil {
+			defer conn.Close()
+			_ = conn.WriteControl(websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.CloseNormalClosure, "probe"), time.Now().Add(time.Second))
+		}
+		return
+	}
 	// 1. Query params (legacy, kept for backward compatibility)
 	secret := c.Query("secret")
 	if secret == "" {

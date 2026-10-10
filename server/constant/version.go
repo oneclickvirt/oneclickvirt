@@ -12,10 +12,14 @@ const ServerVersion = "0.3.0"
 const AgentReleaseVersion = ServerVersion
 
 // CompatibleAgentVersion is the minimum agent version compatible with this server.
-// This value follows server/agent/Cargo.toml's semver and is independent of
+// This value uses semver and is independent of
 // the controller's timestamp release tags. Older agents that predate version
 // reporting use an empty string and remain compatible for backward compatibility.
 const CompatibleAgentVersion = "0.4.0"
+
+// CurrentAgentVersion is the version shipped in this controller's Agent assets.
+// Compatible patch releases do not raise the minimum and disconnect existing nodes.
+const CurrentAgentVersion = "0.4.1"
 
 const APIContractVersion = "2026-08-16.1"
 

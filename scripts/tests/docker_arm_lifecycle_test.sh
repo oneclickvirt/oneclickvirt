@@ -10,7 +10,7 @@ EXPECTED_ARCH="${EXPECTED_ARCH:-arm64}"
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-240}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 NO_DB_CONFIG_PREPARER="${ROOT_DIR}/scripts/tests/prepare_no_db_lifecycle_config.sh"
-EXPECTED_AGENT_VERSION="$(sed -n 's/^const CompatibleAgentVersion = "\([^"]*\)"$/\1/p' "${ROOT_DIR}/server/constant/version.go")"
+EXPECTED_AGENT_VERSION="$(sed -n 's/^version = "\([^"]*\)"$/\1/p' "${ROOT_DIR}/server/agent/Cargo.toml" | head -1)"
 
 RUN_ID="${GITHUB_RUN_ID:-local}-$$"
 RUN_ID="${RUN_ID//[^a-zA-Z0-9_.-]/-}"

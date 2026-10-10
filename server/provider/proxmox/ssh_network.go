@@ -13,6 +13,7 @@ import (
 	"oneclickvirt/provider"
 	"oneclickvirt/service/pmacct"
 	"oneclickvirt/service/traffic"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -266,8 +267,8 @@ func (p *ProxmoxProvider) initializePmacctMonitoring(ctx context.Context, vmid i
 			return fmt.Errorf("等待实例运行超时")
 		}
 
-		statusOutput, err := p.sshClient.Execute(statusCmd)
-		if err == nil && strings.Contains(statusOutput, "status: running") {
+		statusOutput, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, "LC_ALL=C NO_COLOR=1 "+statusCmd)
+		if err == nil && parsePVEStatusOutput(statusOutput) == "running" {
 			isRunning = true
 			global.APP_LOG.Debug("实例已确认运行，准备初始化pmacct",
 				zap.String("instance_name", instanceName),
@@ -280,7 +281,9 @@ func (p *ProxmoxProvider) initializePmacctMonitoring(ctx context.Context, vmid i
 			zap.Int("vmid", vmid),
 			zap.Duration("elapsed", time.Since(startTime)))
 
-		time.Sleep(checkInterval)
+		if err := utils.SleepContext(ctx, checkInterval); err != nil {
+			return err
+		}
 	}
 
 	if !isRunning {

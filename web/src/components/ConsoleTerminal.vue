@@ -141,8 +141,10 @@ async function pasteFromClipboard() {
     ElMessage.warning(t('user.instanceDetail.consoleTerminalClosed'))
     return
   }
+  const pasteSocket = websocket
   const text = await readFromClipboard(t('common.pasteFailed'))
-  if (text !== null) sendTerminalInput(text)
+  if (websocket !== pasteSocket) return false
+  if (text !== null) terminal.paste(text)
 }
 
 function sendTerminalInput(data) {
@@ -224,14 +226,14 @@ function initTerminal() {
   }
 
   terminal.attachCustomKeyEventHandler(event => {
+    if (event.type !== 'keydown') return true
     const ctrlOrCmd = isMac.value ? event.metaKey : event.ctrlKey
     if (ctrlOrCmd && event.shiftKey && event.code === 'KeyC') {
       copySelection()
       return false
     }
     if (ctrlOrCmd && event.shiftKey && event.code === 'KeyV') {
-      pasteFromClipboard()
-      return false
+      return true
     }
     if (isMac.value && event.metaKey && !event.shiftKey && event.code === 'KeyC' && terminal.hasSelection()) {
       copySelection()
@@ -242,8 +244,7 @@ function initTerminal() {
       return false
     }
     if (event.shiftKey && event.code === 'Insert') {
-      pasteFromClipboard()
-      return false
+      return true
     }
     return true
   })

@@ -3,7 +3,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { detectLocalProvider } from '@/api/admin/providers'
 import { copyToClipboard as copyToClipboardUtil } from '@/utils/clipboard'
-import { canProbeWssEndpoint } from './agentWsProbeCore'
+import { extractAgentWsURL, agentWsProbeURL, replaceAgentWsProtocol, startAgentWsProbe } from './agentWsProbeCore'
 
 export function useConnectionTab(props, emit) {
   const { t } = useI18n()
@@ -17,7 +17,8 @@ export function useConnectionTab(props, emit) {
   // on this host. The toggle is forced off and a warning is shown.
   const wssUnavailable = ref(false)
   const probingWSS = ref(false)
-  let wssProbeSocket = null
+  let activeProbe = null
+  let probeGeneration = 0
 
   const isAgentMode = computed(() => props.modelValue.connectionType === 'agent')
   const isLocalMode = computed(() => props.modelValue.connectionType === 'local')
@@ -41,11 +42,7 @@ export function useConnectionTab(props, emit) {
     let cmd = useControllerSource.value ? props.agentConnectCmd : props.agentConnectCmdGithub
     if (!cmd) return ''
     // WSS/WS toggle: replace scheme in --ws-url parameter
-    if (useWSS.value) {
-      cmd = cmd.replace(/--ws-url ws:\/\//g, '--ws-url wss://')
-    } else {
-      cmd = cmd.replace(/--ws-url wss:\/\//g, '--ws-url ws://')
-    }
+    cmd = replaceAgentWsProtocol(cmd, useWSS.value ? 'wss' : 'ws')
     // CDN toggle: strip CDN prefix for direct connection
     if (!useCDN.value) {
       cmd = cmd.replace(/https:\/\/cdn[^/]*\.[^/]+\//, '')
@@ -61,87 +58,53 @@ export function useConnectionTab(props, emit) {
     }
   }, { immediate: true })
 
-  // ── wss:// availability probe ──────────────────────────────────────────
-  // When the install command appears, extract the --ws-url host:port and
-  // attempt a brief WebSocket connection via wss://.  If the TLS handshake
-  // fails (onerror fires without onopen), force useWSS to false and show a
-  // warning so the admin doesn't generate a broken wss:// install command.
-  const extractWsOrigin = (cmd) => {
-    const m = cmd.match(/--ws-url\s+(wss?:\/\/[^\s]+)/)
-    if (!m) return null
-    try {
-      const u = new URL(m[1])
-      return { host: u.host, path: u.pathname, wss: `wss://${u.host}${u.pathname}` }
-    } catch { return null }
-  }
+  const extractWsOrigin = extractAgentWsURL
 
-  const probeWssAvailability = (cmd) => {
-    // Clean up any previous probe socket
-    if (wssProbeSocket) {
-      wssProbeSocket.onerror = null
-      wssProbeSocket.onopen = null
-      wssProbeSocket.close()
-      wssProbeSocket = null
-    }
-
-    const origin = extractWsOrigin(cmd)
-    if (!origin) return
-
-    // Only probe anonymous endpoints. The Agent reverse socket needs a
-    // provider-bound secret in its handshake, so an anonymous browser probe
-    // would always receive 401 even when WSS is healthy.
-    if (!origin.wss.startsWith('wss://') || !canProbeWssEndpoint(origin)) return
-
-    probingWSS.value = true
-    let resolved = false
-
-    const finish = (available) => {
-      if (resolved) return
-      resolved = true
-      probingWSS.value = false
-      if (!available) {
-        wssUnavailable.value = true
-        useWSS.value = false
-      }
-      if (wssProbeSocket) {
-        wssProbeSocket.onerror = null
-        wssProbeSocket.onopen = null
-        wssProbeSocket.close()
-        wssProbeSocket = null
-      }
-    }
-
-    try {
-      wssProbeSocket = new WebSocket(origin.wss)
-      wssProbeSocket.onopen = () => finish(true)
-      wssProbeSocket.onerror = () => {
-        // onerror fires for TLS failures almost immediately.
-        // Wait a short grace period in case onopen is about to fire.
-        setTimeout(() => finish(false), 800)
-      }
-      // Safety timeout: give up after 4 s
-      setTimeout(() => finish(false), 4000)
-    } catch {
-      finish(false)
-    }
-  }
-
-  // Re-probe whenever a new install command is generated
-  watch(() => [props.agentConnectCmd, props.agentConnectCmdGithub], ([controllerCmd]) => {
+  const probeWssAvailability = async (cmd) => {
+    const generation = ++probeGeneration
+    activeProbe?.cancel()
+    activeProbe = null
     wssUnavailable.value = false
-    useWSS.value = true
-    if (controllerCmd) {
-      probeWssAvailability(controllerCmd)
+    probingWSS.value = false
+    const endpoint = extractAgentWsURL(cmd)
+    if (!endpoint) return
+    // Keep the server's inferred protocol until a successful probe says otherwise.
+    useWSS.value = endpoint.protocol === 'wss:'
+    probingWSS.value = true
+    try {
+      activeProbe = startAgentWsProbe(agentWsProbeURL(endpoint, 'wss:'))
+      const secure = await activeProbe.promise
+      if (generation !== probeGeneration) return
+      if (secure) {
+        useWSS.value = true
+        return
+      }
+      // HTTPS pages cannot open a plain WebSocket; retain the server's choice
+      // when this browser cannot verify the alternative.
+      if (window.location.protocol === 'https:') return
+      activeProbe = startAgentWsProbe(agentWsProbeURL(endpoint, 'ws:'))
+      const plain = await activeProbe.promise
+      if (generation !== probeGeneration) return
+      if (plain) {
+        useWSS.value = false
+        wssUnavailable.value = true
+      }
+    } finally {
+      if (generation === probeGeneration) {
+        activeProbe = null
+        probingWSS.value = false
+      }
     }
+  }
+
+  watch(() => [props.agentConnectCmd, props.agentConnectCmdGithub], ([controllerCmd, githubCmd]) => {
+    probeWssAvailability(controllerCmd || githubCmd)
   }, { immediate: true })
 
   onBeforeUnmount(() => {
-    if (wssProbeSocket) {
-      wssProbeSocket.onerror = null
-      wssProbeSocket.onopen = null
-      wssProbeSocket.close()
-      wssProbeSocket = null
-    }
+    ++probeGeneration
+    activeProbe?.cancel()
+    activeProbe = null
   })
 
   // 格式化在线时长（输入: ISO时间字符串或Date，输出: "1h 23m" 或 "5m 30s"）

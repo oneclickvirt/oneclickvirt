@@ -5,7 +5,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"oneclickvirt/global"
 
@@ -17,8 +16,15 @@ func TestProxmoxSSHKnownStartFailsWhenGuestRemainsStopped(t *testing.T) {
 	global.APP_LOG = zap.NewNop()
 	t.Cleanup(func() { global.APP_LOG = oldLog })
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	statusReads := 0
 	executor := &ipv6CommandExecutor{output: func(command string) string {
-		if command == "pct status 100" {
+		if command == "LC_ALL=C NO_COLOR=1 pct status 100" {
+			statusReads++
+			if statusReads > 1 {
+				cancel()
+			}
 			return "status: stopped"
 		}
 		return ""
@@ -26,8 +32,6 @@ func TestProxmoxSSHKnownStartFailsWhenGuestRemainsStopped(t *testing.T) {
 	p := NewProxmoxProvider().(*ProxmoxProvider)
 	p.sshClient.SetExecutor(executor)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
-	defer cancel()
 	err := p.sshStartKnownInstance(ctx, "100", "container")
 	if err == nil {
 		t.Fatal("sshStartKnownInstance() accepted a guest that remained stopped")
@@ -51,7 +55,7 @@ func TestProxmoxSSHKnownStartPropagatesStartFailure(t *testing.T) {
 
 	executor := &ipv6CommandExecutor{
 		output: func(command string) string {
-			if command == "pct status 100" {
+			if command == "LC_ALL=C NO_COLOR=1 pct status 100" {
 				return "status: stopped"
 			}
 			return ""

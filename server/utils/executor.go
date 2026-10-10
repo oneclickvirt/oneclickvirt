@@ -37,6 +37,31 @@ type ContextShellExecutor interface {
 	ExecuteContext(context.Context, string) (string, error)
 }
 
+// ExecuteShellCommandTimeoutContext keeps cancellation and the command-specific
+// timeout together. Legacy transports finish in flight before releasing locks.
+func ExecuteShellCommandTimeoutContext(ctx context.Context, executor ShellExecutor, command string, timeout time.Duration) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if contextual, ok := executor.(ContextShellExecutor); ok {
+		output, err := contextual.ExecuteContext(ctx, command)
+		if ctx.Err() != nil {
+			return output, ctx.Err()
+		}
+		return output, err
+	}
+	output, err := executor.ExecuteWithTimeout(command, timeout)
+	if ctx.Err() != nil {
+		return output, ctx.Err()
+	}
+	return output, err
+}
+
 // ExecuteViaTempScriptContext runs a temporary script while preserving the
 // task's cancellation boundary.  Transports that can terminate a detached
 // script may implement ContextTempScriptExecutor; legacy transports are
@@ -55,7 +80,11 @@ func ExecuteViaTempScriptContext(ctx context.Context, executor ShellExecutor, sc
 		return "", err
 	}
 	if contextual, ok := executor.(ContextTempScriptExecutor); ok {
-		return contextual.ExecuteViaTempScriptContext(ctx, script, args, timeout)
+		output, err := contextual.ExecuteViaTempScriptContext(ctx, script, args, timeout)
+		if ctx.Err() != nil {
+			return output, ctx.Err()
+		}
+		return output, err
 	}
 
 	type result struct {
@@ -92,7 +121,11 @@ func ExecuteShellCommandContext(ctx context.Context, executor ShellExecutor, com
 		return "", err
 	}
 	if contextual, ok := executor.(ContextShellExecutor); ok {
-		return contextual.ExecuteContext(ctx, command)
+		output, err := contextual.ExecuteContext(ctx, command)
+		if ctx.Err() != nil {
+			return output, ctx.Err()
+		}
+		return output, err
 	}
 
 	type result struct {

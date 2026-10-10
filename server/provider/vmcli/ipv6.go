@@ -81,7 +81,8 @@ cleanup() {
   fi
 }
 trap cleanup ERR
-mkdir -p "$base/$name"
+mkdir -p "$base"
+mkdir "$base/$name"
 created=1
 if [ -n "$image" ] && VBoxManage showvminfo "$image" >/dev/null 2>&1; then
   VBoxManage clonevm "$image" --name "$name" --register
@@ -175,8 +176,9 @@ name=%s
 box=%s
 base=%s
 dir="$base/$name"
-test -e "$dir/Vagrantfile" && { echo "Vagrant instance already exists: $name" >&2; exit 1; }
-mkdir -p "$dir"
+test -e "$dir" && { echo "Vagrant instance already exists: $name" >&2; exit 1; }
+mkdir -p "$base"
+mkdir "$dir"
 created=0
 cleanup() {
   if [ "$created" = 1 ]; then

@@ -410,7 +410,7 @@
               <el-switch
                 v-model="useWSS"
                 size="small"
-                :disabled="wssUnavailable"
+                :disabled="wssUnavailable || probingWSS"
                 :active-text="$t('admin.providers.wssSecure')"
                 :inactive-text="$t('admin.providers.wsPlain')"
                 style="--el-switch-on-color: #13ce66;"
@@ -425,6 +425,7 @@
               />
               <el-button
                 size="small"
+                :loading="probingWSS"
                 @click="copyCmd(installCmdDisplay)"
               >
                 {{ $t('common.copy') }}
