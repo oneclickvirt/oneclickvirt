@@ -13,10 +13,12 @@ export function useConnectionTab(props, emit) {
   const useControllerSource = ref(true)
   const detectingLocal = ref(false)
   const localDetectionResult = ref(null)
-  // wssUnavailable: true when the probe detected that wss:// does NOT work
-  // on this host. The toggle is forced off and a warning is shown.
+  // wssUnavailable: true when the probe found ws:// as the working fallback.
+  // The command is downgraded automatically; the toggle remains available so
+  // an administrator can retry wss:// after changing the proxy configuration.
   const wssUnavailable = ref(false)
   const probingWSS = ref(false)
+  const detectedAgentProtocol = ref('')
   let activeProbe = null
   let probeGeneration = 0
 
@@ -59,6 +61,9 @@ export function useConnectionTab(props, emit) {
   }, { immediate: true })
 
   const extractWsOrigin = extractAgentWsURL
+  const selectedAgentCommand = computed(() => (
+    useControllerSource.value ? props.agentConnectCmd : props.agentConnectCmdGithub
+  ))
 
   const probeWssAvailability = async (cmd) => {
     const generation = ++probeGeneration
@@ -67,27 +72,31 @@ export function useConnectionTab(props, emit) {
     wssUnavailable.value = false
     probingWSS.value = false
     const endpoint = extractAgentWsURL(cmd)
+    detectedAgentProtocol.value = ''
     if (!endpoint) return
-    // Keep the server's inferred protocol until a successful probe says otherwise.
+    // The controller has already selected an inferred protocol. Keep it as a
+    // usable command immediately, then replace it only after a real browser
+    // handshake succeeds.
     useWSS.value = endpoint.protocol === 'wss:'
+    detectedAgentProtocol.value = useWSS.value ? 'wss' : 'ws'
     probingWSS.value = true
     try {
-      activeProbe = startAgentWsProbe(agentWsProbeURL(endpoint, 'wss:'))
-      const secure = await activeProbe.promise
-      if (generation !== probeGeneration) return
-      if (secure) {
-        useWSS.value = true
-        return
-      }
-      // HTTPS pages cannot open a plain WebSocket; retain the server's choice
-      // when this browser cannot verify the alternative.
-      if (window.location.protocol === 'https:') return
-      activeProbe = startAgentWsProbe(agentWsProbeURL(endpoint, 'ws:'))
-      const plain = await activeProbe.promise
-      if (generation !== probeGeneration) return
-      if (plain) {
-        useWSS.value = false
-        wssUnavailable.value = true
+      const pageIsSecure = typeof window !== 'undefined' && window.location.protocol === 'https:'
+      const candidates = ['wss:', 'ws:']
+      for (const protocol of candidates) {
+        // Browsers reject mixed-content WS from HTTPS before the handshake.
+        // Keep the controller's inferred protocol in that case; it is the
+        // only protocol that can still be used by the Agent installer.
+        if (protocol === 'ws:' && pageIsSecure) continue
+        activeProbe = startAgentWsProbe(agentWsProbeURL(endpoint, protocol))
+        const available = await activeProbe.promise
+        if (generation !== probeGeneration) return
+        if (available) {
+          useWSS.value = protocol === 'wss:'
+          detectedAgentProtocol.value = protocol === 'wss:' ? 'wss' : 'ws'
+          wssUnavailable.value = protocol !== 'wss:'
+          return
+        }
       }
     } finally {
       if (generation === probeGeneration) {
@@ -97,8 +106,8 @@ export function useConnectionTab(props, emit) {
     }
   }
 
-  watch(() => [props.agentConnectCmd, props.agentConnectCmdGithub], ([controllerCmd, githubCmd]) => {
-    probeWssAvailability(controllerCmd || githubCmd)
+  watch(selectedAgentCommand, (command) => {
+    probeWssAvailability(command)
   }, { immediate: true })
 
   onBeforeUnmount(() => {
@@ -164,6 +173,7 @@ export function useConnectionTab(props, emit) {
     localCommand,
     useCDN,
     useWSS,
+    detectedAgentProtocol,
     useControllerSource,
     wssUnavailable,
     probingWSS,

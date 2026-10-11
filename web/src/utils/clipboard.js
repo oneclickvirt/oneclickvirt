@@ -110,10 +110,32 @@ export async function readFromClipboard(errorMessage, unavailableMessage) {
       closeOnClickModal: false,
     })
     return result.value
-  } catch {
+  } catch (error) {
+    // Cancellation is an intentional outcome. Report real fallback failures
+    // instead of silently turning them into the browser's "unavailable"
+    // message, which is especially confusing on HTTP pages.
+    if (error !== 'cancel' && error !== 'close') {
+      const message = unavailableMessage || errorMessage
+      if (message) ElMessage.warning(message)
+    }
     return null
   } finally {
     pastePending = false
+  }
+}
+
+/**
+ * Read plain text from a browser paste event without requiring the Clipboard
+ * API. This is the path that keeps Web SSH paste working on HTTP pages.
+ */
+export function getTextFromPasteEvent(event) {
+  const clipboardData = event?.clipboardData
+  if (!clipboardData || typeof clipboardData.getData !== 'function') return null
+  try {
+    const text = clipboardData.getData('text/plain')
+    return typeof text === 'string' ? text : null
+  } catch {
+    return null
   }
 }
 
@@ -151,6 +173,7 @@ export function isClipboardAvailable() {
 export default {
   copyToClipboard,
   readFromClipboard,
+  getTextFromPasteEvent,
   copyObjectAsJSON,
   isClipboardAvailable
 }

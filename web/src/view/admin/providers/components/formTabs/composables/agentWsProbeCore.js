@@ -1,5 +1,5 @@
 export function extractAgentWsURL(command) {
-  const match = String(command || '').match(/--ws-url\s+['"]?(wss?:\/\/[^\s'"]+)/)
+  const match = String(command || '').match(/--ws-url(?:=|\s+)['"]?(wss?:\/\/[^\s'"]+)/)
   if (!match) return null
   try {
     const url = new URL(match[1])
@@ -19,7 +19,7 @@ export function agentWsProbeURL(url, protocol) {
 export function replaceAgentWsProtocol(command, protocol) {
   if (!['ws', 'wss'].includes(protocol)) return String(command || '')
   return String(command || '').replace(
-    /(--ws-url\s+['"]?)wss?:\/\//g,
+    /(--ws-url(?:=|\s+)['"]?)wss?:\/\//g,
     `$1${protocol}://`
   )
 }

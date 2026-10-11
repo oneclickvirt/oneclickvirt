@@ -26,6 +26,7 @@
         class="terminal"
         @contextmenu="handleContextMenu"
         @mousedown="handleMouseDown"
+        @paste.capture="handleNativePaste"
       />
     </div>
 
@@ -89,7 +90,7 @@ import SFTPPanel from '@/components/SFTPPanel.vue'
 import { Refresh } from '@element-plus/icons-vue'
 import RemoteTerminalToolbar from '@/components/RemoteTerminalToolbar.vue'
 import { applyTerminalTheme } from '@/utils/terminalTheme'
-import { copyToClipboard, readFromClipboard } from '@/utils/clipboard'
+import { copyToClipboard, getTextFromPasteEvent, readFromClipboard } from '@/utils/clipboard'
 
 const { t } = useI18n()
 
@@ -153,6 +154,18 @@ const handleMouseDown = (event) => {
   if (event.button !== 2) {
     hideContextMenu()
   }
+}
+
+// Clipboard API reads are blocked on HTTP and in several embedded browsers,
+// but a user initiated paste event still carries plain text. Capture it before
+// xterm handles the event so the same path works for HTTP and HTTPS sessions.
+const handleNativePaste = (event) => {
+  if (!terminal || !websocket || websocket.readyState !== WebSocket.OPEN) return
+  const text = getTextFromPasteEvent(event)
+  if (text === null) return
+  event.preventDefault()
+  event.stopPropagation()
+  terminal.paste(text)
 }
 
 const handleCopy = () => {
@@ -248,7 +261,7 @@ const pasteFromClipboard = async () => {
     return false
   }
   const pasteSocket = websocket
-  const text = await readFromClipboard(t('common.pasteFailed'))
+  const text = await readFromClipboard(t('common.pasteFailed'), t('common.pasteFailed'))
   if (websocket !== pasteSocket) return false
   if (text === null) return false
   if (websocket && websocket.readyState === WebSocket.OPEN) {
@@ -322,7 +335,10 @@ const initTerminal = () => {
       return true
     }
     if (ctrlOrCmd && shift && event.code === 'KeyV') {
-      return true
+      event.preventDefault()
+      event.stopPropagation()
+      pasteFromClipboard()
+      return false
     }
     return true
   })

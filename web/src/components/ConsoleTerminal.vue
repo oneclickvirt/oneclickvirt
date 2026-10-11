@@ -3,6 +3,7 @@
     class="console-terminal-container"
     @contextmenu="showContextMenu"
     @mousedown="handleMouseDown"
+    @paste.capture="handleNativePaste"
   >
     <div
       ref="terminalRef"
@@ -55,7 +56,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { getScopedInstanceConsoleTerminalWsUrl } from '@/api/console'
-import { copyToClipboard, readFromClipboard } from '@/utils/clipboard'
+import { copyToClipboard, getTextFromPasteEvent, readFromClipboard } from '@/utils/clipboard'
 import { createSerialConsoleInputFilter } from '@/utils/serialConsoleInput'
 import { applyTerminalTheme } from '@/utils/terminalTheme'
 
@@ -129,6 +130,15 @@ function handleMouseDown(event) {
   if (event.button !== 2) hideContextMenu()
 }
 
+function handleNativePaste(event) {
+  if (!terminal || !websocket || websocket.readyState !== WebSocket.OPEN) return
+  const text = getTextFromPasteEvent(event)
+  if (text === null) return
+  event.preventDefault()
+  event.stopPropagation()
+  terminal.paste(text)
+}
+
 async function copySelection() {
   hideContextMenu()
   if (!terminal) return
@@ -142,9 +152,15 @@ async function pasteFromClipboard() {
     return
   }
   const pasteSocket = websocket
-  const text = await readFromClipboard(t('common.pasteFailed'))
+  const text = await readFromClipboard(t('common.pasteFailed'), t('common.pasteFailed'))
   if (websocket !== pasteSocket) return false
-  if (text !== null) terminal.paste(text)
+  if (text === null) return false
+  if (websocket?.readyState === WebSocket.OPEN) {
+    terminal.paste(text)
+    return true
+  }
+  ElMessage.warning(t('user.instanceDetail.consoleTerminalClosed'))
+  return false
 }
 
 function sendTerminalInput(data) {
@@ -233,7 +249,10 @@ function initTerminal() {
       return false
     }
     if (ctrlOrCmd && event.shiftKey && event.code === 'KeyV') {
-      return true
+      event.preventDefault()
+      event.stopPropagation()
+      pasteFromClipboard()
+      return false
     }
     if (isMac.value && event.metaKey && !event.shiftKey && event.code === 'KeyC' && terminal.hasSelection()) {
       copySelection()

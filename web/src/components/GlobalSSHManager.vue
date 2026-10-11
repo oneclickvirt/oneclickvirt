@@ -533,6 +533,26 @@ const openSSHInNewWindow = (conn) => {
       const ctxMenu = document.getElementById('ctxMenu');
       const termEl = document.getElementById('terminal');
 
+      // Clipboard API reads are blocked on HTTP and in several embedded
+      // browsers, but a user initiated paste event still carries plain text.
+      // Capture it before xterm handles the event so Web SSH works in both
+      // secure and non-secure pages.
+      termEl.addEventListener('paste', function(e) {
+        if (!websocket || websocket.readyState !== WebSocket.OPEN) return;
+        var data = e.clipboardData;
+        var text = null;
+        try {
+          text = data && typeof data.getData === 'function'
+            ? data.getData('text/plain') : null;
+        } catch (_) {
+          return;
+        }
+        if (typeof text !== 'string') return;
+        e.preventDefault();
+        e.stopPropagation();
+        terminal.paste(text);
+      }, true);
+
       function hideCtxMenu() { ctxMenu.classList.remove('visible'); }
 
       termEl.addEventListener('contextmenu', function(e) {
@@ -588,7 +608,10 @@ const openSSHInNewWindow = (conn) => {
           return true;
         }
         if (ctrlOrCmd && shift && event.code === 'KeyV') {
-          return true;
+          event.preventDefault();
+          event.stopPropagation();
+          pasteFromClipboard();
+          return false;
         }
         return true;
       });

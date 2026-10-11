@@ -13,6 +13,8 @@ test('command protocol replacement handles quoted and unquoted generated command
   const command = "curl script | sh -s -- --ws-url 'wss://controller/api/v1/ws/agent' --secret secret"
   assert.equal(replaceAgentWsProtocol(command, 'ws'), "curl script | sh -s -- --ws-url 'ws://controller/api/v1/ws/agent' --secret secret")
   assert.equal(replaceAgentWsProtocol('--ws-url wss://controller/path', 'ws'), '--ws-url ws://controller/path')
+  assert.equal(extractAgentWsURL('--ws-url=wss://controller/path')?.protocol, 'wss:')
+  assert.equal(replaceAgentWsProtocol('--ws-url=wss://controller/path', 'ws'), '--ws-url=ws://controller/path')
   assert.equal(replaceAgentWsProtocol(command, 'invalid'), command)
 })
 

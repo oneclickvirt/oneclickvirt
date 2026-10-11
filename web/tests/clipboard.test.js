@@ -27,6 +27,14 @@ test('HTTP menu paste accepts native input and keeps multiline content', async (
   assert.equal(events.length, 0)
 })
 
+test('native paste extraction keeps plain text and ignores unavailable events', () => {
+  const { context } = clipboardFixture()
+  assert.equal(context.getTextFromPasteEvent({
+    clipboardData: { getData: type => type === 'text/plain' ? 'line one\nline two' : '' }
+  }), 'line one\nline two')
+  assert.equal(context.getTextFromPasteEvent({}), null)
+})
+
 test('clipboard permission denial falls back for copy and paste', async () => {
   const { context, events } = clipboardFixture({ secure: true, clipboard: {
     readText: async () => { throw new Error('denied') }, writeText: async () => { throw new Error('denied') }
@@ -48,12 +56,15 @@ test('duplicate menu clicks do not paste a command twice and cancel sends nothin
   assert.equal(await cancelled.context.readFromClipboard(), null)
 })
 
-test('native paste shortcuts remain available to xterm in every terminal', () => {
+test('paste shortcuts use the HTTP-safe fallback in every terminal', () => {
   for (const file of ['AdminProviderTerminal.vue', 'SSHTerminal.vue', 'ConsoleTerminal.vue', 'GlobalSSHManager.vue']) {
     const source = readFileSync(new URL('../src/components/' + file, import.meta.url), 'utf8')
     const start = source.indexOf('terminal.attachCustomKeyEventHandler')
     const handler = source.slice(start, source.indexOf('});', start) > 0 ? source.indexOf('});', start) : source.indexOf('\n  })', start))
     assert.ok(handler.includes("event.type !== 'keydown'"), file)
-    assert.equal(handler.includes('pasteFromClipboard()'), false, file)
+    assert.match(handler, /pasteFromClipboard\(\)/, file)
+    assert.match(handler, /preventDefault\(\)/, file)
+    assert.match(handler, /stopPropagation\(\)/, file)
+    assert.match(source, /paste(?:\.capture|', function\(e\))/)
   }
 })
