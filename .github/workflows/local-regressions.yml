@@ -59,6 +59,8 @@ jobs:
     - name: Vet all controller and test packages
       working-directory: server
       run: go vet ./...
+    env:
+      GOPROXY: https://proxy.golang.org|direct
   frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 15

@@ -24,6 +24,8 @@ jobs:
       run: go test -count=1 -race ./service/agent ./service/console ./api/v1/admin
     - name: Vet controller Agent and terminal packages
       run: go vet ./service/agent ./service/console ./api/v1/admin
+    env:
+      GOPROXY: https://proxy.golang.org|direct
   test:
     name: Real PTY and Agent tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

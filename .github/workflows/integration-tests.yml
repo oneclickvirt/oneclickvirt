@@ -1,126 +1,36 @@
 name: Integration Tests
-
-on:
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Virtualization environment (choose one, or "all" for controlled parallel batches)'
-        required: true
-        type: choice
-        options:
-          - docker
-          - all
-          - lxd
-          - incus
-          - podman
-          - containerd
-          - proxmoxve
-          - kubevirt
-          - qemu
-        default: 'docker'
-      platform:
-        description: 'Cloud platform to use (auto = priority-order fallback)'
-        required: false
-        type: choice
-        options:
-          - auto
-          - alice
-          - lightnode
-          - vultr
-          - hetzner
-          - linode
-          - rackdog
-          - skrime
-          - prepaidhost
-          - cubepath
-          - cloudsigma
-        default: 'auto'
-      instance_types:
-        description: 'Instance types to test (auto-corrected per platform)'
-        required: true
-        type: choice
-        options:
-          - both
-          - container
-          - vm
-        default: 'container'
-      modules:
-        description: 'Test modules to run (e.g. all, 01-10, 01,03,05)'
-        required: false
-        type: string
-        default: 'all'
-      node_hours:
-        description: 'Node lifetime in hours'
-        required: false
-        type: string
-        default: '8'
-      skip_instance_delete:
-        description: 'Skip instance deletion after tests (keep alive)'
-        required: false
-        type: boolean
-        default: true
-      execution_rule:
-        description: 'Provider execution rule (auto=API-first+SSH-fallback, api_only=API-only, ssh_only=SSH-only, all=test all three sequentially with system reset between each)'
-        required: false
-        type: choice
-        options:
-          - auto
-          - api_only
-          - ssh_only
-          - all
-        default: 'auto'
-      max_parallel:
-        description: 'Maximum concurrent environments when environment=all'
-        required: false
-        type: choice
-        options:
-          - '1'
-          - '2'
-          - '3'
-          - '4'
-        default: '1'
-      live_ipv6_tunnel:
-        description: 'Run disabled IPv6 tunnel configuration lifecycle checks on a dedicated test worker (default: disabled)'
-        required: false
-        type: boolean
-        default: false
-
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-  CI_DB_PASSWORD: "ci-db-${{ github.run_id }}-${{ github.run_attempt }}-Aa1!"
-  CI_ADMIN_PASSWORD: "ci-admin-${{ github.run_id }}-${{ github.run_attempt }}-Aa1!"
-
+  CI_DB_PASSWORD: ci-db-${{ github.run_id }}-${{ github.run_attempt }}-Aa1!
+  CI_ADMIN_PASSWORD: ci-admin-${{ github.run_id }}-${{ github.run_attempt }}-Aa1!
 concurrency:
-  group: integration-tests-${{ github.ref }}-${{ github.event.inputs.environment || 'default' }}-${{ github.event.inputs.modules || 'all' }}
+  group: integration-tests-${{ github.ref }}-${{ github.event.inputs.environment || 'default' }}-${{ github.event.inputs.modules
+    || 'all' }}
   cancel-in-progress: true
-
 jobs:
   local-regressions:
     uses: ./.github/workflows/local-regressions.yml
     permissions:
       contents: read
-
   build-test-agent:
     uses: ./.github/workflows/build-test-agent.yml
     permissions:
       contents: read
-
   debian-runtime-readiness:
     name: Debian 12 jq 1.6 runtime readiness
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Reject empty and malformed runtime responses with jq 1.6
-        run: |
-          docker run --rm -v "$PWD:/work:ro" -w /work debian:12 bash -c '
-            set -euo pipefail
-            apt-get update -qq
-            apt-get install -y -qq --no-install-recommends jq
-            jq --version
-            bash scripts/tests/non_pve_initialization_test.sh
-          '
-
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Reject empty and malformed runtime responses with jq 1.6
+      run: |
+        docker run --rm -v "$PWD:/work:ro" -w /work debian:12 bash -c '
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends jq
+          jq --version
+          bash scripts/tests/non_pve_initialization_test.sh
+        '
   firewall-regressions:
     name: Real Linux firewall regressions
     runs-on: ubuntu-latest
@@ -128,24 +38,29 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: 'stable'
-          cache-dependency-path: server/go.sum
-      - name: Test firewall runner prerequisites
-        run: bash scripts/tests/firewall_runner_prerequisite_test.sh
-      - name: Load host firewall kernel modules
-        run: sudo bash scripts/tests/prepare_firewall_kernel.sh
-      - name: Test dual-stack cleanup and Incus/LXD port reuse
-        run: bash scripts/tests/firewall_integration_test.sh
-
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: stable
+        cache-dependency-path: server/go.sum
+    - name: Test firewall runner prerequisites
+      run: bash scripts/tests/firewall_runner_prerequisite_test.sh
+    - name: Load host firewall kernel modules
+      run: sudo bash scripts/tests/prepare_firewall_kernel.sh
+    - name: Test dual-stack cleanup and Incus/LXD port reuse
+      run: bash scripts/tests/firewall_integration_test.sh
+    env:
+      GOPROXY: https://proxy.golang.org|direct
   integration-test:
-    name: "Test: ${{ matrix.environment }}"
-    needs: [build-test-agent, local-regressions]
+    name: 'Test: ${{ matrix.environment }}'
+    needs:
+    - build-test-agent
+    - local-regressions
     env:
       SELECTED_MODULES: ${{ inputs.modules }}
-      REPORT_DIR: ${{ github.workspace }}/action_tests/reports/${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.environment }}
+      REPORT_DIR: ${{ github.workspace }}/action_tests/reports/${{ github.run_id }}-${{ github.run_attempt }}-${{
+        matrix.environment }}
+      GOPROXY: https://proxy.golang.org|direct
     runs-on: ubuntu-latest
     timeout-minutes: 300
     permissions:
@@ -154,703 +69,767 @@ jobs:
       fail-fast: false
       max-parallel: ${{ fromJSON(inputs.max_parallel) }}
       matrix:
-        environment: ${{ inputs.environment == 'all' && fromJSON('["docker","lxd","incus","podman","containerd","proxmoxve","kubevirt","qemu"]') || fromJSON(format('["{0}"]', inputs.environment)) }}
-
+        environment: ${{ inputs.environment == 'all' && fromJSON('["docker","lxd","incus","podman","containerd","proxmoxve","kubevirt","qemu"]')
+          || fromJSON(format('["{0}"]', inputs.environment)) }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Load trusted network recovery helpers
+      shell: bash
+      run: |
+        set -euo pipefail
+        curl --fail --silent --show-error --location --connect-timeout 15 --max-time 90 --retry 3 --retry-max-time 180 --retry-connrefused "https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/.github/scripts/ci_network.sh" -o "$RUNNER_TEMP/ci-network.sh"
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Download real Agent artifacts from this run
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        pattern: integration-agent-*
+        merge-multiple: true
+        path: server/assets/agent
+    - name: Verify real Agent assets
+      run: python3 scripts/validate_agent_assets.py server/assets/agent
+    - name: Setup Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: stable
+        cache: true
+        cache-dependency-path: server/go.sum
+    - name: Install dependencies
+      run: |
+        source "$RUNNER_TEMP/ci-network.sh"
+        sudo apt-get update
+        sudo apt-get install -y jq curl sshpass python3 python3-venv mysql-client
+        python3 -m venv "$RUNNER_TEMP/ocv-integration-python"
+        "$RUNNER_TEMP/ocv-integration-python/bin/pip" install -r scripts/tests/requirements-live.txt
+        echo "$RUNNER_TEMP/ocv-integration-python/bin" >> "$GITHUB_PATH"
+      shell: bash
+    - name: Verify generated Swagger docs
+      working-directory: ./server
+      run: |
+        go run github.com/swaggo/swag/cmd/swag@v1.16.6 init --parseDependency --parseInternal
+        if ! git diff --exit-code -- docs; then
+          echo "::error::Swagger docs are out of date. Regenerate and commit server/docs before running integration tests."
+          exit 1
+        fi
+        echo "Swagger docs are up to date."
+    - name: Run action test static audit
+      run: |
+        set -euo pipefail
+        mkdir -p ${{ env.REPORT_DIR }}
+        audit_exit=0
+        python3 action_tests/static_audit.py --root . --output-dir ${{ env.REPORT_DIR }} --strict --min-route-coverage 82 || audit_exit=$?
+        if [[ "${audit_exit}" != "0" ]]; then
+          echo "::error::Action test static audit found blocking findings (exit ${audit_exit}); integration tests cannot proceed."
+        fi
+        {
+          echo "## Action Test Static Audit"
+          echo ""
+          sed -n '1,40p' ${{ env.REPORT_DIR }}/static-audit.md
+        } >> "$GITHUB_STEP_SUMMARY"
+        if [[ "${audit_exit}" != "0" ]]; then
+          exit "${audit_exit}"
+        fi
+    - name: Resolve usable cloud platforms
+      id: resolve-platforms
+      env:
+        REQUESTED_PLATFORM: ${{ inputs.platform }}
+        ALICE_CLIENT_ID: ${{ secrets.ALICE_CLIENT_ID }}
+        ALICE_CLIENT_SECRET: ${{ secrets.ALICE_CLIENT_SECRET }}
+        ALICE_PUBLIC_KEY: ${{ secrets.ALICE_PUBLIC_KEY }}
+        ALICE_PRIVATE_KEY: ${{ secrets.ALICE_PRIVATE_KEY }}
+        LIGHTNODE_TOKEN: ${{ secrets.LIGHTNODE_TOKEN }}
+        LIGHTNODE_PRIVATE_KEY: ${{ secrets.LIGHTNODE_PRIVATE_KEY }}
+        LIGHTNODE_SSH_KEY_UUID: ${{ secrets.LIGHTNODE_SSH_KEY_UUID }}
+        LIGHTNODE_PACKAGE_TIER: '3'
+        LIGHTNODE_TARGET_CPU: '2'
+        LIGHTNODE_TARGET_MEMORY_MB: '4096'
+        LIGHTNODE_STRICT_RECOMMENDED_SPEC: 'true'
+        VULTR_API_KEY: ${{ secrets.VULTR_API_KEY }}
+        VULTR_PRIVATE_KEY: ${{ secrets.VULTR_PRIVATE_KEY }}
+        VULTR_SSH_KEY_ID: ${{ secrets.VULTR_SSH_KEY_ID }}
+        HETZNER_API_TOKEN: ${{ secrets.HETZNER_API_TOKEN }}
+        HETZNER_PRIVATE_KEY: ${{ secrets.HETZNER_PRIVATE_KEY }}
+        HETZNER_SSH_PUBLIC_KEY: ${{ secrets.HETZNER_SSH_PUBLIC_KEY }}
+        LINODE_TOKEN: ${{ secrets.LINODE_TOKEN }}
+        LINODE_PRIVATE_KEY: ${{ secrets.LINODE_PRIVATE_KEY }}
+        LINODE_SSH_PUBLIC_KEY: ${{ secrets.LINODE_SSH_PUBLIC_KEY }}
+        RACKDOG_API_KEY: ${{ secrets.RACKDOG_API_KEY }}
+        RACKDOG_PRIVATE_KEY: ${{ secrets.RACKDOG_PRIVATE_KEY }}
+        RACKDOG_SSH_PUBLIC_KEY: ${{ secrets.RACKDOG_SSH_PUBLIC_KEY }}
+        RACKDOG_BILLING_ACCOUNT_ID: ${{ secrets.RACKDOG_BILLING_ACCOUNT_ID }}
+        SKRIME_API_KEY: ${{ secrets.SKRIME_API_KEY }}
+        SKRIME_ROOT_PASSWORD: ${{ secrets.SKRIME_ROOT_PASSWORD }}
+        PREPAIDHOST_API_KEY: ${{ secrets.PREPAIDHOST_API_KEY }}
+        PREPAIDHOST_ROOT_PASSWORD: ${{ secrets.PREPAIDHOST_ROOT_PASSWORD }}
+        CUBEPATH_API_KEY: ${{ secrets.CUBEPATH_API_KEY }}
+        CUBEPATH_PRIVATE_KEY: ${{ secrets.CUBEPATH_PRIVATE_KEY }}
+        CUBEPATH_SSH_PUBLIC_KEY: ${{ secrets.CUBEPATH_SSH_PUBLIC_KEY }}
+        CLOUDSIGMA_EMAIL: ${{ secrets.CLOUDSIGMA_EMAIL }}
+        CLOUDSIGMA_PASSWORD: ${{ secrets.CLOUDSIGMA_PASSWORD }}
+        CLOUDSIGMA_PRIVATE_KEY: ${{ secrets.CLOUDSIGMA_PRIVATE_KEY }}
+      run: |
+        set -euo pipefail
 
-      - name: Download real Agent artifacts from this run
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: integration-agent-*
-          merge-multiple: true
-          path: server/assets/agent
+        source action_tests/common/test_framework.sh
+        source action_tests/common/platform_interface.sh
 
-      - name: Verify real Agent assets
-        run: python3 scripts/validate_agent_assets.py server/assets/agent
+        requested_platform="$REQUESTED_PLATFORM"
+        if [[ "$requested_platform" == "auto" ]]; then
+          candidates=(alice lightnode vultr hetzner linode rackdog skrime prepaidhost cubepath cloudsigma)
+        else
+          candidates=("$requested_platform")
+        fi
 
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: 'stable'
-          cache: true
-          cache-dependency-path: server/go.sum
+        usable_platforms=()
+        for platform in "${candidates[@]}"; do
+          log_info "Checking platform availability: ${platform}"
+          log_file="/tmp/platform-init-${platform}.log"
+          if platform_init "$platform" >"$log_file" 2>&1; then
+            usable_platforms+=("$platform")
+            log_success "Platform '${platform}' is usable for this run"
+          else
+            reason=$(tail -1 "$log_file" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*m//g')
+            if [[ -z "$reason" ]]; then
+              reason="initialization failed"
+            fi
+            echo "::warning::Platform '${platform}' unavailable: ${reason}"
+          fi
+        done
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq curl sshpass python3 python3-venv mysql-client
-          python3 -m venv "$RUNNER_TEMP/ocv-integration-python"
-          "$RUNNER_TEMP/ocv-integration-python/bin/pip" install -r scripts/tests/requirements-live.txt
-          echo "$RUNNER_TEMP/ocv-integration-python/bin" >> "$GITHUB_PATH"
+        if [[ ${#usable_platforms[@]} -eq 0 ]]; then
+          echo "::error::No usable cloud platforms are configured for platform='${requested_platform}'. Configure the required repository secrets or choose a configured platform."
+          exit 1
+        fi
 
-      - name: Verify generated Swagger docs
-        working-directory: ./server
-        run: |
-          go run github.com/swaggo/swag/cmd/swag@v1.16.6 init --parseDependency --parseInternal
-          if ! git diff --exit-code -- docs; then
-            echo "::error::Swagger docs are out of date. Regenerate and commit server/docs before running integration tests."
+        usable_csv=$(IFS=,; echo "${usable_platforms[*]}")
+        usable_order=$(IFS=' '; echo "${usable_platforms[*]}")
+        echo "usable_platforms=${usable_csv}" >> "$GITHUB_OUTPUT"
+        echo "platform_priority=${usable_order}" >> "$GITHUB_OUTPUT"
+        echo "Resolved usable cloud platforms: ${usable_order}"
+    - name: Set server version from latest release
+      run: |
+        source "$RUNNER_TEMP/ci-network.sh"
+        LATEST_TAG=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/latest" | jq -r '.tag_name // "ci-integration"')
+        sed -i "s/const ServerVersion = \".*\"/const ServerVersion = \"${LATEST_TAG}\"/" server/constant/version.go
+        echo "Server version set to: ${LATEST_TAG}"
+      shell: bash
+    - name: Setup MySQL
+      run: |
+        sudo systemctl start mysql
+        sleep 5
+        # Ubuntu's mysql-server uses auth_socket for root; connect via sudo (no -u flag)
+        # Use mysql_native_password with a CI-only generated credential for TCP access.
+        if sudo mysql -e "SELECT 1" 2>/dev/null; then
+          echo "auth_socket OK – configuring root with mysql_native_password"
+          sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${CI_DB_PASSWORD}'; DROP USER IF EXISTS 'root'@'127.0.0.1'; CREATE USER 'root'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY '${CI_DB_PASSWORD}'; GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION; FLUSH PRIVILEGES;"
+        else
+          echo "auth_socket failed – trying with password 'root'"
+          mysql -u root -proot -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${CI_DB_PASSWORD}'; DROP USER IF EXISTS 'root'@'127.0.0.1'; CREATE USER 'root'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY '${CI_DB_PASSWORD}'; GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION; FLUSH PRIVILEGES;"
+        fi
+        # Verify TCP connectivity (what the Go server uses)
+        mysql -u root -p"${CI_DB_PASSWORD}" -h 127.0.0.1 -P 3306 -e "SELECT 1;" && echo "MySQL TCP OK"
+    - name: Validate platform and instance types
+      id: validate
+      run: |
+        ENV="${{ matrix.environment }}"
+        TYPES="${{ inputs.instance_types }}"
+        PLATFORM="${{ inputs.platform }}"
+        # Platform capabilities (hardcoded)
+        case "$ENV" in
+          docker|podman|containerd)
+            if [[ "$TYPES" == "vm" || "$TYPES" == "both" ]]; then
+              echo "::warning::Platform '${ENV}' only supports containers. Auto-correcting instance_types to 'container'."
+              TYPES="container"
+            fi
+            ;;
+          lxd|incus|proxmoxve|kubevirt|qemu)
+            # Supports both container and vm
+            ;;
+          *)
+            echo "::error::Unknown platform: ${ENV}"
+            exit 1
+            ;;
+        esac
+        echo "instance_types=${TYPES}" >> "$GITHUB_OUTPUT"
+        echo "platform=${PLATFORM}" >> "$GITHUB_OUTPUT"
+        echo "Validated: env=${ENV} instance_types=${TYPES} platform=${PLATFORM}"
+    - name: Run integration tests
+      id: run-tests
+      env:
+        ALICE_CLIENT_ID: ${{ secrets.ALICE_CLIENT_ID }}
+        ALICE_CLIENT_SECRET: ${{ secrets.ALICE_CLIENT_SECRET }}
+        ALICE_PUBLIC_KEY: ${{ secrets.ALICE_PUBLIC_KEY }}
+        ALICE_PRIVATE_KEY: ${{ secrets.ALICE_PRIVATE_KEY }}
+        LIGHTNODE_TOKEN: ${{ secrets.LIGHTNODE_TOKEN }}
+        LIGHTNODE_PRIVATE_KEY: ${{ secrets.LIGHTNODE_PRIVATE_KEY }}
+        LIGHTNODE_SSH_KEY_UUID: ${{ secrets.LIGHTNODE_SSH_KEY_UUID }}
+        LIGHTNODE_PACKAGE_TIER: '3'
+        LIGHTNODE_TARGET_CPU: '2'
+        LIGHTNODE_TARGET_MEMORY_MB: '4096'
+        LIGHTNODE_STRICT_RECOMMENDED_SPEC: 'true'
+        PLATFORM_ALLOW_CONCURRENT_INSTANCES: ${{ inputs.environment == 'all' && 'true' || 'false' }}
+        ACTION_TEST_LIVE_IPV6_TUNNEL: ${{ inputs.live_ipv6_tunnel && 'true' || 'false' }}
+        ACTION_TEST_IPV4_ONLY: 'false'
+        ACTION_TEST_PRESERVE_INSTANCES: 'false'
+        ACTION_TEST_CONTAINER_CPU: '2'
+        ACTION_TEST_CONTAINER_MEMORY: '2048'
+        ACTION_TEST_CONTAINER_DISK: '5'
+        ACTION_TEST_AGENT_STATUS_MAX_WAIT: '240'
+        ACTION_TEST_VM_CPU: '2'
+        ACTION_TEST_VM_MEMORY: '4096'
+        ACTION_TEST_VM_DISK: '20'
+        ACTION_TEST_KUBEVIRT_CONTAINER_CPU: '1'
+        ACTION_TEST_KUBEVIRT_CONTAINER_MEMORY: '1024'
+        ACTION_TEST_KUBEVIRT_CONTAINER_DISK: '4'
+        ACTION_TEST_KUBEVIRT_VM_CPU: '1'
+        ACTION_TEST_KUBEVIRT_VM_MEMORY: '512'
+        ACTION_TEST_KUBEVIRT_VM_DISK: '4'
+        ACTION_TEST_LXD_CONTAINER_CPU: '1'
+        ACTION_TEST_LXD_CONTAINER_MEMORY: '1024'
+        ACTION_TEST_LXD_CONTAINER_DISK: '20'
+        ACTION_TEST_LXD_VM_CPU: '1'
+        ACTION_TEST_LXD_VM_MEMORY: '1024'
+        ACTION_TEST_LXD_VM_DISK: '20'
+        ACTION_TEST_INCUS_CONTAINER_CPU: '1'
+        ACTION_TEST_INCUS_CONTAINER_MEMORY: '1024'
+        ACTION_TEST_INCUS_CONTAINER_DISK: '20'
+        ACTION_TEST_INCUS_VM_CPU: '1'
+        ACTION_TEST_INCUS_VM_MEMORY: '1024'
+        ACTION_TEST_INCUS_VM_DISK: '20'
+        ACTION_TEST_PROXMOXVE_CONTAINER_CPU: '1'
+        ACTION_TEST_PROXMOXVE_CONTAINER_MEMORY: '1024'
+        ACTION_TEST_PROXMOXVE_CONTAINER_DISK: '8'
+        ACTION_TEST_PROXMOXVE_VM_CPU: '1'
+        ACTION_TEST_PROXMOXVE_VM_MEMORY: '1024'
+        ACTION_TEST_PROXMOXVE_VM_DISK: '8'
+        ACTION_TEST_QEMU_CONTAINER_CPU: '1'
+        ACTION_TEST_QEMU_CONTAINER_MEMORY: '1024'
+        ACTION_TEST_QEMU_CONTAINER_DISK: '8'
+        ACTION_TEST_QEMU_VM_CPU: '1'
+        ACTION_TEST_QEMU_VM_MEMORY: '1024'
+        ACTION_TEST_QEMU_VM_DISK: '8'
+        VULTR_API_KEY: ${{ secrets.VULTR_API_KEY }}
+        VULTR_PRIVATE_KEY: ${{ secrets.VULTR_PRIVATE_KEY }}
+        VULTR_SSH_KEY_ID: ${{ secrets.VULTR_SSH_KEY_ID }}
+        HETZNER_API_TOKEN: ${{ secrets.HETZNER_API_TOKEN }}
+        HETZNER_PRIVATE_KEY: ${{ secrets.HETZNER_PRIVATE_KEY }}
+        HETZNER_SSH_PUBLIC_KEY: ${{ secrets.HETZNER_SSH_PUBLIC_KEY }}
+        LINODE_TOKEN: ${{ secrets.LINODE_TOKEN }}
+        LINODE_PRIVATE_KEY: ${{ secrets.LINODE_PRIVATE_KEY }}
+        LINODE_SSH_PUBLIC_KEY: ${{ secrets.LINODE_SSH_PUBLIC_KEY }}
+        RACKDOG_API_KEY: ${{ secrets.RACKDOG_API_KEY }}
+        RACKDOG_PRIVATE_KEY: ${{ secrets.RACKDOG_PRIVATE_KEY }}
+        RACKDOG_SSH_PUBLIC_KEY: ${{ secrets.RACKDOG_SSH_PUBLIC_KEY }}
+        RACKDOG_BILLING_ACCOUNT_ID: ${{ secrets.RACKDOG_BILLING_ACCOUNT_ID }}
+        SKRIME_API_KEY: ${{ secrets.SKRIME_API_KEY }}
+        SKRIME_ROOT_PASSWORD: ${{ secrets.SKRIME_ROOT_PASSWORD }}
+        PREPAIDHOST_API_KEY: ${{ secrets.PREPAIDHOST_API_KEY }}
+        PREPAIDHOST_ROOT_PASSWORD: ${{ secrets.PREPAIDHOST_ROOT_PASSWORD }}
+        CUBEPATH_API_KEY: ${{ secrets.CUBEPATH_API_KEY }}
+        CUBEPATH_PRIVATE_KEY: ${{ secrets.CUBEPATH_PRIVATE_KEY }}
+        CUBEPATH_SSH_PUBLIC_KEY: ${{ secrets.CUBEPATH_SSH_PUBLIC_KEY }}
+        CLOUDSIGMA_EMAIL: ${{ secrets.CLOUDSIGMA_EMAIL }}
+        CLOUDSIGMA_PASSWORD: ${{ secrets.CLOUDSIGMA_PASSWORD }}
+        CLOUDSIGMA_PRIVATE_KEY: ${{ secrets.CLOUDSIGMA_PRIVATE_KEY }}
+        PLATFORM_SELECTION: ${{ steps.validate.outputs.platform }}
+        SKIP_INSTANCE_DELETE: ${{ inputs.skip_instance_delete }}
+        SELECTED_MODULES: ${{ inputs.modules }}
+        ENV_TYPE: ${{ matrix.environment }}
+        INSTANCE_TYPES: ${{ steps.validate.outputs.instance_types }}
+        NODE_HOURS: ${{ inputs.node_hours }}
+        EXECUTION_RULE: ${{ inputs.execution_rule }}
+        TEST_IMAGES: alpine,debian
+        PROVIDER_IMAGE_MAX_PER_FAMILY_TYPE: '1'
+        PROVIDER_IMAGE_TASK_MAX_WAIT: '2400'
+        PROVIDER_IMAGE_STATUS_MAX_WAIT: '600'
+        ADMIN_USER: admin
+        ADMIN_PASS: ${{ env.CI_ADMIN_PASSWORD }}
+        DB_USER: root
+        DB_PASSWORD: ${{ env.CI_DB_PASSWORD }}
+        DEBUG: '1'
+        SKIP_RESOURCE_CHECK: 'true'
+      run: |
+        set -euo pipefail
+
+        chmod +x action_tests/run_env_test.sh
+        chmod +x action_tests/run_module.sh
+        chmod -R +x action_tests/modules/ 2>/dev/null || true
+        chmod -R +x action_tests/common/ 2>/dev/null || true
+        chmod -R +x action_tests/report/ 2>/dev/null || true
+        mkdir -p ${{ env.REPORT_DIR }}
+
+        RESOLVED_PLATFORMS="${{ steps.resolve-platforms.outputs.usable_platforms }}"
+        if [[ -z "$RESOLVED_PLATFORMS" ]]; then
+          echo "::error::No validated cloud platforms were resolved for this run."
+          exit 1
+        fi
+
+        export PLATFORM_ALICE_ENABLED=false
+        export PLATFORM_LIGHTNODE_ENABLED=false
+        export PLATFORM_VULTR_ENABLED=false
+        export PLATFORM_HETZNER_ENABLED=false
+        export PLATFORM_LINODE_ENABLED=false
+        export PLATFORM_RACKDOG_ENABLED=false
+        export PLATFORM_SKRIME_ENABLED=false
+        export PLATFORM_PREPAIDHOST_ENABLED=false
+        export PLATFORM_CUBEPATH_ENABLED=false
+        export PLATFORM_CLOUDSIGMA_ENABLED=false
+
+        for platform in ${RESOLVED_PLATFORMS//,/ }; do
+          PLATFORM_VAR="PLATFORM_$(echo "$platform" | tr '[:lower:]' '[:upper:]')_ENABLED"
+          export "${PLATFORM_VAR}=true"
+        done
+        export PLATFORM_PRIORITY_ORDER="${{ steps.resolve-platforms.outputs.platform_priority }}"
+        export noninteractive=true
+        echo "Using validated cloud platforms: ${PLATFORM_PRIORITY_ORDER}"
+        case "${{ matrix.environment }}" in
+          kubevirt)
+            echo "KubeVirt VM test size override: ${ACTION_TEST_KUBEVIRT_VM_CPU}C/${ACTION_TEST_KUBEVIRT_VM_MEMORY}MB/${ACTION_TEST_KUBEVIRT_VM_DISK}G"
+            ;;
+          lxd)
+            echo "LXD VM test size override: ${ACTION_TEST_LXD_VM_CPU}C/${ACTION_TEST_LXD_VM_MEMORY}MB/${ACTION_TEST_LXD_VM_DISK}G"
+            ;;
+          incus)
+            echo "Incus VM test size override: ${ACTION_TEST_INCUS_VM_CPU}C/${ACTION_TEST_INCUS_VM_MEMORY}MB/${ACTION_TEST_INCUS_VM_DISK}G"
+            ;;
+          proxmoxve)
+            echo "ProxmoxVE VM test size override: ${ACTION_TEST_PROXMOXVE_VM_CPU}C/${ACTION_TEST_PROXMOXVE_VM_MEMORY}MB/${ACTION_TEST_PROXMOXVE_VM_DISK}G"
+            ;;
+          qemu)
+            echo "QEMU VM test size override: ${ACTION_TEST_QEMU_VM_CPU}C/${ACTION_TEST_QEMU_VM_MEMORY}MB/${ACTION_TEST_QEMU_VM_DISK}G"
+            ;;
+        esac
+
+        # Run with error capture - never fail silently
+        set +e
+        bash action_tests/run_env_test.sh \
+          "${{ matrix.environment }}" \
+          "$SELECTED_MODULES" \
+          "${{ steps.validate.outputs.instance_types }}" 2>&1 | tee ${{ env.REPORT_DIR }}/full-output.log
+        PIPE_STATUSES=("${PIPESTATUS[@]}")
+        TEST_EXIT=${PIPE_STATUSES[0]:-0}
+        TEE_EXIT=${PIPE_STATUSES[1]:-0}
+        set -e
+        echo "test_exit=${TEST_EXIT}" >> "$GITHUB_OUTPUT"
+        if [[ "${TEE_EXIT}" != "0" ]]; then
+          echo "::warning::tee exited with ${TEE_EXIT}; continuing with captured harness exit ${TEST_EXIT}."
+        fi
+
+        # Ensure tee didn't break the pipe
+        if [[ ! -s ${{ env.REPORT_DIR }}/full-output.log ]]; then
+          echo "WARNING: Test produced no output. Check that required platform secrets are configured." > ${{ env.REPORT_DIR }}/full-output.log
+        fi
+
+        # Ensure report directory has at least a fallback file
+        if ! ls ${{ env.REPORT_DIR }}/*.html 1>/dev/null 2>&1; then
+          if [[ "${TEST_EXIT}" == "75" ]]; then
+            echo "<html><body><h1>Test Skipped</h1><p>Temporary infrastructure/runtime prerequisite failure (exit code 75).</p><pre>$(cat ${{ env.REPORT_DIR }}/full-output.log)</pre></body></html>" > "${{ env.REPORT_DIR }}/${{ matrix.environment }}-report.html"
+          else
+            echo "<html><body><h1>Test Failed</h1><p>Exit code: ${TEST_EXIT}</p><pre>$(cat ${{ env.REPORT_DIR }}/full-output.log)</pre></body></html>" > "${{ env.REPORT_DIR }}/${{ matrix.environment }}-report.html"
+          fi
+        fi
+
+        # Keep the reports/artifacts even when the harness fails, but expose
+        # the real status to the validation step.  Returning success here
+        # used to let an aborted or empty run look like a green workflow when
+        # the follow-up step itself was skipped or never received its output.
+        exit 0
+    - name: Validate integration test results
+      if: always()
+      env:
+        TEST_EXIT: ${{ steps.run-tests.outputs.test_exit }}
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+
+        # If the run-tests step was skipped/aborted before setting its output,
+        # this is an incomplete run, not a feature skip.  A green workflow
+        # must never be produced without an authoritative harness status.
+        if [[ -z "${TEST_EXIT:-}" ]]; then
+          echo "::error::Test step did not produce an exit code — it was skipped or aborted before results were finalized."
+          [[ -f ${{ env.REPORT_DIR }}/full-output.log ]] && tail -200 ${{ env.REPORT_DIR }}/full-output.log || true
+          exit 1
+        fi
+
+        HARNESS_NONZERO=false
+        _skip_reason=""
+        if [[ "${TEST_EXIT}" != "0" ]]; then
+          HARNESS_NONZERO=true
+          if [[ "${TEST_EXIT}" == "75" ]]; then
+            _skip_reason="temporary infrastructure/runtime prerequisite failure (EX_TEMPFAIL=75)"
+          else
+            _skip_reason="harness exited with code ${TEST_EXIT}"
+          fi
+          echo "::warning::Integration harness exited non-zero: ${_skip_reason}. Aggregating any JSONL results that were produced."
+        fi
+
+        result_files=()
+        current_results="${REPORT_DIR}/${{ matrix.environment }}-results.jsonl"
+        [[ ! -f "$current_results" ]] || result_files=("$current_results")
+        if [[ ${#result_files[@]} -eq 0 ]]; then
+          if [[ "${HARNESS_NONZERO}" == "true" ]]; then
+            echo "::error::Integration tests did not produce JSONL results after ${_skip_reason}."
+            {
+              echo "## Integration Validation"
+              echo ""
+              echo "| Metric | Value |"
+              echo "|--------|-------|"
+              echo "| Resolved Platforms | ${{ steps.resolve-platforms.outputs.platform_priority }} |"
+              echo "| Harness Exit Code | ${TEST_EXIT} |"
+              echo "| Status | INCOMPLETE (${_skip_reason}; no JSONL results) |"
+            } >> "$GITHUB_STEP_SUMMARY"
+            [[ -f ${{ env.REPORT_DIR }}/full-output.log ]] && tail -200 ${{ env.REPORT_DIR }}/full-output.log || true
             exit 1
           fi
-          echo "Swagger docs are up to date."
+          echo "::error::Integration tests did not produce any JSONL result files."
+          [[ -f ${{ env.REPORT_DIR }}/full-output.log ]] && tail -200 ${{ env.REPORT_DIR }}/full-output.log || true
+          exit 1
+        fi
 
-      - name: Run action test static audit
-        run: |
-          set -euo pipefail
-          mkdir -p ${{ env.REPORT_DIR }}
-          audit_exit=0
-          python3 action_tests/static_audit.py --root . --output-dir ${{ env.REPORT_DIR }} --strict --min-route-coverage 82 || audit_exit=$?
-          if [[ "${audit_exit}" != "0" ]]; then
-            echo "::error::Action test static audit found blocking findings (exit ${audit_exit}); integration tests cannot proceed."
+        # Safely aggregate results - handle empty/corrupt JSONL lines.  The
+        # harness performs infrastructure/preflight checks, while module
+        # assertions are the product/API checks.  Keep those populations
+        # separate so a worker transport skip is not reported as a module
+        # failure (or as a successful module run).
+        total=0 passed=0 failed=0 skipped=0 corrupt=0
+        harness_total=0 harness_passed=0 harness_failed=0 harness_skipped=0
+        module_total=0 module_passed=0 module_failed=0 module_skipped=0
+        for f in "${result_files[@]}"; do
+          line_no=0
+          while IFS= read -r line || [[ -n "$line" ]]; do
+            line_no=$((line_no + 1))
+            [[ -z "$line" ]] && continue
+            if ! status=$(echo "$line" | jq -er '.status // "UNKNOWN"' 2>/dev/null); then
+              echo "::error file=${f},line=${line_no}::Invalid JSONL result line"
+              printf '%s\n' "$line"
+              corrupt=$((corrupt + 1))
+              continue
+            fi
+            group=$(echo "$line" | jq -r '.group // "default"' 2>/dev/null)
+            [[ -z "$group" || "$group" == "null" ]] && group="default"
+            total=$((total + 1))
+            if [[ "$group" == "HARNESS" ]]; then
+              harness_total=$((harness_total + 1))
+              case "$status" in
+                PASS) harness_passed=$((harness_passed + 1)); passed=$((passed + 1)) ;;
+                FAIL) harness_failed=$((harness_failed + 1)); failed=$((failed + 1)) ;;
+                SKIP) harness_skipped=$((harness_skipped + 1)); skipped=$((skipped + 1)) ;;
+                *)
+                  echo "::error file=${f},line=${line_no}::Unknown JSONL result status '${status}'"
+                  corrupt=$((corrupt + 1))
+                  ;;
+              esac
+            else
+              module_total=$((module_total + 1))
+              case "$status" in
+                PASS) module_passed=$((module_passed + 1)); passed=$((passed + 1)) ;;
+                FAIL) module_failed=$((module_failed + 1)); failed=$((failed + 1)) ;;
+                SKIP) module_skipped=$((module_skipped + 1)); skipped=$((skipped + 1)) ;;
+                *)
+                  echo "::error file=${f},line=${line_no}::Unknown JSONL result status '${status}'"
+                  corrupt=$((corrupt + 1))
+                  ;;
+              esac
+            fi
+          done < "$f"
+        done
+        module_executed=$((module_passed + module_failed))
+
+        {
+          echo "## Integration Validation"
+          echo ""
+          echo "| Metric | Value |"
+          echo "|--------|-------|"
+          echo "| Resolved Platforms | ${{ steps.resolve-platforms.outputs.platform_priority }} |"
+          echo "| Harness Exit Code | ${TEST_EXIT} |"
+          echo "| Harness Checks | total=${harness_total}, pass=${harness_passed}, fail=${harness_failed}, skip=${harness_skipped} |"
+          echo "| Module Assertions | total=${module_total}, pass=${module_passed}, fail=${module_failed}, skip=${module_skipped} |"
+          echo "| Module tests executed | $([[ ${module_executed} -gt 0 ]] && echo yes || echo no) |"
+          echo "| All Results | total=${total}, pass=${passed}, fail=${failed}, skip=${skipped} |"
+          echo "| Corrupt JSONL Lines | ${corrupt} |"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        if [[ "$corrupt" -ne 0 ]]; then
+          echo "::error::Integration test result JSONL contains ${corrupt} invalid line(s)."
+          exit 1
+        fi
+
+        if [[ "$total" -eq 0 ]]; then
+          if [[ "${HARNESS_NONZERO}" == "true" ]]; then
+            echo "::error::Integration tests produced an empty result set after ${_skip_reason}."
+            [[ -f ${{ env.REPORT_DIR }}/full-output.log ]] && tail -200 ${{ env.REPORT_DIR }}/full-output.log || true
+            exit 1
           fi
+          echo "::error::Integration tests produced an empty result set."
+          exit 1
+        fi
+
+        if [[ "$module_executed" -eq 0 ]]; then
+          echo "::error::No module assertions were executed (module total=${module_total}, skipped=${module_skipped}). The run only completed harness/preflight checks and cannot be reported as a successful integration test."
           {
-            echo "## Action Test Static Audit"
             echo ""
-            sed -n '1,40p' ${{ env.REPORT_DIR }}/static-audit.md
+            echo "> **Integration validation blocked:** no module assertions were executed. The result set contains harness/preflight checks only; resolve the infrastructure/setup condition and rerun."
           } >> "$GITHUB_STEP_SUMMARY"
-          if [[ "${audit_exit}" != "0" ]]; then
-            exit "${audit_exit}"
-          fi
+          exit 1
+        fi
 
-      - name: Resolve usable cloud platforms
-        id: resolve-platforms
-        env:
-          REQUESTED_PLATFORM: ${{ inputs.platform }}
-          ALICE_CLIENT_ID: ${{ secrets.ALICE_CLIENT_ID }}
-          ALICE_CLIENT_SECRET: ${{ secrets.ALICE_CLIENT_SECRET }}
-          ALICE_PUBLIC_KEY: ${{ secrets.ALICE_PUBLIC_KEY }}
-          ALICE_PRIVATE_KEY: ${{ secrets.ALICE_PRIVATE_KEY }}
-          LIGHTNODE_TOKEN: ${{ secrets.LIGHTNODE_TOKEN }}
-          LIGHTNODE_PRIVATE_KEY: ${{ secrets.LIGHTNODE_PRIVATE_KEY }}
-          LIGHTNODE_SSH_KEY_UUID: ${{ secrets.LIGHTNODE_SSH_KEY_UUID }}
-          LIGHTNODE_PACKAGE_TIER: "3"
-          LIGHTNODE_TARGET_CPU: "2"
-          LIGHTNODE_TARGET_MEMORY_MB: "4096"
-          LIGHTNODE_STRICT_RECOMMENDED_SPEC: "true"
-          VULTR_API_KEY: ${{ secrets.VULTR_API_KEY }}
-          VULTR_PRIVATE_KEY: ${{ secrets.VULTR_PRIVATE_KEY }}
-          VULTR_SSH_KEY_ID: ${{ secrets.VULTR_SSH_KEY_ID }}
-          HETZNER_API_TOKEN: ${{ secrets.HETZNER_API_TOKEN }}
-          HETZNER_PRIVATE_KEY: ${{ secrets.HETZNER_PRIVATE_KEY }}
-          HETZNER_SSH_PUBLIC_KEY: ${{ secrets.HETZNER_SSH_PUBLIC_KEY }}
-          LINODE_TOKEN: ${{ secrets.LINODE_TOKEN }}
-          LINODE_PRIVATE_KEY: ${{ secrets.LINODE_PRIVATE_KEY }}
-          LINODE_SSH_PUBLIC_KEY: ${{ secrets.LINODE_SSH_PUBLIC_KEY }}
-          RACKDOG_API_KEY: ${{ secrets.RACKDOG_API_KEY }}
-          RACKDOG_PRIVATE_KEY: ${{ secrets.RACKDOG_PRIVATE_KEY }}
-          RACKDOG_SSH_PUBLIC_KEY: ${{ secrets.RACKDOG_SSH_PUBLIC_KEY }}
-          RACKDOG_BILLING_ACCOUNT_ID: ${{ secrets.RACKDOG_BILLING_ACCOUNT_ID }}
-          SKRIME_API_KEY: ${{ secrets.SKRIME_API_KEY }}
-          SKRIME_ROOT_PASSWORD: ${{ secrets.SKRIME_ROOT_PASSWORD }}
-          PREPAIDHOST_API_KEY: ${{ secrets.PREPAIDHOST_API_KEY }}
-          PREPAIDHOST_ROOT_PASSWORD: ${{ secrets.PREPAIDHOST_ROOT_PASSWORD }}
-          CUBEPATH_API_KEY: ${{ secrets.CUBEPATH_API_KEY }}
-          CUBEPATH_PRIVATE_KEY: ${{ secrets.CUBEPATH_PRIVATE_KEY }}
-          CUBEPATH_SSH_PUBLIC_KEY: ${{ secrets.CUBEPATH_SSH_PUBLIC_KEY }}
-          CLOUDSIGMA_EMAIL: ${{ secrets.CLOUDSIGMA_EMAIL }}
-          CLOUDSIGMA_PASSWORD: ${{ secrets.CLOUDSIGMA_PASSWORD }}
-          CLOUDSIGMA_PRIVATE_KEY: ${{ secrets.CLOUDSIGMA_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-
-          source action_tests/common/test_framework.sh
-          source action_tests/common/platform_interface.sh
-
-          requested_platform="$REQUESTED_PLATFORM"
-          if [[ "$requested_platform" == "auto" ]]; then
-            candidates=(alice lightnode vultr hetzner linode rackdog skrime prepaidhost cubepath cloudsigma)
-          else
-            candidates=("$requested_platform")
-          fi
-
-          usable_platforms=()
-          for platform in "${candidates[@]}"; do
-            log_info "Checking platform availability: ${platform}"
-            log_file="/tmp/platform-init-${platform}.log"
-            if platform_init "$platform" >"$log_file" 2>&1; then
-              usable_platforms+=("$platform")
-              log_success "Platform '${platform}' is usable for this run"
-            else
-              reason=$(tail -1 "$log_file" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*m//g')
-              if [[ -z "$reason" ]]; then
-                reason="initialization failed"
-              fi
-              echo "::warning::Platform '${platform}' unavailable: ${reason}"
-            fi
-          done
-
-          if [[ ${#usable_platforms[@]} -eq 0 ]]; then
-            echo "::error::No usable cloud platforms are configured for platform='${requested_platform}'. Configure the required repository secrets or choose a configured platform."
-            exit 1
-          fi
-
-          usable_csv=$(IFS=,; echo "${usable_platforms[*]}")
-          usable_order=$(IFS=' '; echo "${usable_platforms[*]}")
-          echo "usable_platforms=${usable_csv}" >> "$GITHUB_OUTPUT"
-          echo "platform_priority=${usable_order}" >> "$GITHUB_OUTPUT"
-          echo "Resolved usable cloud platforms: ${usable_order}"
-
-      - name: Set server version from latest release
-        run: |
-          LATEST_TAG=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/latest" | jq -r '.tag_name // "ci-integration"')
-          sed -i "s/const ServerVersion = \".*\"/const ServerVersion = \"${LATEST_TAG}\"/" server/constant/version.go
-          echo "Server version set to: ${LATEST_TAG}"
-
-      - name: Setup MySQL
-        run: |
-          sudo systemctl start mysql
-          sleep 5
-          # Ubuntu's mysql-server uses auth_socket for root; connect via sudo (no -u flag)
-          # Use mysql_native_password with a CI-only generated credential for TCP access.
-          if sudo mysql -e "SELECT 1" 2>/dev/null; then
-            echo "auth_socket OK – configuring root with mysql_native_password"
-            sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${CI_DB_PASSWORD}'; DROP USER IF EXISTS 'root'@'127.0.0.1'; CREATE USER 'root'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY '${CI_DB_PASSWORD}'; GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION; FLUSH PRIVILEGES;"
-          else
-            echo "auth_socket failed – trying with password 'root'"
-            mysql -u root -proot -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${CI_DB_PASSWORD}'; DROP USER IF EXISTS 'root'@'127.0.0.1'; CREATE USER 'root'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY '${CI_DB_PASSWORD}'; GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION; FLUSH PRIVILEGES;"
-          fi
-          # Verify TCP connectivity (what the Go server uses)
-          mysql -u root -p"${CI_DB_PASSWORD}" -h 127.0.0.1 -P 3306 -e "SELECT 1;" && echo "MySQL TCP OK"
-
-      - name: Validate platform and instance types
-        id: validate
-        run: |
-          ENV="${{ matrix.environment }}"
-          TYPES="${{ inputs.instance_types }}"
-          PLATFORM="${{ inputs.platform }}"
-          # Platform capabilities (hardcoded)
-          case "$ENV" in
-            docker|podman|containerd)
-              if [[ "$TYPES" == "vm" || "$TYPES" == "both" ]]; then
-                echo "::warning::Platform '${ENV}' only supports containers. Auto-correcting instance_types to 'container'."
-                TYPES="container"
-              fi
-              ;;
-            lxd|incus|proxmoxve|kubevirt|qemu)
-              # Supports both container and vm
-              ;;
-            *)
-              echo "::error::Unknown platform: ${ENV}"
-              exit 1
-              ;;
-          esac
-          echo "instance_types=${TYPES}" >> "$GITHUB_OUTPUT"
-          echo "platform=${PLATFORM}" >> "$GITHUB_OUTPUT"
-          echo "Validated: env=${ENV} instance_types=${TYPES} platform=${PLATFORM}"
-
-      - name: Run integration tests
-        id: run-tests
-        env:
-          # Alice platform
-          ALICE_CLIENT_ID: ${{ secrets.ALICE_CLIENT_ID }}
-          ALICE_CLIENT_SECRET: ${{ secrets.ALICE_CLIENT_SECRET }}
-          ALICE_PUBLIC_KEY: ${{ secrets.ALICE_PUBLIC_KEY }}
-          ALICE_PRIVATE_KEY: ${{ secrets.ALICE_PRIVATE_KEY }}
-          # LightNode platform
-          LIGHTNODE_TOKEN: ${{ secrets.LIGHTNODE_TOKEN }}
-          LIGHTNODE_PRIVATE_KEY: ${{ secrets.LIGHTNODE_PRIVATE_KEY }}
-          LIGHTNODE_SSH_KEY_UUID: ${{ secrets.LIGHTNODE_SSH_KEY_UUID }}
-          LIGHTNODE_PACKAGE_TIER: "3"
-          LIGHTNODE_TARGET_CPU: "2"
-          LIGHTNODE_TARGET_MEMORY_MB: "4096"
-          LIGHTNODE_STRICT_RECOMMENDED_SPEC: "true"
-          PLATFORM_ALLOW_CONCURRENT_INSTANCES: ${{ inputs.environment == 'all' && 'true' || 'false' }}
-          ACTION_TEST_LIVE_IPV6_TUNNEL: ${{ inputs.live_ipv6_tunnel && 'true' || 'false' }}
-          ACTION_TEST_IPV4_ONLY: "false"
-          ACTION_TEST_PRESERVE_INSTANCES: "false"
-          ACTION_TEST_CONTAINER_CPU: "2"
-          ACTION_TEST_CONTAINER_MEMORY: "2048"
-          # Native container providers create several guests on the shared
-          # runner. Keep each test disk small enough for the runner's actual
-          # quota; the preflight still verifies the host has a 20 GiB budget.
-          ACTION_TEST_CONTAINER_DISK: "5"
-          # Controller mappings require a reverse WebSocket; standalone SSH
-          # monitoring is not an online control connection.
-          ACTION_TEST_AGENT_STATUS_MAX_WAIT: "240"
-          ACTION_TEST_VM_CPU: "2"
-          ACTION_TEST_VM_MEMORY: "4096"
-          ACTION_TEST_VM_DISK: "20"
-          ACTION_TEST_KUBEVIRT_CONTAINER_CPU: "1"
-          ACTION_TEST_KUBEVIRT_CONTAINER_MEMORY: "1024"
-          ACTION_TEST_KUBEVIRT_CONTAINER_DISK: "4"
-          ACTION_TEST_KUBEVIRT_VM_CPU: "1"
-          ACTION_TEST_KUBEVIRT_VM_MEMORY: "512"
-          ACTION_TEST_KUBEVIRT_VM_DISK: "4"
-          ACTION_TEST_LXD_CONTAINER_CPU: "1"
-          ACTION_TEST_LXD_CONTAINER_MEMORY: "1024"
-          ACTION_TEST_LXD_CONTAINER_DISK: "20"
-          ACTION_TEST_LXD_VM_CPU: "1"
-          ACTION_TEST_LXD_VM_MEMORY: "1024"
-          ACTION_TEST_LXD_VM_DISK: "20"
-          ACTION_TEST_INCUS_CONTAINER_CPU: "1"
-          ACTION_TEST_INCUS_CONTAINER_MEMORY: "1024"
-          ACTION_TEST_INCUS_CONTAINER_DISK: "20"
-          ACTION_TEST_INCUS_VM_CPU: "1"
-          ACTION_TEST_INCUS_VM_MEMORY: "1024"
-          ACTION_TEST_INCUS_VM_DISK: "20"
-          ACTION_TEST_PROXMOXVE_CONTAINER_CPU: "1"
-          ACTION_TEST_PROXMOXVE_CONTAINER_MEMORY: "1024"
-          ACTION_TEST_PROXMOXVE_CONTAINER_DISK: "8"
-          ACTION_TEST_PROXMOXVE_VM_CPU: "1"
-          ACTION_TEST_PROXMOXVE_VM_MEMORY: "1024"
-          ACTION_TEST_PROXMOXVE_VM_DISK: "8"
-          ACTION_TEST_QEMU_CONTAINER_CPU: "1"
-          ACTION_TEST_QEMU_CONTAINER_MEMORY: "1024"
-          ACTION_TEST_QEMU_CONTAINER_DISK: "8"
-          ACTION_TEST_QEMU_VM_CPU: "1"
-          ACTION_TEST_QEMU_VM_MEMORY: "1024"
-          ACTION_TEST_QEMU_VM_DISK: "8"
-          # Vultr platform
-          VULTR_API_KEY: ${{ secrets.VULTR_API_KEY }}
-          VULTR_PRIVATE_KEY: ${{ secrets.VULTR_PRIVATE_KEY }}
-          VULTR_SSH_KEY_ID: ${{ secrets.VULTR_SSH_KEY_ID }}
-          # Hetzner platform
-          HETZNER_API_TOKEN: ${{ secrets.HETZNER_API_TOKEN }}
-          HETZNER_PRIVATE_KEY: ${{ secrets.HETZNER_PRIVATE_KEY }}
-          HETZNER_SSH_PUBLIC_KEY: ${{ secrets.HETZNER_SSH_PUBLIC_KEY }}
-          # Linode platform
-          LINODE_TOKEN: ${{ secrets.LINODE_TOKEN }}
-          LINODE_PRIVATE_KEY: ${{ secrets.LINODE_PRIVATE_KEY }}
-          LINODE_SSH_PUBLIC_KEY: ${{ secrets.LINODE_SSH_PUBLIC_KEY }}
-          # RackDog platform
-          RACKDOG_API_KEY: ${{ secrets.RACKDOG_API_KEY }}
-          RACKDOG_PRIVATE_KEY: ${{ secrets.RACKDOG_PRIVATE_KEY }}
-          RACKDOG_SSH_PUBLIC_KEY: ${{ secrets.RACKDOG_SSH_PUBLIC_KEY }}
-          RACKDOG_BILLING_ACCOUNT_ID: ${{ secrets.RACKDOG_BILLING_ACCOUNT_ID }}
-          # Skrime platform
-          SKRIME_API_KEY: ${{ secrets.SKRIME_API_KEY }}
-          SKRIME_ROOT_PASSWORD: ${{ secrets.SKRIME_ROOT_PASSWORD }}
-          # PrepaidHost platform
-          PREPAIDHOST_API_KEY: ${{ secrets.PREPAIDHOST_API_KEY }}
-          PREPAIDHOST_ROOT_PASSWORD: ${{ secrets.PREPAIDHOST_ROOT_PASSWORD }}
-          # Cubepath platform
-          CUBEPATH_API_KEY: ${{ secrets.CUBEPATH_API_KEY }}
-          CUBEPATH_PRIVATE_KEY: ${{ secrets.CUBEPATH_PRIVATE_KEY }}
-          CUBEPATH_SSH_PUBLIC_KEY: ${{ secrets.CUBEPATH_SSH_PUBLIC_KEY }}
-          # CloudSigma platform
-          CLOUDSIGMA_EMAIL: ${{ secrets.CLOUDSIGMA_EMAIL }}
-          CLOUDSIGMA_PASSWORD: ${{ secrets.CLOUDSIGMA_PASSWORD }}
-          CLOUDSIGMA_PRIVATE_KEY: ${{ secrets.CLOUDSIGMA_PRIVATE_KEY }}
-          # Platform selection (auto = try all enabled in priority order)
-          PLATFORM_SELECTION: ${{ steps.validate.outputs.platform }}
-          SKIP_INSTANCE_DELETE: ${{ inputs.skip_instance_delete }}
-          # Test settings
-          SELECTED_MODULES: ${{ inputs.modules }}
-          ENV_TYPE: ${{ matrix.environment }}
-          INSTANCE_TYPES: ${{ steps.validate.outputs.instance_types }}
-          NODE_HOURS: ${{ inputs.node_hours }}
-          EXECUTION_RULE: ${{ inputs.execution_rule }}
-          TEST_IMAGES: 'alpine,debian'
-          PROVIDER_IMAGE_MAX_PER_FAMILY_TYPE: '1'
-          PROVIDER_IMAGE_TASK_MAX_WAIT: '2400'
-          PROVIDER_IMAGE_STATUS_MAX_WAIT: '600'
-          ADMIN_USER: admin
-          ADMIN_PASS: ${{ env.CI_ADMIN_PASSWORD }}
-          DB_USER: root
-          DB_PASSWORD: ${{ env.CI_DB_PASSWORD }}
-          DEBUG: "1"
-          SKIP_RESOURCE_CHECK: "true"
-        run: |
-          set -euo pipefail
-
-          chmod +x action_tests/run_env_test.sh
-          chmod +x action_tests/run_module.sh
-          chmod -R +x action_tests/modules/ 2>/dev/null || true
-          chmod -R +x action_tests/common/ 2>/dev/null || true
-          chmod -R +x action_tests/report/ 2>/dev/null || true
-          mkdir -p ${{ env.REPORT_DIR }}
-
-          RESOLVED_PLATFORMS="${{ steps.resolve-platforms.outputs.usable_platforms }}"
-          if [[ -z "$RESOLVED_PLATFORMS" ]]; then
-            echo "::error::No validated cloud platforms were resolved for this run."
-            exit 1
-          fi
-
-          export PLATFORM_ALICE_ENABLED=false
-          export PLATFORM_LIGHTNODE_ENABLED=false
-          export PLATFORM_VULTR_ENABLED=false
-          export PLATFORM_HETZNER_ENABLED=false
-          export PLATFORM_LINODE_ENABLED=false
-          export PLATFORM_RACKDOG_ENABLED=false
-          export PLATFORM_SKRIME_ENABLED=false
-          export PLATFORM_PREPAIDHOST_ENABLED=false
-          export PLATFORM_CUBEPATH_ENABLED=false
-          export PLATFORM_CLOUDSIGMA_ENABLED=false
-
-          for platform in ${RESOLVED_PLATFORMS//,/ }; do
-            PLATFORM_VAR="PLATFORM_$(echo "$platform" | tr '[:lower:]' '[:upper:]')_ENABLED"
-            export "${PLATFORM_VAR}=true"
-          done
-          export PLATFORM_PRIORITY_ORDER="${{ steps.resolve-platforms.outputs.platform_priority }}"
-          export noninteractive=true
-          echo "Using validated cloud platforms: ${PLATFORM_PRIORITY_ORDER}"
-          case "${{ matrix.environment }}" in
-            kubevirt)
-              echo "KubeVirt VM test size override: ${ACTION_TEST_KUBEVIRT_VM_CPU}C/${ACTION_TEST_KUBEVIRT_VM_MEMORY}MB/${ACTION_TEST_KUBEVIRT_VM_DISK}G"
-              ;;
-            lxd)
-              echo "LXD VM test size override: ${ACTION_TEST_LXD_VM_CPU}C/${ACTION_TEST_LXD_VM_MEMORY}MB/${ACTION_TEST_LXD_VM_DISK}G"
-              ;;
-            incus)
-              echo "Incus VM test size override: ${ACTION_TEST_INCUS_VM_CPU}C/${ACTION_TEST_INCUS_VM_MEMORY}MB/${ACTION_TEST_INCUS_VM_DISK}G"
-              ;;
-            proxmoxve)
-              echo "ProxmoxVE VM test size override: ${ACTION_TEST_PROXMOXVE_VM_CPU}C/${ACTION_TEST_PROXMOXVE_VM_MEMORY}MB/${ACTION_TEST_PROXMOXVE_VM_DISK}G"
-              ;;
-            qemu)
-              echo "QEMU VM test size override: ${ACTION_TEST_QEMU_VM_CPU}C/${ACTION_TEST_QEMU_VM_MEMORY}MB/${ACTION_TEST_QEMU_VM_DISK}G"
-              ;;
-          esac
-
-          # Run with error capture - never fail silently
-          set +e
-          bash action_tests/run_env_test.sh \
-            "${{ matrix.environment }}" \
-            "$SELECTED_MODULES" \
-            "${{ steps.validate.outputs.instance_types }}" 2>&1 | tee ${{ env.REPORT_DIR }}/full-output.log
-          PIPE_STATUSES=("${PIPESTATUS[@]}")
-          TEST_EXIT=${PIPE_STATUSES[0]:-0}
-          TEE_EXIT=${PIPE_STATUSES[1]:-0}
-          set -e
-          echo "test_exit=${TEST_EXIT}" >> "$GITHUB_OUTPUT"
-          if [[ "${TEE_EXIT}" != "0" ]]; then
-            echo "::warning::tee exited with ${TEE_EXIT}; continuing with captured harness exit ${TEST_EXIT}."
-          fi
-
-          # Ensure tee didn't break the pipe
-          if [[ ! -s ${{ env.REPORT_DIR }}/full-output.log ]]; then
-            echo "WARNING: Test produced no output. Check that required platform secrets are configured." > ${{ env.REPORT_DIR }}/full-output.log
-          fi
-
-          # Ensure report directory has at least a fallback file
-          if ! ls ${{ env.REPORT_DIR }}/*.html 1>/dev/null 2>&1; then
-            if [[ "${TEST_EXIT}" == "75" ]]; then
-              echo "<html><body><h1>Test Skipped</h1><p>Temporary infrastructure/runtime prerequisite failure (exit code 75).</p><pre>$(cat ${{ env.REPORT_DIR }}/full-output.log)</pre></body></html>" > "${{ env.REPORT_DIR }}/${{ matrix.environment }}-report.html"
-            else
-              echo "<html><body><h1>Test Failed</h1><p>Exit code: ${TEST_EXIT}</p><pre>$(cat ${{ env.REPORT_DIR }}/full-output.log)</pre></body></html>" > "${{ env.REPORT_DIR }}/${{ matrix.environment }}-report.html"
-            fi
-          fi
-
-          # Keep the reports/artifacts even when the harness fails, but expose
-          # the real status to the validation step.  Returning success here
-          # used to let an aborted or empty run look like a green workflow when
-          # the follow-up step itself was skipped or never received its output.
-          exit 0
-
-      - name: Validate integration test results
-        if: always()
-        env:
-          TEST_EXIT: ${{ steps.run-tests.outputs.test_exit }}
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-
-          # If the run-tests step was skipped/aborted before setting its output,
-          # this is an incomplete run, not a feature skip.  A green workflow
-          # must never be produced without an authoritative harness status.
-          if [[ -z "${TEST_EXIT:-}" ]]; then
-            echo "::error::Test step did not produce an exit code — it was skipped or aborted before results were finalized."
-            [[ -f ${{ env.REPORT_DIR }}/full-output.log ]] && tail -200 ${{ env.REPORT_DIR }}/full-output.log || true
-            exit 1
-          fi
-
-          HARNESS_NONZERO=false
-          _skip_reason=""
-          if [[ "${TEST_EXIT}" != "0" ]]; then
-            HARNESS_NONZERO=true
-            if [[ "${TEST_EXIT}" == "75" ]]; then
-              _skip_reason="temporary infrastructure/runtime prerequisite failure (EX_TEMPFAIL=75)"
-            else
-              _skip_reason="harness exited with code ${TEST_EXIT}"
-            fi
-            echo "::warning::Integration harness exited non-zero: ${_skip_reason}. Aggregating any JSONL results that were produced."
-          fi
-
-          result_files=()
-          current_results="${REPORT_DIR}/${{ matrix.environment }}-results.jsonl"
-          [[ ! -f "$current_results" ]] || result_files=("$current_results")
-          if [[ ${#result_files[@]} -eq 0 ]]; then
-            if [[ "${HARNESS_NONZERO}" == "true" ]]; then
-              echo "::error::Integration tests did not produce JSONL results after ${_skip_reason}."
-              {
-                echo "## Integration Validation"
-                echo ""
-                echo "| Metric | Value |"
-                echo "|--------|-------|"
-                echo "| Resolved Platforms | ${{ steps.resolve-platforms.outputs.platform_priority }} |"
-                echo "| Harness Exit Code | ${TEST_EXIT} |"
-                echo "| Status | INCOMPLETE (${_skip_reason}; no JSONL results) |"
-              } >> "$GITHUB_STEP_SUMMARY"
-              [[ -f ${{ env.REPORT_DIR }}/full-output.log ]] && tail -200 ${{ env.REPORT_DIR }}/full-output.log || true
-              exit 1
-            fi
-            echo "::error::Integration tests did not produce any JSONL result files."
-            [[ -f ${{ env.REPORT_DIR }}/full-output.log ]] && tail -200 ${{ env.REPORT_DIR }}/full-output.log || true
-            exit 1
-          fi
-
-          # Safely aggregate results - handle empty/corrupt JSONL lines.  The
-          # harness performs infrastructure/preflight checks, while module
-          # assertions are the product/API checks.  Keep those populations
-          # separate so a worker transport skip is not reported as a module
-          # failure (or as a successful module run).
-          total=0 passed=0 failed=0 skipped=0 corrupt=0
-          harness_total=0 harness_passed=0 harness_failed=0 harness_skipped=0
-          module_total=0 module_passed=0 module_failed=0 module_skipped=0
+        if [[ "$failed" -ne 0 ]]; then
+          {
+            echo ""
+            echo "### Failed Assertions"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+          # shellcheck disable=SC2094 # jq --arg passes the JSONL path as annotation data; the input file is never written.
           for f in "${result_files[@]}"; do
             line_no=0
             while IFS= read -r line || [[ -n "$line" ]]; do
               line_no=$((line_no + 1))
               [[ -z "$line" ]] && continue
-              if ! status=$(echo "$line" | jq -er '.status // "UNKNOWN"' 2>/dev/null); then
-                echo "::error file=${f},line=${line_no}::Invalid JSONL result line"
-                printf '%s\n' "$line"
-                corrupt=$((corrupt + 1))
-                continue
-              fi
-              group=$(echo "$line" | jq -r '.group // "default"' 2>/dev/null)
-              [[ -z "$group" || "$group" == "null" ]] && group="default"
-              total=$((total + 1))
-              if [[ "$group" == "HARNESS" ]]; then
-                harness_total=$((harness_total + 1))
-                case "$status" in
-                  PASS) harness_passed=$((harness_passed + 1)); passed=$((passed + 1)) ;;
-                  FAIL) harness_failed=$((harness_failed + 1)); failed=$((failed + 1)) ;;
-                  SKIP) harness_skipped=$((harness_skipped + 1)); skipped=$((skipped + 1)) ;;
-                  *)
-                    echo "::error file=${f},line=${line_no}::Unknown JSONL result status '${status}'"
-                    corrupt=$((corrupt + 1))
-                    ;;
-                esac
-              else
-                module_total=$((module_total + 1))
-                case "$status" in
-                  PASS) module_passed=$((module_passed + 1)); passed=$((passed + 1)) ;;
-                  FAIL) module_failed=$((module_failed + 1)); failed=$((failed + 1)) ;;
-                  SKIP) module_skipped=$((module_skipped + 1)); skipped=$((skipped + 1)) ;;
-                  *)
-                    echo "::error file=${f},line=${line_no}::Unknown JSONL result status '${status}'"
-                    corrupt=$((corrupt + 1))
-                    ;;
-                esac
-              fi
+              [[ "$(echo "$line" | jq -r '.status // empty' 2>/dev/null)" == "FAIL" ]] || continue
+              name=$(echo "$line" | jq -r '.name // "unknown"' 2>/dev/null)
+              method=$(echo "$line" | jq -r '.method // ""' 2>/dev/null)
+              url=$(echo "$line" | jq -r '.url // ""' 2>/dev/null)
+              expected=$(echo "$line" | jq -r '.expected // ""' 2>/dev/null)
+              actual=$(echo "$line" | jq -r '.actual // ""' 2>/dev/null)
+              request_payload=$(echo "$line" | jq -r '.request_payload // ""' 2>/dev/null)
+              detail=$(echo "$line" | jq -r '.detail // ""' 2>/dev/null)
+              error_logs=$(echo "$line" | jq -r '.error_logs // ""' 2>/dev/null)
+              {
+                echo "<details open>"
+                echo "<summary>${f}:${line_no} ${name} (${method} ${url})</summary>"
+                echo ""
+                echo "- Expected: ${expected}"
+                echo "- Actual: ${actual}"
+                if [[ -n "$request_payload" && "$request_payload" != "null" ]]; then
+                  echo ""
+                  echo "Request payload:"
+                  echo '```json'
+                  printf '%s\n' "$request_payload" | jq '.' 2>/dev/null || printf '%s\n' "$request_payload"
+                  echo '```'
+                fi
+                if [[ -n "$detail" && "$detail" != "null" ]]; then
+                  echo ""
+                  echo "Response detail:"
+                  echo '```json'
+                  printf '%s\n' "$detail" | jq '.' 2>/dev/null || printf '%s\n' "$detail"
+                  echo '```'
+                fi
+                if [[ -n "$error_logs" && "$error_logs" != "null" ]]; then
+                  echo ""
+                  echo "Service logs:"
+                  echo '```text'
+                  printf '%s\n' "$error_logs"
+                  echo '```'
+                fi
+                echo "</details>"
+                echo ""
+              } >> "$GITHUB_STEP_SUMMARY"
+              annotation_detail=$(jq -cn \
+                --arg file "$f" --arg line "$line_no" --arg name "$name" \
+                --arg method "$method" --arg url "$url" --arg expected "$expected" --arg actual "$actual" \
+                --arg request "$request_payload" --arg detail "$detail" --arg logs "$error_logs" \
+                '{file:$file,line:$line,name:$name,method:$method,url:$url,expected:$expected,actual:$actual,request_payload:$request,response_detail:$detail,error_logs:$logs}')
+              annotation_detail="${annotation_detail//'%'/'%25'}"
+              annotation_detail="${annotation_detail//$'\r'/'%0D'}"
+              annotation_detail="${annotation_detail//$'\n'/'%0A'}"
+              echo "::error file=${f},line=${line_no}::${annotation_detail}"
             done < "$f"
           done
-          module_executed=$((module_passed + module_failed))
+          echo "::error::Integration tests recorded ${failed} failing assertions. Full request payload, response detail, and service logs are printed above and in artifacts."
+          exit 1
+        fi
 
-          {
-            echo "## Integration Validation"
-            echo ""
-            echo "| Metric | Value |"
-            echo "|--------|-------|"
-            echo "| Resolved Platforms | ${{ steps.resolve-platforms.outputs.platform_priority }} |"
-            echo "| Harness Exit Code | ${TEST_EXIT} |"
-            echo "| Harness Checks | total=${harness_total}, pass=${harness_passed}, fail=${harness_failed}, skip=${harness_skipped} |"
-            echo "| Module Assertions | total=${module_total}, pass=${module_passed}, fail=${module_failed}, skip=${module_skipped} |"
-            echo "| Module tests executed | $([[ ${module_executed} -gt 0 ]] && echo yes || echo no) |"
-            echo "| All Results | total=${total}, pass=${passed}, fail=${failed}, skip=${skipped} |"
-            echo "| Corrupt JSONL Lines | ${corrupt} |"
-          } >> "$GITHUB_STEP_SUMMARY"
+        if [[ "${HARNESS_NONZERO}" == "true" ]]; then
+          echo "::error::Integration harness exited with ${TEST_EXIT} after writing ${total} result(s): ${_skip_reason}. Partial assertions cannot make an incomplete run pass."
+          echo "| Status | INCOMPLETE (${_skip_reason}) |" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+        fi
+    - name: Show integration log on failure
+      if: failure()
+      run: |
+        echo "=== Integration Test Output (last 200 lines) ==="
+        tail -200 ${{ env.REPORT_DIR }}/full-output.log || true
+    - name: Upload test reports
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: test-reports-${{ matrix.environment }}-${{ github.run_number }}
+        path: |
+          ${{ env.REPORT_DIR }}/*.html
+          ${{ env.REPORT_DIR }}/*.md
+          ${{ env.REPORT_DIR }}/*.log
+          ${{ env.REPORT_DIR }}/*.txt
+          ${{ env.REPORT_DIR }}/*.json
+          ${{ env.REPORT_DIR }}/*.jsonl
+        retention-days: 30
+    - name: Publish to GitHub Pages
+      if: always()
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        source "$RUNNER_TEMP/ci-network.sh"
+        REPORT_BRANCH="gh-pages"
+        TIMESTAMP=$(date -u '+%Y%m%d-%H%M%S')
+        ENV="${{ matrix.environment }}"
+        REMOTE="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+        PUBLISH_SRC=$(mktemp -d)
+        cp ${{ env.REPORT_DIR }}/*.html "$PUBLISH_SRC/" 2>/dev/null || true
+        cp ${{ env.REPORT_DIR }}/*.jsonl "$PUBLISH_SRC/" 2>/dev/null || true
 
-          if [[ "$corrupt" -ne 0 ]]; then
-            echo "::error::Integration test result JSONL contains ${corrupt} invalid line(s)."
-            exit 1
+        # Matrix jobs may finish together. Re-clone and rebuild the index on each retry so
+        # a concurrent gh-pages update cannot discard another environment's report.
+        published=false
+        for attempt in 1 2 3 4 5; do
+          rm -rf report-repo
+          git clone --depth 1 --branch "$REPORT_BRANCH" "$REMOTE" report-repo 2>/dev/null || {
+            mkdir -p report-repo
+            git -C report-repo init
+            git -C report-repo checkout -b "$REPORT_BRANCH"
+          }
+
+          mkdir -p "report-repo/reports/${ENV}/${TIMESTAMP}"
+          cp "$PUBLISH_SRC"/*.html "report-repo/reports/${ENV}/${TIMESTAMP}/" 2>/dev/null || true
+          cp "$PUBLISH_SRC"/*.jsonl "report-repo/reports/${ENV}/${TIMESTAMP}/" 2>/dev/null || true
+
+          KEEP=7
+          if [[ -d "report-repo/reports/${ENV}" ]]; then
+            SORTED=$(find "report-repo/reports/${ENV}" -mindepth 1 -maxdepth 1 -type d | sort -r)
+            COUNT=0
+            while IFS= read -r dir; do
+              COUNT=$((COUNT + 1))
+              if [[ $COUNT -gt $KEEP ]]; then
+                rm -rf "$dir"
+                echo "Pruned old report: $dir"
+              fi
+            done <<< "$SORTED"
           fi
 
-          if [[ "$total" -eq 0 ]]; then
-            if [[ "${HARNESS_NONZERO}" == "true" ]]; then
-              echo "::error::Integration tests produced an empty result set after ${_skip_reason}."
-              [[ -f ${{ env.REPORT_DIR }}/full-output.log ]] && tail -200 ${{ env.REPORT_DIR }}/full-output.log || true
-              exit 1
-            fi
-            echo "::error::Integration tests produced an empty result set."
-            exit 1
+          bash action_tests/report/generate_index.sh "report-repo/reports" "report-repo/index.html"
+          git -C report-repo add -A
+          git -C report-repo config user.name "GitHub Actions"
+          git -C report-repo config user.email "actions@github.com"
+          git -C report-repo commit -m "Update test reports: ${ENV} ${TIMESTAMP}" >/dev/null 2>&1 || true
+          if git -C report-repo push "$REMOTE" "$REPORT_BRANCH" 2>/dev/null; then
+            published=true
+            break
           fi
-
-          if [[ "$module_executed" -eq 0 ]]; then
-            echo "::error::No module assertions were executed (module total=${module_total}, skipped=${module_skipped}). The run only completed harness/preflight checks and cannot be reported as a successful integration test."
-            {
-              echo ""
-              echo "> **Integration validation blocked:** no module assertions were executed. The result set contains harness/preflight checks only; resolve the infrastructure/setup condition and rerun."
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 1
+          echo "Concurrent gh-pages update detected; retrying publish (${attempt}/5)..."
+          sleep $((attempt * 3))
+        done
+        rm -rf "$PUBLISH_SRC"
+        if [[ "$published" != "true" ]]; then
+          echo "::warning::Failed to push to gh-pages after retries. Reports remain available as workflow artifacts."
+        fi
+      shell: bash
+    - name: Summary
+      if: always()
+      run: |
+        {
+          echo "## Integration Test Results"
+          echo ""
+          echo "| Setting | Value |"
+          echo "|---------|-------|"
+          echo "| Environment | ${{ matrix.environment }} |"
+          echo "| Platform | ${{ inputs.platform }} |"
+          echo "| Resolved Cloud Platforms | ${{ steps.resolve-platforms.outputs.platform_priority }} |"
+          echo "| Instance Types | ${{ steps.validate.outputs.instance_types }} |"
+          printf '| Modules | %s |\n' "$SELECTED_MODULES"
+          echo ""
+          if [[ -f "${REPORT_DIR}/${{ matrix.environment }}-report.md" ]]; then
+            cat "${REPORT_DIR}/${{ matrix.environment }}-report.md"
+          else
+            echo "No markdown report file found."
           fi
-
-          if [[ "$failed" -ne 0 ]]; then
-            {
-              echo ""
-              echo "### Failed Assertions"
-              echo ""
-            } >> "$GITHUB_STEP_SUMMARY"
-            # shellcheck disable=SC2094 # jq --arg passes the JSONL path as annotation data; the input file is never written.
-            for f in "${result_files[@]}"; do
-              line_no=0
-              while IFS= read -r line || [[ -n "$line" ]]; do
-                line_no=$((line_no + 1))
-                [[ -z "$line" ]] && continue
-                [[ "$(echo "$line" | jq -r '.status // empty' 2>/dev/null)" == "FAIL" ]] || continue
-                name=$(echo "$line" | jq -r '.name // "unknown"' 2>/dev/null)
-                method=$(echo "$line" | jq -r '.method // ""' 2>/dev/null)
-                url=$(echo "$line" | jq -r '.url // ""' 2>/dev/null)
-                expected=$(echo "$line" | jq -r '.expected // ""' 2>/dev/null)
-                actual=$(echo "$line" | jq -r '.actual // ""' 2>/dev/null)
-                request_payload=$(echo "$line" | jq -r '.request_payload // ""' 2>/dev/null)
-                detail=$(echo "$line" | jq -r '.detail // ""' 2>/dev/null)
-                error_logs=$(echo "$line" | jq -r '.error_logs // ""' 2>/dev/null)
-                {
-                  echo "<details open>"
-                  echo "<summary>${f}:${line_no} ${name} (${method} ${url})</summary>"
-                  echo ""
-                  echo "- Expected: ${expected}"
-                  echo "- Actual: ${actual}"
-                  if [[ -n "$request_payload" && "$request_payload" != "null" ]]; then
-                    echo ""
-                    echo "Request payload:"
-                    echo '```json'
-                    printf '%s\n' "$request_payload" | jq '.' 2>/dev/null || printf '%s\n' "$request_payload"
-                    echo '```'
-                  fi
-                  if [[ -n "$detail" && "$detail" != "null" ]]; then
-                    echo ""
-                    echo "Response detail:"
-                    echo '```json'
-                    printf '%s\n' "$detail" | jq '.' 2>/dev/null || printf '%s\n' "$detail"
-                    echo '```'
-                  fi
-                  if [[ -n "$error_logs" && "$error_logs" != "null" ]]; then
-                    echo ""
-                    echo "Service logs:"
-                    echo '```text'
-                    printf '%s\n' "$error_logs"
-                    echo '```'
-                  fi
-                  echo "</details>"
-                  echo ""
-                } >> "$GITHUB_STEP_SUMMARY"
-                annotation_detail=$(jq -cn \
-                  --arg file "$f" --arg line "$line_no" --arg name "$name" \
-                  --arg method "$method" --arg url "$url" --arg expected "$expected" --arg actual "$actual" \
-                  --arg request "$request_payload" --arg detail "$detail" --arg logs "$error_logs" \
-                  '{file:$file,line:$line,name:$name,method:$method,url:$url,expected:$expected,actual:$actual,request_payload:$request,response_detail:$detail,error_logs:$logs}')
-                annotation_detail="${annotation_detail//'%'/'%25'}"
-                annotation_detail="${annotation_detail//$'\r'/'%0D'}"
-                annotation_detail="${annotation_detail//$'\n'/'%0A'}"
-                echo "::error file=${f},line=${line_no}::${annotation_detail}"
-              done < "$f"
-            done
-            echo "::error::Integration tests recorded ${failed} failing assertions. Full request payload, response detail, and service logs are printed above and in artifacts."
-            exit 1
-          fi
-
-          if [[ "${HARNESS_NONZERO}" == "true" ]]; then
-            echo "::error::Integration harness exited with ${TEST_EXIT} after writing ${total} result(s): ${_skip_reason}. Partial assertions cannot make an incomplete run pass."
-            echo "| Status | INCOMPLETE (${_skip_reason}) |" >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-
-      - name: Show integration log on failure
-        if: failure()
-        run: |
-          echo "=== Integration Test Output (last 200 lines) ==="
-          tail -200 ${{ env.REPORT_DIR }}/full-output.log || true
-
-      - name: Upload test reports
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: test-reports-${{ matrix.environment }}-${{ github.run_number }}
-          path: |
-            ${{ env.REPORT_DIR }}/*.html
-            ${{ env.REPORT_DIR }}/*.md
-            ${{ env.REPORT_DIR }}/*.log
-            ${{ env.REPORT_DIR }}/*.txt
-            ${{ env.REPORT_DIR }}/*.json
-            ${{ env.REPORT_DIR }}/*.jsonl
-          retention-days: 30
-
-      - name: Publish to GitHub Pages
-        if: always()
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          REPORT_BRANCH="gh-pages"
-          TIMESTAMP=$(date -u '+%Y%m%d-%H%M%S')
-          ENV="${{ matrix.environment }}"
-          REMOTE="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
-          PUBLISH_SRC=$(mktemp -d)
-          cp ${{ env.REPORT_DIR }}/*.html "$PUBLISH_SRC/" 2>/dev/null || true
-          cp ${{ env.REPORT_DIR }}/*.jsonl "$PUBLISH_SRC/" 2>/dev/null || true
-
-          # Matrix jobs may finish together. Re-clone and rebuild the index on each retry so
-          # a concurrent gh-pages update cannot discard another environment's report.
-          published=false
-          for attempt in 1 2 3 4 5; do
-            rm -rf report-repo
-            git clone --depth 1 --branch "$REPORT_BRANCH" "$REMOTE" report-repo 2>/dev/null || {
-              mkdir -p report-repo
-              git -C report-repo init
-              git -C report-repo checkout -b "$REPORT_BRANCH"
-            }
-
-            mkdir -p "report-repo/reports/${ENV}/${TIMESTAMP}"
-            cp "$PUBLISH_SRC"/*.html "report-repo/reports/${ENV}/${TIMESTAMP}/" 2>/dev/null || true
-            cp "$PUBLISH_SRC"/*.jsonl "report-repo/reports/${ENV}/${TIMESTAMP}/" 2>/dev/null || true
-
-            KEEP=7
-            if [[ -d "report-repo/reports/${ENV}" ]]; then
-              SORTED=$(find "report-repo/reports/${ENV}" -mindepth 1 -maxdepth 1 -type d | sort -r)
-              COUNT=0
-              while IFS= read -r dir; do
-                COUNT=$((COUNT + 1))
-                if [[ $COUNT -gt $KEEP ]]; then
-                  rm -rf "$dir"
-                  echo "Pruned old report: $dir"
-                fi
-              done <<< "$SORTED"
-            fi
-
-            bash action_tests/report/generate_index.sh "report-repo/reports" "report-repo/index.html"
-            git -C report-repo add -A
-            git -C report-repo config user.name "GitHub Actions"
-            git -C report-repo config user.email "actions@github.com"
-            git -C report-repo commit -m "Update test reports: ${ENV} ${TIMESTAMP}" >/dev/null 2>&1 || true
-            if git -C report-repo push "$REMOTE" "$REPORT_BRANCH" 2>/dev/null; then
-              published=true
-              break
-            fi
-            echo "Concurrent gh-pages update detected; retrying publish (${attempt}/5)..."
-            sleep $((attempt * 3))
-          done
-          rm -rf "$PUBLISH_SRC"
-          if [[ "$published" != "true" ]]; then
-            echo "::warning::Failed to push to gh-pages after retries. Reports remain available as workflow artifacts."
-          fi
-
-      - name: Summary
-        if: always()
-        run: |
-          {
-            echo "## Integration Test Results"
-            echo ""
-            echo "| Setting | Value |"
-            echo "|---------|-------|"
-            echo "| Environment | ${{ matrix.environment }} |"
-            echo "| Platform | ${{ inputs.platform }} |"
-            echo "| Resolved Cloud Platforms | ${{ steps.resolve-platforms.outputs.platform_priority }} |"
-            echo "| Instance Types | ${{ steps.validate.outputs.instance_types }} |"
-            printf '| Modules | %s |\n' "$SELECTED_MODULES"
-            echo ""
-            if [[ -f "${REPORT_DIR}/${{ matrix.environment }}-report.md" ]]; then
-              cat "${REPORT_DIR}/${{ matrix.environment }}-report.md"
-            else
-              echo "No markdown report file found."
-            fi
-            echo ""
-            echo "<details><summary>Last 30 lines of test output</summary>"
-            echo ""
-            echo '```'
-            tail -30 "${REPORT_DIR}/full-output.log" 2>/dev/null || echo "No output log found"
-            echo '```'
-            echo "</details>"
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo ""
+          echo "<details><summary>Last 30 lines of test output</summary>"
+          echo ""
+          echo '```'
+          tail -30 "${REPORT_DIR}/full-output.log" 2>/dev/null || echo "No output log found"
+          echo '```'
+          echo "</details>"
+        } >> "$GITHUB_STEP_SUMMARY"
+'on':
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Virtualization environment (choose one, or "all" for controlled parallel batches)
+        required: true
+        type: choice
+        options:
+        - docker
+        - all
+        - lxd
+        - incus
+        - podman
+        - containerd
+        - proxmoxve
+        - kubevirt
+        - qemu
+        default: docker
+      platform:
+        description: Cloud platform to use (auto = priority-order fallback)
+        required: false
+        type: choice
+        options:
+        - auto
+        - alice
+        - lightnode
+        - vultr
+        - hetzner
+        - linode
+        - rackdog
+        - skrime
+        - prepaidhost
+        - cubepath
+        - cloudsigma
+        default: auto
+      instance_types:
+        description: Instance types to test (auto-corrected per platform)
+        required: true
+        type: choice
+        options:
+        - both
+        - container
+        - vm
+        default: container
+      modules:
+        description: Test modules to run (e.g. all, 01-10, 01,03,05)
+        required: false
+        type: string
+        default: all
+      node_hours:
+        description: Node lifetime in hours
+        required: false
+        type: string
+        default: '8'
+      skip_instance_delete:
+        description: Skip instance deletion after tests (keep alive)
+        required: false
+        type: boolean
+        default: true
+      execution_rule:
+        description: Provider execution rule (auto=API-first+SSH-fallback, api_only=API-only, ssh_only=SSH-only,
+          all=test all three sequentially with system reset between each)
+        required: false
+        type: choice
+        options:
+        - auto
+        - api_only
+        - ssh_only
+        - all
+        default: auto
+      max_parallel:
+        description: Maximum concurrent environments when environment=all
+        required: false
+        type: choice
+        options:
+        - '1'
+        - '2'
+        - '3'
+        - '4'
+        default: '1'
+      live_ipv6_tunnel:
+        description: 'Run disabled IPv6 tunnel configuration lifecycle checks on a dedicated test worker (default:
+          disabled)'
+        required: false
+        type: boolean
+        default: false

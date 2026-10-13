@@ -82,6 +82,11 @@ jobs:
     - build-agent-amd64
     - build-agent-arm64
     steps:
+    - name: Load trusted network recovery helpers
+      shell: bash
+      run: |
+        set -euo pipefail
+        curl --fail --silent --show-error --location --connect-timeout 15 --max-time 90 --retry 3 --retry-max-time 180 --retry-connrefused "https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/.github/scripts/ci_network.sh" -o "$RUNNER_TEMP/ci-network.sh"
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Set up Go
@@ -268,27 +273,33 @@ jobs:
     - name: Create Release with Auto-generated Notes
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: "TAG_NAME=\"v${{ steps.date.outputs.date }}\"\nPREVIOUS_TAG=\"${{ steps.get_previous_tag.outputs.previous_tag }}\"\
-        \n\n# Build release body header\nRELEASE_HEADER=\"## 自动构建发布 - ${{ steps.date.outputs.date }}\n\n### 独立部署版本（需要分别部署前后端）\n\
-        - \\`server-linux-amd64.tar.gz\\` - 后端 Linux AMD64 版本\n- \\`server-linux-arm64.tar.gz\\` - 后端 Linux ARM64 版本  \n-\
-        \ \\`server-windows-amd64.zip\\` - 后端 Windows AMD64 版本\n- \\`server-windows-arm64.zip\\` - 后端 Windows ARM64 版本\n-\
-        \ \\`web-dist.zip\\` - 前端静态文件\n\n### 一体化部署版本（前端已内嵌，单二进制文件部署）\n- \\`server-allinone-linux-amd64.tar.gz\\` - 一体化 Linux\
-        \ AMD64 版本\n- \\`server-allinone-linux-arm64.tar.gz\\` - 一体化 Linux ARM64 版本\n- \\`server-allinone-windows-amd64.zip\\\
-        ` - 一体化 Windows AMD64 版本\n- \\`server-allinone-windows-arm64.zip\\` - 一体化 Windows ARM64 版本\n\n### 监控代理（部署到 Provider\
-        \ 节点）\n- \\`oneclickvirt-agent-linux-amd64.tar.gz\\` - 监控代理 Linux AMD64 版本\n- \\`oneclickvirt-agent-linux-arm64.tar.gz\\\
-        ` - 监控代理 Linux ARM64 版本\n\n### 校验文件\n- \\`SHA256SUMS\\` - Release 资产 SHA-256 校验清单\"\n\n# Create release with auto-generated\
-        \ notes\nif [ -n \"$PREVIOUS_TAG\" ]; then\n  gh release create \"$TAG_NAME\" \\\n    --title \"Release $TAG_NAME\"\
-        \ \\\n    --notes \"$RELEASE_HEADER\" \\\n    --notes-start-tag \"$PREVIOUS_TAG\" \\\n    --generate-notes \\\n  \
-        \  ./build/server-linux-amd64.tar.gz \\\n    ./build/server-linux-arm64.tar.gz \\\n    ./build/server-windows-amd64.zip\
-        \ \\\n    ./build/server-windows-arm64.zip \\\n    ./build/server-allinone-linux-amd64.tar.gz \\\n    ./build/server-allinone-linux-arm64.tar.gz\
-        \ \\\n    ./build/server-allinone-windows-amd64.zip \\\n    ./build/server-allinone-windows-arm64.zip \\\n    ./build/oneclickvirt-agent-linux-amd64.tar.gz\
-        \ \\\n    ./build/oneclickvirt-agent-linux-arm64.tar.gz \\\n    ./build/web-dist.zip \\\n    ./build/SHA256SUMS\n\
+      run: "source \"$RUNNER_TEMP/ci-network.sh\"\nTAG_NAME=\"v${{ steps.date.outputs.date }}\"\nPREVIOUS_TAG=\"\
+        ${{ steps.get_previous_tag.outputs.previous_tag }}\"\n\n# Build release body header\nRELEASE_HEADER=\"##\
+        \ 自动构建发布 - ${{ steps.date.outputs.date }}\n\n### 独立部署版本（需要分别部署前后端）\n- \\`server-linux-amd64.tar.gz\\` -\
+        \ 后端 Linux AMD64 版本\n- \\`server-linux-arm64.tar.gz\\` - 后端 Linux ARM64 版本  \n- \\`server-windows-amd64.zip\\\
+        ` - 后端 Windows AMD64 版本\n- \\`server-windows-arm64.zip\\` - 后端 Windows ARM64 版本\n- \\`web-dist.zip\\` -\
+        \ 前端静态文件\n\n### 一体化部署版本（前端已内嵌，单二进制文件部署）\n- \\`server-allinone-linux-amd64.tar.gz\\` - 一体化 Linux AMD64 版本\n\
+        - \\`server-allinone-linux-arm64.tar.gz\\` - 一体化 Linux ARM64 版本\n- \\`server-allinone-windows-amd64.zip\\\
+        ` - 一体化 Windows AMD64 版本\n- \\`server-allinone-windows-arm64.zip\\` - 一体化 Windows ARM64 版本\n\n### 监控代理（部署到\
+        \ Provider 节点）\n- \\`oneclickvirt-agent-linux-amd64.tar.gz\\` - 监控代理 Linux AMD64 版本\n- \\`oneclickvirt-agent-linux-arm64.tar.gz\\\
+        ` - 监控代理 Linux ARM64 版本\n\n### 校验文件\n- \\`SHA256SUMS\\` - Release 资产 SHA-256 校验清单\"\n\n# Create release\
+        \ with auto-generated notes\nif [ -n \"$PREVIOUS_TAG\" ]; then\n  gh release create \"$TAG_NAME\" \\\n \
+        \   --title \"Release $TAG_NAME\" \\\n    --notes \"$RELEASE_HEADER\" \\\n    --notes-start-tag \"$PREVIOUS_TAG\"\
+        \ \\\n    --generate-notes \\\n    ./build/server-linux-amd64.tar.gz \\\n    ./build/server-linux-arm64.tar.gz\
+        \ \\\n    ./build/server-windows-amd64.zip \\\n    ./build/server-windows-arm64.zip \\\n    ./build/server-allinone-linux-amd64.tar.gz\
+        \ \\\n    ./build/server-allinone-linux-arm64.tar.gz \\\n    ./build/server-allinone-windows-amd64.zip \\\
+        \n    ./build/server-allinone-windows-arm64.zip \\\n    ./build/oneclickvirt-agent-linux-amd64.tar.gz \\\
+        \n    ./build/oneclickvirt-agent-linux-arm64.tar.gz \\\n    ./build/web-dist.zip \\\n    ./build/SHA256SUMS\n\
         else\n  gh release create \"$TAG_NAME\" \\\n    --title \"Release $TAG_NAME\" \\\n    --notes \"$RELEASE_HEADER\"\
-        \ \\\n    --generate-notes \\\n    ./build/server-linux-amd64.tar.gz \\\n    ./build/server-linux-arm64.tar.gz \\\n\
-        \    ./build/server-windows-amd64.zip \\\n    ./build/server-windows-arm64.zip \\\n    ./build/server-allinone-linux-amd64.tar.gz\
-        \ \\\n    ./build/server-allinone-linux-arm64.tar.gz \\\n    ./build/server-allinone-windows-amd64.zip \\\n    ./build/server-allinone-windows-arm64.zip\
-        \ \\\n    ./build/oneclickvirt-agent-linux-amd64.tar.gz \\\n    ./build/oneclickvirt-agent-linux-arm64.tar.gz \\\n\
-        \    ./build/web-dist.zip \\\n    ./build/SHA256SUMS\nfi\n"
+        \ \\\n    --generate-notes \\\n    ./build/server-linux-amd64.tar.gz \\\n    ./build/server-linux-arm64.tar.gz\
+        \ \\\n    ./build/server-windows-amd64.zip \\\n    ./build/server-windows-arm64.zip \\\n    ./build/server-allinone-linux-amd64.tar.gz\
+        \ \\\n    ./build/server-allinone-linux-arm64.tar.gz \\\n    ./build/server-allinone-windows-amd64.zip \\\
+        \n    ./build/server-allinone-windows-arm64.zip \\\n    ./build/oneclickvirt-agent-linux-amd64.tar.gz \\\
+        \n    ./build/oneclickvirt-agent-linux-arm64.tar.gz \\\n    ./build/web-dist.zip \\\n    ./build/SHA256SUMS\n\
+        fi\n"
+      shell: bash
+    env:
+      GOPROXY: https://proxy.golang.org|direct
 'on':
   workflow_dispatch: null
   push:

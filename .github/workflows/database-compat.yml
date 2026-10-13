@@ -1,22 +1,11 @@
 name: Database compatibility
-
-on:
-  push:
-    paths: ['server/**', 'deploy/**', 'scripts/**', 'Dockerfile', 'docker-compose.yaml', '.github/workflows/database-compat.yml']
-  pull_request:
-    paths: ['server/**', 'deploy/**', 'scripts/**', 'Dockerfile', 'docker-compose.yaml', '.github/workflows/database-compat.yml']
-  workflow_dispatch:
-
 permissions:
   contents: read
-
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-
 concurrency:
   group: database-compat-${{ github.ref }}-${{ github.workflow }}
   cancel-in-progress: true
-
 jobs:
   real-database:
     runs-on: ubuntu-latest
@@ -24,16 +13,41 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: ['mysql:8.0', 'mysql:8.4', 'mysql:9', 'mariadb:10.11', 'mariadb:11.4']
+        image:
+        - mysql:8.0
+        - mysql:8.4
+        - mysql:9
+        - mariadb:10.11
+        - mariadb:11.4
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: server/go.mod
-          cache-dependency-path: server/go.sum
-      - name: Real engine, wrong config, initialization and persistent restart
-        env:
-          OCV_TEST_DB_IMAGES: ${{ matrix.image }}
-        run: |
-          bash scripts/tests/database_compat_integration_test.sh
-          bash scripts/tests/embedded_database_integration_test.sh
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: server/go.mod
+        cache-dependency-path: server/go.sum
+    - name: Real engine, wrong config, initialization and persistent restart
+      env:
+        OCV_TEST_DB_IMAGES: ${{ matrix.image }}
+      run: |
+        bash scripts/tests/database_compat_integration_test.sh
+        bash scripts/tests/embedded_database_integration_test.sh
+    env:
+      GOPROXY: https://proxy.golang.org|direct
+'on':
+  push:
+    paths:
+    - server/**
+    - deploy/**
+    - scripts/**
+    - Dockerfile
+    - docker-compose.yaml
+    - .github/workflows/database-compat.yml
+  pull_request:
+    paths:
+    - server/**
+    - deploy/**
+    - scripts/**
+    - Dockerfile
+    - docker-compose.yaml
+    - .github/workflows/database-compat.yml
+  workflow_dispatch: null
