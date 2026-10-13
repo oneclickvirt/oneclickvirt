@@ -1,41 +1,27 @@
 name: Build and Release oneclickvirt
-
-on:
-  workflow_dispatch:
-  # A deliberately named tag is the non-interactive release trigger used by
-  # maintainers without a browser session. Ordinary tags do not start a
-  # release, so an accidental version tag cannot publish a second artifact.
-  push:
-    tags:
-      - 'release-trigger-*'
-
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-
 concurrency:
   group: build-release-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   build-agent-amd64:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
     - name: Checkout code
-      uses: actions/checkout@v7
-
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Set up Rust
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # v1
       with:
         targets: x86_64-unknown-linux-musl
-
+        toolchain: stable
     - name: Install musl tools
       run: |
         sudo apt-get update
         sudo apt-get install -y musl-tools
-
     - name: Cache Rust dependencies
-      uses: actions/cache@v6
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
           ~/.cargo/registry
@@ -44,38 +30,33 @@ jobs:
         key: ${{ runner.os }}-cargo-amd64-${{ hashFiles('server/agent/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-cargo-amd64-
-
     - name: Build monitoring agent (AMD64)
       working-directory: ./server/agent
       run: |
         cargo build --locked --release --target x86_64-unknown-linux-musl
         cp target/x86_64-unknown-linux-musl/release/oneclickvirt-agent oneclickvirt-agent-linux-amd64
-
     - name: Upload AMD64 agent artifact
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: agent-amd64
         path: server/agent/oneclickvirt-agent-linux-amd64
-
   build-agent-arm64:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     steps:
     - name: Checkout code
-      uses: actions/checkout@v7
-
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Set up Rust
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # v1
       with:
         targets: aarch64-unknown-linux-musl
-
+        toolchain: stable
     - name: Install musl tools
       run: |
         sudo apt-get update
         sudo apt-get install -y musl-tools
-
     - name: Cache Rust dependencies
-      uses: actions/cache@v6
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
           ~/.cargo/registry
@@ -84,42 +65,37 @@ jobs:
         key: Linux-arm64-cargo-arm64-${{ hashFiles('server/agent/Cargo.lock') }}
         restore-keys: |
           Linux-arm64-cargo-arm64-
-
     - name: Build monitoring agent (ARM64)
       working-directory: ./server/agent
       run: |
         cargo build --locked --release --target aarch64-unknown-linux-musl
         cp target/aarch64-unknown-linux-musl/release/oneclickvirt-agent oneclickvirt-agent-linux-arm64
-
     - name: Upload ARM64 agent artifact
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: agent-arm64
         path: server/agent/oneclickvirt-agent-linux-arm64
-
   build-and-release:
     runs-on: ubuntu-latest
     timeout-minutes: 180
-    needs: [build-agent-amd64, build-agent-arm64]
-
+    needs:
+    - build-agent-amd64
+    - build-agent-arm64
     steps:
     - name: Checkout code
-      uses: actions/checkout@v7
-
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Set up Go
-      uses: actions/setup-go@v7
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: server/go.mod
         cache: true
         cache-dependency-path: server/go.sum
-
     - name: Set up Node.js
-      uses: actions/setup-node@v7
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version: '24'
-        cache: 'npm'
+        cache: npm
         cache-dependency-path: web/package-lock.json
-
     - name: Regenerate Swagger docs and auto-commit if changed
       working-directory: ./server
       run: |
@@ -135,25 +111,20 @@ jobs:
         else
           echo "Swagger docs are up to date."
         fi
-
     - name: Get current date
       id: date
       run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> "$GITHUB_OUTPUT"
-
     - name: Create build directory
       run: mkdir -p build
-
     - name: Download agent artifacts
-      uses: actions/download-artifact@v8
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         path: build/agents
-
     - name: Stage agent binaries
       run: |
         cp build/agents/agent-amd64/oneclickvirt-agent-linux-amd64 build/oneclickvirt-agent-linux-amd64
         cp build/agents/agent-arm64/oneclickvirt-agent-linux-arm64 build/oneclickvirt-agent-linux-arm64
         chmod +x build/oneclickvirt-agent-linux-amd64 build/oneclickvirt-agent-linux-arm64
-
     - name: Prepare controller agent assets
       run: |
         mkdir -p build/controller-agent web/public/controller-agent server/assets/agent
@@ -175,7 +146,6 @@ jobs:
         cp build/controller-agent/oneclickvirt-agent-linux-arm64.tar.gz web/public/controller-agent/
         cp build/controller-agent/oneclickvirt-agent-linux-amd64.tar.gz server/assets/agent/
         cp build/controller-agent/oneclickvirt-agent-linux-arm64.tar.gz server/assets/agent/
-
     - name: Update version constants for this release
       run: |
         TAG_NAME="v${{ steps.date.outputs.date }}"
@@ -192,7 +162,6 @@ jobs:
         PY
         echo "Updated controller release tag to: ${TAG_NAME}; minimum Agent API version: ${MIN_AGENT_VERSION}"
         cat server/constant/version.go
-
     - name: Build Vue web application
       run: |
         cd web
@@ -201,7 +170,6 @@ jobs:
         npm run build
         cd dist
         zip -r ../../build/web-dist.zip .
-
     - name: Build Go server binaries (Standalone - without embedded frontend)
       working-directory: ./server
       run: |
@@ -216,22 +184,20 @@ jobs:
 
         # Linux AMD64
         GOOS=linux GOARCH=amd64 go build -ldflags="$LDFLAGS" -o ../build/server-linux-amd64 .
-        
+
         # Linux ARM64
         GOOS=linux GOARCH=arm64 go build -ldflags="$LDFLAGS" -o ../build/server-linux-arm64 .
-        
+
         # Windows AMD64
         GOOS=windows GOARCH=amd64 go build -ldflags="$LDFLAGS" -o ../build/server-windows-amd64.exe .
-        
+
         # Windows ARM64
         GOOS=windows GOARCH=arm64 go build -ldflags="$LDFLAGS" -o ../build/server-windows-arm64.exe .
-
     - name: Prepare embedded frontend
       run: |
         mkdir -p server/service/router/dist
         cp -r web/dist/* server/service/router/dist/
         ls -la server/service/router/dist/
-
     - name: Build Go server binaries (All-in-one - with embedded frontend)
       working-directory: ./server
       run: |
@@ -241,19 +207,18 @@ jobs:
         BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
         BUILD_SIGNATURE="official-github-actions"
         export LDFLAGS="-s -w -extldflags '-static' -X oneclickvirt/constant.BuildCommit=${BUILD_COMMIT} -X oneclickvirt/constant.BuildTime=${BUILD_TIME} -X oneclickvirt/constant.BuildSignature=${BUILD_SIGNATURE}"
-        
+
         # Linux AMD64 (with embedded frontend)
         GOOS=linux GOARCH=amd64 go build -tags embed -ldflags="$LDFLAGS" -o ../build/server-allinone-linux-amd64 .
-        
+
         # Linux ARM64 (with embedded frontend)
         GOOS=linux GOARCH=arm64 go build -tags embed -ldflags="$LDFLAGS" -o ../build/server-allinone-linux-arm64 .
-        
+
         # Windows AMD64 (with embedded frontend)
         GOOS=windows GOARCH=amd64 go build -tags embed -ldflags="$LDFLAGS" -o ../build/server-allinone-windows-amd64.exe .
-        
+
         # Windows ARM64 (with embedded frontend)
         GOOS=windows GOARCH=arm64 go build -tags embed -ldflags="$LDFLAGS" -o ../build/server-allinone-windows-arm64.exe .
-
     - name: Compress binaries
       run: |
         cd build
@@ -262,17 +227,17 @@ jobs:
         tar -czf server-linux-arm64.tar.gz server-linux-arm64
         zip server-windows-amd64.zip server-windows-amd64.exe
         zip server-windows-arm64.zip server-windows-arm64.exe
-        
+
         # Compress all-in-one binaries
         tar -czf server-allinone-linux-amd64.tar.gz server-allinone-linux-amd64
         tar -czf server-allinone-linux-arm64.tar.gz server-allinone-linux-arm64
         zip server-allinone-windows-amd64.zip server-allinone-windows-amd64.exe
         zip server-allinone-windows-arm64.zip server-allinone-windows-arm64.exe
-        
+
         # Compress agent binaries
         cp controller-agent/oneclickvirt-agent-linux-amd64.tar.gz oneclickvirt-agent-linux-amd64.tar.gz
         cp controller-agent/oneclickvirt-agent-linux-arm64.tar.gz oneclickvirt-agent-linux-arm64.tar.gz
-        
+
         # Remove uncompressed binaries
         rm server-linux-amd64 server-linux-arm64 server-windows-amd64.exe server-windows-arm64.exe
         rm server-allinone-linux-amd64 server-allinone-linux-arm64 server-allinone-windows-amd64.exe server-allinone-windows-arm64.exe
@@ -292,80 +257,40 @@ jobs:
           oneclickvirt-agent-linux-amd64.tar.gz \
           oneclickvirt-agent-linux-arm64.tar.gz \
           web-dist.zip > SHA256SUMS
-        
-        ls -lh
 
+        ls -lh
     - name: Get previous release tag
       id: get_previous_tag
       run: |
         PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
         echo "previous_tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
         echo "Previous release tag: $PREVIOUS_TAG"
-    
     - name: Create Release with Auto-generated Notes
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        TAG_NAME="v${{ steps.date.outputs.date }}"
-        PREVIOUS_TAG="${{ steps.get_previous_tag.outputs.previous_tag }}"
-        
-        # Build release body header
-        RELEASE_HEADER="## 自动构建发布 - ${{ steps.date.outputs.date }}
-        
-        ### 独立部署版本（需要分别部署前后端）
-        - \`server-linux-amd64.tar.gz\` - 后端 Linux AMD64 版本
-        - \`server-linux-arm64.tar.gz\` - 后端 Linux ARM64 版本  
-        - \`server-windows-amd64.zip\` - 后端 Windows AMD64 版本
-        - \`server-windows-arm64.zip\` - 后端 Windows ARM64 版本
-        - \`web-dist.zip\` - 前端静态文件
-        
-        ### 一体化部署版本（前端已内嵌，单二进制文件部署）
-        - \`server-allinone-linux-amd64.tar.gz\` - 一体化 Linux AMD64 版本
-        - \`server-allinone-linux-arm64.tar.gz\` - 一体化 Linux ARM64 版本
-        - \`server-allinone-windows-amd64.zip\` - 一体化 Windows AMD64 版本
-        - \`server-allinone-windows-arm64.zip\` - 一体化 Windows ARM64 版本
-        
-        ### 监控代理（部署到 Provider 节点）
-        - \`oneclickvirt-agent-linux-amd64.tar.gz\` - 监控代理 Linux AMD64 版本
-        - \`oneclickvirt-agent-linux-arm64.tar.gz\` - 监控代理 Linux ARM64 版本
-
-        ### 校验文件
-        - \`SHA256SUMS\` - Release 资产 SHA-256 校验清单"
-        
-        # Create release with auto-generated notes
-        if [ -n "$PREVIOUS_TAG" ]; then
-          gh release create "$TAG_NAME" \
-            --title "Release $TAG_NAME" \
-            --notes "$RELEASE_HEADER" \
-            --notes-start-tag "$PREVIOUS_TAG" \
-            --generate-notes \
-            ./build/server-linux-amd64.tar.gz \
-            ./build/server-linux-arm64.tar.gz \
-            ./build/server-windows-amd64.zip \
-            ./build/server-windows-arm64.zip \
-            ./build/server-allinone-linux-amd64.tar.gz \
-            ./build/server-allinone-linux-arm64.tar.gz \
-            ./build/server-allinone-windows-amd64.zip \
-            ./build/server-allinone-windows-arm64.zip \
-            ./build/oneclickvirt-agent-linux-amd64.tar.gz \
-            ./build/oneclickvirt-agent-linux-arm64.tar.gz \
-            ./build/web-dist.zip \
-            ./build/SHA256SUMS
-        else
-          gh release create "$TAG_NAME" \
-            --title "Release $TAG_NAME" \
-            --notes "$RELEASE_HEADER" \
-            --generate-notes \
-            ./build/server-linux-amd64.tar.gz \
-            ./build/server-linux-arm64.tar.gz \
-            ./build/server-windows-amd64.zip \
-            ./build/server-windows-arm64.zip \
-            ./build/server-allinone-linux-amd64.tar.gz \
-            ./build/server-allinone-linux-arm64.tar.gz \
-            ./build/server-allinone-windows-amd64.zip \
-            ./build/server-allinone-windows-arm64.zip \
-            ./build/oneclickvirt-agent-linux-amd64.tar.gz \
-            ./build/oneclickvirt-agent-linux-arm64.tar.gz \
-            ./build/web-dist.zip \
-            ./build/SHA256SUMS
-        fi
+      run: "TAG_NAME=\"v${{ steps.date.outputs.date }}\"\nPREVIOUS_TAG=\"${{ steps.get_previous_tag.outputs.previous_tag }}\"\
+        \n\n# Build release body header\nRELEASE_HEADER=\"## 自动构建发布 - ${{ steps.date.outputs.date }}\n\n### 独立部署版本（需要分别部署前后端）\n\
+        - \\`server-linux-amd64.tar.gz\\` - 后端 Linux AMD64 版本\n- \\`server-linux-arm64.tar.gz\\` - 后端 Linux ARM64 版本  \n-\
+        \ \\`server-windows-amd64.zip\\` - 后端 Windows AMD64 版本\n- \\`server-windows-arm64.zip\\` - 后端 Windows ARM64 版本\n-\
+        \ \\`web-dist.zip\\` - 前端静态文件\n\n### 一体化部署版本（前端已内嵌，单二进制文件部署）\n- \\`server-allinone-linux-amd64.tar.gz\\` - 一体化 Linux\
+        \ AMD64 版本\n- \\`server-allinone-linux-arm64.tar.gz\\` - 一体化 Linux ARM64 版本\n- \\`server-allinone-windows-amd64.zip\\\
+        ` - 一体化 Windows AMD64 版本\n- \\`server-allinone-windows-arm64.zip\\` - 一体化 Windows ARM64 版本\n\n### 监控代理（部署到 Provider\
+        \ 节点）\n- \\`oneclickvirt-agent-linux-amd64.tar.gz\\` - 监控代理 Linux AMD64 版本\n- \\`oneclickvirt-agent-linux-arm64.tar.gz\\\
+        ` - 监控代理 Linux ARM64 版本\n\n### 校验文件\n- \\`SHA256SUMS\\` - Release 资产 SHA-256 校验清单\"\n\n# Create release with auto-generated\
+        \ notes\nif [ -n \"$PREVIOUS_TAG\" ]; then\n  gh release create \"$TAG_NAME\" \\\n    --title \"Release $TAG_NAME\"\
+        \ \\\n    --notes \"$RELEASE_HEADER\" \\\n    --notes-start-tag \"$PREVIOUS_TAG\" \\\n    --generate-notes \\\n  \
+        \  ./build/server-linux-amd64.tar.gz \\\n    ./build/server-linux-arm64.tar.gz \\\n    ./build/server-windows-amd64.zip\
+        \ \\\n    ./build/server-windows-arm64.zip \\\n    ./build/server-allinone-linux-amd64.tar.gz \\\n    ./build/server-allinone-linux-arm64.tar.gz\
+        \ \\\n    ./build/server-allinone-windows-amd64.zip \\\n    ./build/server-allinone-windows-arm64.zip \\\n    ./build/oneclickvirt-agent-linux-amd64.tar.gz\
+        \ \\\n    ./build/oneclickvirt-agent-linux-arm64.tar.gz \\\n    ./build/web-dist.zip \\\n    ./build/SHA256SUMS\n\
+        else\n  gh release create \"$TAG_NAME\" \\\n    --title \"Release $TAG_NAME\" \\\n    --notes \"$RELEASE_HEADER\"\
+        \ \\\n    --generate-notes \\\n    ./build/server-linux-amd64.tar.gz \\\n    ./build/server-linux-arm64.tar.gz \\\n\
+        \    ./build/server-windows-amd64.zip \\\n    ./build/server-windows-arm64.zip \\\n    ./build/server-allinone-linux-amd64.tar.gz\
+        \ \\\n    ./build/server-allinone-linux-arm64.tar.gz \\\n    ./build/server-allinone-windows-amd64.zip \\\n    ./build/server-allinone-windows-arm64.zip\
+        \ \\\n    ./build/oneclickvirt-agent-linux-amd64.tar.gz \\\n    ./build/oneclickvirt-agent-linux-arm64.tar.gz \\\n\
+        \    ./build/web-dist.zip \\\n    ./build/SHA256SUMS\nfi\n"
+'on':
+  workflow_dispatch: null
+  push:
+    tags:
+    - release-trigger-*

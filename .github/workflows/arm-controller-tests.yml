@@ -34,7 +34,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Resolve Go version
         id: go-version
@@ -45,7 +45,7 @@ jobs:
           echo "value=${GO_VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Validate lifecycle test syntax
         run: bash -n deploy/no-db-entrypoint.sh scripts/tests/prepare_no_db_lifecycle_config.sh scripts/tests/no_db_entrypoint_test.sh scripts/tests/docker_arm_lifecycle_test.sh
@@ -59,7 +59,7 @@ jobs:
           docker pull oneclickvirt/oneclickvirt:no-db
 
       - name: Build ARM64 all-in-one image for runtime tests
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: Dockerfile
@@ -74,7 +74,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=arm-runtime-allinone
 
       - name: Build ARM64 no-db image for runtime tests
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: Dockerfile.no-db
@@ -109,10 +109,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Download real Agent artifacts from this run
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: integration-agent-*
           merge-multiple: true
@@ -122,7 +122,7 @@ jobs:
         run: python3 scripts/validate_agent_assets.py server/assets/agent
 
       - name: Setup Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: 'stable'
           cache: true
@@ -493,7 +493,7 @@ jobs:
 
       - name: Upload test reports
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: arm-controller-test-reports-${{ github.run_number }}
           path: |

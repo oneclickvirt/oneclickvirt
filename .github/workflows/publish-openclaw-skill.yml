@@ -29,7 +29,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check skill files are in sync with MCP source
         run: |
@@ -68,7 +68,7 @@ jobs:
           sha256sum "oneclickvirt-skill-${VERSION}.tar.gz" > "oneclickvirt-skill-${VERSION}.sha256"
 
       - name: Upload packaged skill artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: oneclickvirt-skill
           path: |
@@ -85,12 +85,12 @@ jobs:
       contents: write
     steps:
       - name: Download packaged skill artifact
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: oneclickvirt-skill
 
       - name: Upload release assets
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             oneclickvirt-skill-*.tar.gz
