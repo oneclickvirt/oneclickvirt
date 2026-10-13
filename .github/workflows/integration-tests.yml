@@ -53,9 +53,7 @@ jobs:
       GOPROXY: https://proxy.golang.org|direct
   integration-test:
     name: 'Test: ${{ matrix.environment }}'
-    needs:
-    - build-test-agent
-    - local-regressions
+    needs: [build-test-agent, local-regressions]
     env:
       SELECTED_MODULES: ${{ inputs.modules }}
       REPORT_DIR: ${{ github.workspace }}/action_tests/reports/${{ github.run_id }}-${{ github.run_attempt }}-${{
@@ -272,7 +270,7 @@ jobs:
         ACTION_TEST_PRESERVE_INSTANCES: 'false'
         ACTION_TEST_CONTAINER_CPU: '2'
         ACTION_TEST_CONTAINER_MEMORY: '2048'
-        ACTION_TEST_CONTAINER_DISK: '5'
+        ACTION_TEST_CONTAINER_DISK: "5"
         ACTION_TEST_AGENT_STATUS_MAX_WAIT: '240'
         ACTION_TEST_VM_CPU: '2'
         ACTION_TEST_VM_MEMORY: '4096'

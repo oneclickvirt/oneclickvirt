@@ -14,8 +14,34 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def gate_script(workflow, name):
     source = (ROOT / ".github/workflows" / workflow).read_text()
-    step = source.split(f"      - name: {name}\n", 1)[1].split("\n      - name:", 1)[0]
-    script = textwrap.dedent(step.split("        run: |\n", 1)[1])
+    # YAML emitters may change indentation without changing the executable gate.
+    lines = source.splitlines()
+    script = None
+    for index, line in enumerate(lines):
+        match = re.fullmatch(r"(\s*)-\s+name:\s*(.*)", line)
+        if not match or match[2].strip("\"'") != name:
+            continue
+        step_indent = len(match[1])
+        for run_index in range(index + 1, len(lines)):
+            current = lines[run_index]
+            indent = len(current) - len(current.lstrip())
+            if current.strip() and indent <= step_indent:
+                break
+            run = re.fullmatch(r"(\s*)run:\s*\|[-+]?\s*", current)
+            if not run:
+                continue
+            body = []
+            for content in lines[run_index + 1:]:
+                content_indent = len(content) - len(content.lstrip())
+                if content.strip() and content_indent <= len(run[1]):
+                    break
+                body.append(content)
+            script = textwrap.dedent("\n".join(body)) + "\n"
+            break
+        if script is not None:
+            break
+    if script is None:
+        raise ValueError(f"Missing executable gate step: {workflow}: {name}")
     values = {
         "env.REPORT_DIR": '"$REPORT_DIR"',
         "matrix.environment": "docker",

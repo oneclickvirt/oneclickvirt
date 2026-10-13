@@ -24,8 +24,6 @@ jobs:
       run: go test -count=1 -race ./service/agent ./service/console ./api/v1/admin
     - name: Vet controller Agent and terminal packages
       run: go vet ./service/agent ./service/console ./api/v1/admin
-    env:
-      GOPROXY: https://proxy.golang.org|direct
   test:
     name: Real PTY and Agent tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -63,18 +61,18 @@ jobs:
   push:
     paths:
     - server/agent/**
-    - server/service/agent/**
-    - server/service/console/**
-    - server/api/v1/admin/*terminal*.go
+    - 'server/service/agent/**'
+    - 'server/service/console/**'
+    - 'server/api/v1/admin/*terminal*.go'
     - server/go.mod
     - server/go.sum
     - .github/workflows/agent-regressions.yml
   pull_request:
     paths:
     - server/agent/**
-    - server/service/agent/**
-    - server/service/console/**
-    - server/api/v1/admin/*terminal*.go
+    - 'server/service/agent/**'
+    - 'server/service/console/**'
+    - 'server/api/v1/admin/*terminal*.go'
     - server/go.mod
     - server/go.sum
     - .github/workflows/agent-regressions.yml
