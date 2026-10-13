@@ -2,6 +2,22 @@ package utils
 
 import "testing"
 
+func TestPublicIPv6NetworksOnInterfaceJSONKeepsPrefixesOnRequestedBridge(t *testing.T) {
+	output := "\x1b[32m" + `[{"ifname":"vmbr0","addr_info":[{"family":"inet6","local":"2a01:4f8::2","prefixlen":128,"scope":"global"}]},{"ifname":"vmbr9","addr_info":[{"family":"inet6","local":"fd42::1","prefixlen":64,"scope":"global"},{"family":"inet6","local":"2a14:7c0:1002::1","prefixlen":38,"scope":"global","flags":["tentative"]},{"family":"inet6","local":"2a14:7c0:1002::2","prefixlen":56,"scope":"global","dadfailed":true},{"family":"inet6","local":"2a14:7c0:1002:2000::1","prefixlen":64,"scope":"global"},{"family":"inet6","local":"2a14:7c0:1002:3000::1","prefixlen":120,"scope":"global"},{"family":"inet6","local":"2a14:7c0:1002:4000::1","prefixlen":0,"scope":"global"}]}]` + "\x1b[0m"
+	networks, err := PublicIPv6NetworksOnInterfaceJSON(output, "vmbr9")
+	if err != nil || len(networks) != 2 || networks[0].PrefixLen != 64 || networks[1].PrefixLen != 120 {
+		t.Fatalf("bridge networks = %#v, %v", networks, err)
+	}
+	for _, output := range []string{"IPv6-Adresse ungültig", "adresse IPv6 invalide", "IPv6 地址无效", `null`} {
+		if _, err := PublicIPv6NetworksOnInterfaceJSON(output, "vmbr9"); err == nil {
+			t.Fatalf("invalid interface JSON accepted: %q", output)
+		}
+	}
+	if _, err := PublicIPv6NetworksOnInterfaceJSON(`[]`, "vmbr9; reboot"); err == nil {
+		t.Fatal("invalid interface name accepted")
+	}
+}
+
 func TestParseFirstGlobalIPv6AddressJSONHandlesColorAndLocalizedNoise(t *testing.T) {
 	output := "\x1b[32m" + `[{"ifname":"eth0","addr_info":[{"family":"inet6","local":"fe80::1","scope":"link"},{"family":"inet6","local":"fd42:5339:296f:1f00::64","scope":"global","prefixlen":64,"flags":["tentative"]},{"family":"inet6","local":"fd42:5339:296f:1f00::65","scope":"global","prefixlen":64}]}]` + "\x1b[0m"
 	address, err := ParseFirstGlobalIPv6AddressJSON(output)

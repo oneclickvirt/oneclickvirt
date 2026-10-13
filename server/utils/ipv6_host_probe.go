@@ -30,6 +30,42 @@ type hostIPv6ProbeRoute struct {
 	} `json:"multipath"`
 }
 
+// PublicIPv6NetworksOnInterfaceJSON selects only the requested attachment.
+// A default-route NIC is an uplink, not necessarily the guest prefix bridge.
+func PublicIPv6NetworksOnInterfaceJSON(output, interfaceName string) ([]IPv6Network, error) {
+	name, err := ParseNetworkInterfaceOutput(interfaceName)
+	if err != nil {
+		return nil, err
+	}
+	var interfaces []hostIPv6ProbeInterface
+	if err := json.Unmarshal([]byte(StripTerminalCSI(strings.TrimSpace(output))), &interfaces); err != nil || interfaces == nil {
+		return nil, fmt.Errorf("无法解析IPv6网桥接口JSON")
+	}
+	var networks []IPv6Network
+	for _, iface := range interfaces {
+		if iface.Name != name {
+			continue
+		}
+		for _, info := range iface.AddrInfo {
+			if info.Family != "inet6" || info.PrefixLen == nil || (info.Scope != "" && info.Scope != "global") || info.Tentative || info.DadFailed || !IsPublicIPv6(info.Local) {
+				continue
+			}
+			unready := false
+			for _, flag := range info.Flags {
+				if flag == "tentative" || flag == "dadfailed" {
+					unready = true
+				}
+			}
+			if !unready {
+				if network, err := ParseIPv6Network(fmt.Sprintf("%s/%d", info.Local, *info.PrefixLen), 128); err == nil && network.PrefixLen >= 3 && IsPublicIPv6(network.NetworkAddress().String()) {
+					networks = append(networks, network)
+				}
+			}
+		}
+	}
+	return networks, nil
+}
+
 // SelectPublicIPv6InterfaceNetworkJSON reads iproute2's machine-readable
 // output. The JSON field names remain stable when the host's display language
 // changes, and the selected CIDR always stays paired with its own interface.

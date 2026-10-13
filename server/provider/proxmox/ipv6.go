@@ -21,6 +21,9 @@ type IPv6Info struct {
 	IPv6Gateway          string // IPv6网关
 	HasAppendedAddresses bool   // 是否存在额外的IPv6地址
 	Network              utils.IPv6Network
+	DirectBridge         string // 已验证有公网前缀的实例网桥
+	DirectMode           string // ndp 或 routed；旧网桥保持 ndp
+	DirectTransport      string // bridge 或 tunnel
 }
 
 // proxmoxNATIPv6Config describes the private /64 attached to the PVE NAT
@@ -49,6 +52,89 @@ const (
 	// lookups and deletion clean mappings created by older controller versions.
 	legacyProxmoxNATIPv6CIDR = "2001:db8:1::/64"
 )
+
+type proxmoxDirectIPv6State struct {
+	Network   utils.IPv6Network
+	Gateway   string
+	Mode      string
+	Bridge    string
+	Transport string
+}
+
+func parseProxmoxDirectIPv6State(output string) (*proxmoxDirectIPv6State, error) {
+	output = utils.StripTerminalCSI(output)
+	if strings.TrimSpace(output) == "" {
+		return nil, nil
+	}
+	fields := strings.Split(strings.Trim(output, "\r\n"), "\t")
+	if len(fields) != 6 {
+		return nil, fmt.Errorf("PVE直连IPv6配置格式无效，请重新配置IPv6网桥")
+	}
+	for i, field := range fields {
+		if field == "" && i >= 2 {
+			continue // Legacy state can contain only the prefix and bridge gateway.
+		}
+		value, err := utils.ParseSingleCommandToken(field)
+		if err != nil {
+			return nil, fmt.Errorf("PVE直连IPv6配置值无效: %w", err)
+		}
+		fields[i] = value
+	}
+	network, err := utils.ParseIPv6Network(fields[0], 128)
+	if err != nil || !strings.Contains(fields[0], "/") || network.PrefixLen > 120 || !utils.IsPublicIPv6(network.NetworkAddress().String()) {
+		return nil, fmt.Errorf("PVE直连IPv6前缀无效")
+	}
+	gateway, err := utils.NormalizeIPv6Address(fields[1])
+	if err != nil || !utils.IsPublicIPv6(gateway) {
+		return nil, fmt.Errorf("PVE直连IPv6网桥网关无效")
+	}
+	_, subnet, _ := net.ParseCIDR(network.CIDR())
+	if !subnet.Contains(net.ParseIP(gateway)) || subnet.IP.Equal(net.ParseIP(gateway)) {
+		return nil, fmt.Errorf("PVE直连IPv6网桥网关不属于可用前缀")
+	}
+	if fields[2] == "" {
+		fields[2] = "ndp"
+	}
+	if fields[2] != "ndp" && fields[2] != "routed" {
+		return nil, fmt.Errorf("PVE直连IPv6模式无效")
+	}
+	if fields[4] == "" {
+		fields[4] = "vmbr2"
+	}
+	bridge, err := utils.ParseNetworkInterfaceOutput(fields[4])
+	if err != nil {
+		return nil, fmt.Errorf("PVE直连IPv6网桥名称无效: %w", err)
+	}
+	transport := fields[5]
+	if transport == "" {
+		transport = "bridge"
+	}
+	if transport != "bridge" && transport != "tunnel" {
+		return nil, fmt.Errorf("PVE直连IPv6传输类型无效")
+	}
+	if fields[3] != "" {
+		upstreamValue, zone, scoped := strings.Cut(fields[3], "%")
+		if scoped {
+			if _, err := utils.ParseNetworkInterfaceOutput(zone); err != nil {
+				return nil, fmt.Errorf("PVE直连IPv6上游网关接口无效")
+			}
+		}
+		upstream := net.ParseIP(upstreamValue)
+		if upstream == nil || upstream.To4() != nil || (!upstream.IsLinkLocalUnicast() && !utils.IsPublicIPv6(upstreamValue)) {
+			return nil, fmt.Errorf("PVE直连IPv6上游网关无效")
+		}
+	}
+	return &proxmoxDirectIPv6State{Network: network, Gateway: gateway, Mode: fields[2], Bridge: bridge, Transport: transport}, nil
+}
+
+func (p *ProxmoxProvider) getProxmoxDirectIPv6State() (*proxmoxDirectIPv6State, error) {
+	// Fetch the six small files together, without one SSH/Agent call per field.
+	output, err := p.sshClient.Execute(`printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(cat /usr/local/bin/pve_direct_ipv6_prefix 2>/dev/null)" "$(cat /usr/local/bin/pve_direct_ipv6_gateway 2>/dev/null)" "$(cat /usr/local/bin/pve_direct_ipv6_mode 2>/dev/null)" "$(cat /usr/local/bin/pve_direct_ipv6_upstream_gateway 2>/dev/null)" "$(cat /usr/local/bin/pve_direct_ipv6_bridge 2>/dev/null)" "$(cat /usr/local/bin/pve_direct_ipv6_transport 2>/dev/null)"`)
+	if err != nil {
+		return nil, fmt.Errorf("读取PVE直连IPv6配置失败: %w", err)
+	}
+	return parseProxmoxDirectIPv6State(output)
+}
 
 func cleanIPv6Value(raw string) string {
 	network, err := utils.ParseFirstIPv6NetworkOutput(raw, 128)
@@ -254,6 +340,12 @@ func (p *ProxmoxProvider) resolveProxmoxIPv6ModeForConfig(ctx context.Context, c
 	if err == nil && !mode.UseNATMapping && requestedProxmoxIPv6(config) == "" && !canAutoAllocateProxmoxIPv6(mode.Info) {
 		err = fmt.Errorf("直连IPv6前缀 /%d 不足以为VMID范围自动分配地址", mode.Info.Network.PrefixLen)
 	}
+	if err == nil && !mode.UseNATMapping && requestedProxmoxIPv6(config) != "" {
+		_, _, err = proxmoxIPv6AddressSettings(config, requestedProxmoxIPv6(config), mode.Info.HostIPv6Address, mode.Info.Network.PrefixLen)
+		if err == nil {
+			err = p.ensureGuestIPv6DoesNotOwnHostAddress(requestedProxmoxIPv6(config))
+		}
+	}
 	if err == nil {
 		return mode, nil
 	}
@@ -373,6 +465,10 @@ func proxmoxIPv6AddressSettings(config provider.InstanceConfig, address, fallbac
 			return "", "", fmt.Errorf("静态IPv6网关不属于路由前缀")
 		}
 	}
+	_, subnet, err := net.ParseCIDR(address + "/" + strconv.Itoa(prefix))
+	if err != nil || !subnet.Contains(net.ParseIP(gateway)) || address == gateway {
+		return "", "", fmt.Errorf("IPv6地址和网桥网关不属于同一可用前缀，或地址与网关冲突")
+	}
 	return address + "/" + strconv.Itoa(prefix), gateway, nil
 }
 
@@ -436,6 +532,9 @@ func (p *ProxmoxProvider) resolveProxmoxIPv6Mode(ctx context.Context) (*proxmoxI
 	}
 
 	bridgeName := p.getBridgeName("dedicated_v6")
+	if info.DirectBridge != "" {
+		bridgeName = info.DirectBridge
+	}
 	if strings.TrimSpace(bridgeName) == "" {
 		return nil, fmt.Errorf("独立 IPv6 模式需要独立 IPv6 网桥")
 	}
@@ -450,10 +549,16 @@ func (p *ProxmoxProvider) resolveProxmoxIPv6Mode(ctx context.Context) (*proxmoxI
 }
 
 func (p *ProxmoxProvider) resolveProxmoxIPv6ModeForCreate(ctx context.Context) (*proxmoxIPv6Mode, error) {
-	if err := p.checkIPv6Environment(ctx); err != nil {
+	mode, err := p.resolveProxmoxIPv6Mode(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return p.resolveProxmoxIPv6Mode(ctx)
+	if !mode.UseNATMapping {
+		if err := p.checkProxmoxDirectIPv6Environment(mode.Info); err != nil {
+			return nil, err
+		}
+	}
+	return mode, nil
 }
 
 // configureInstanceIPv6 配置实例IPv6网络
@@ -537,51 +642,30 @@ func (p *ProxmoxProvider) checkIPv6Environment(ctx context.Context) error {
 
 // checkBasicIPv6Environment 检查基础IPv6环境
 func (p *ProxmoxProvider) checkBasicIPv6Environment(ctx context.Context) error {
-	// 首先检查宿主机是否有公网IPv6地址
-	checkHostIPv6Cmd := "LC_ALL=C NO_COLOR=1 ip -j -6 addr show scope global"
-	output, err := p.sshClient.Execute(checkHostIPv6Cmd)
+	info, err := p.getIPv6Info(ctx)
 	if err != nil {
-		global.APP_LOG.Warn("宿主机没有公网IPv6地址",
-			zap.String("provider", p.config.Name),
-			zap.Error(err))
-		return fmt.Errorf("宿主机没有公网IPv6地址，无法开设带IPv6的服务")
+		return err
 	}
-	selected, parseErr := utils.SelectPublicIPv6InterfaceNetworkJSON(output, "[]", false)
-	if parseErr != nil {
-		return fmt.Errorf("宿主机没有可验证的公网IPv6地址，无法开设带IPv6的服务: %w", parseErr)
-	}
+	return p.checkProxmoxDirectIPv6Environment(info)
+}
 
-	global.APP_LOG.Debug("宿主机IPv6地址检查通过",
-		zap.String("provider", p.config.Name),
-		zap.String("ipv6Address", selected.Network.Address.String()),
-		zap.String("interface", selected.Interface))
-
-	// 检查IPv6地址文件是否存在
-	checkIPv6Cmd := "[ -f /usr/local/bin/pve_check_ipv6 ]"
-	_, err = p.sshClient.Execute(checkIPv6Cmd)
-	if err != nil {
-		return fmt.Errorf("没有IPv6地址用于开设带独立IPv6地址的服务")
+func (p *ProxmoxProvider) checkProxmoxDirectIPv6Environment(info *IPv6Info) error {
+	if !hasDirectProxmoxIPv6Info(info) || info.DirectBridge == "" {
+		return fmt.Errorf("直连IPv6网桥尚无可用公网前缀，请配置实例网桥；宿主机上联地址不能作为实例网段")
 	}
-
-	// 检查配置的IPv6网桥是否存在
-	v6Bridge := p.getBridgeName("dedicated_v6")
-	if v6Bridge == "" {
-		return fmt.Errorf("没有配置单独IPv6网桥，无法开设带独立IPv6地址的服务")
+	if _, err := p.sshClient.Execute("test \"$(sysctl -n net.ipv6.conf.all.forwarding)\" = 1"); err != nil {
+		return fmt.Errorf("宿主机IPv6转发未启用: %w", err)
 	}
-	checkVmbrCmd := fmt.Sprintf("ip link show '%s' >/dev/null 2>&1 || grep -Rqs '^iface[[:space:]]\\+%s\\b\\|^auto[[:space:]]\\+%s\\b' /etc/network/interfaces /etc/network/interfaces.d 2>/dev/null", v6Bridge, v6Bridge, v6Bridge)
-	_, err = p.sshClient.Execute(checkVmbrCmd)
-	if err != nil {
-		return fmt.Errorf("没有%s网桥用于开设带独立IPv6地址的服务", v6Bridge)
+	if _, err := p.sshClient.Execute(`test -n "$(LC_ALL=C NO_COLOR=1 ip -6 route show default)"`); err != nil {
+		return fmt.Errorf("宿主机没有IPv6默认路由: %w", err)
 	}
-
-	// 检查ndpresponder服务状态
-	checkServiceCmd := "systemctl is-active --quiet ndpresponder.service"
-	_, err = p.sshClient.Execute(checkServiceCmd)
-	if err != nil {
-		return fmt.Errorf("ndpresponder服务状态异常，无法开设带独立IPv6地址的服务")
+	// A real routed prefix needs forwarding, not an NDP responder on the
+	// native uplink. Keep the historical HE/tunnel responder requirement.
+	if info.DirectMode != "routed" || info.DirectTransport == "tunnel" {
+		if _, err := p.sshClient.Execute("systemctl is-active --quiet ndpresponder.service"); err != nil {
+			return fmt.Errorf("ndpresponder服务状态异常，无法开设带独立IPv6地址的服务")
+		}
 	}
-
-	global.APP_LOG.Debug("ndpresponder服务运行正常，可以开设带独立IPv6地址的服务")
 	return nil
 }
 
@@ -603,7 +687,55 @@ func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
 	// kept paired with the interface that owns the address.
 	addressJSON, addressErr := p.sshClient.Execute("LC_ALL=C NO_COLOR=1 ip -j -6 addr show scope global")
 	routeJSON, routeErr := p.sshClient.Execute("LC_ALL=C NO_COLOR=1 ip -j -6 route show default")
-	if addressErr == nil && routeErr == nil {
+	var state *proxmoxDirectIPv6State
+	if !info.HasAppendedAddresses {
+		var stateErr error
+		state, stateErr = p.getProxmoxDirectIPv6State()
+		if stateErr != nil {
+			return nil, stateErr
+		}
+	}
+	bridge := p.getBridgeName("dedicated_v6")
+	if state != nil && p.config.NodeInstallType != "third_party" {
+		bridge = state.Bridge
+	}
+	if !info.HasAppendedAddresses && addressErr == nil && bridge != "" {
+		networks, err := utils.PublicIPv6NetworksOnInterfaceJSON(addressJSON, bridge)
+		if err != nil {
+			return nil, err
+		}
+		if state != nil && state.Bridge == bridge {
+			matched := false
+			for _, network := range networks {
+				if network.Address.String() == state.Gateway && network.CIDR() == state.Network.CIDR() {
+					info.Network = network
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				return nil, fmt.Errorf("保存的PVE直连IPv6前缀与网桥 %s 的实际地址不一致，请重新配置网桥", bridge)
+			}
+			info.DirectMode, info.DirectTransport = state.Mode, state.Transport
+		} else if len(networks) != 0 {
+			info.Network = networks[0]
+			for _, network := range networks[1:] {
+				if network.PrefixLen < info.Network.PrefixLen {
+					info.Network = network
+				}
+			}
+			info.DirectMode, info.DirectTransport = "ndp", "bridge"
+		}
+		if info.Network.Address != nil {
+			info.HostIPv6Address = info.Network.Address.String()
+			info.IPv6AddressPrefix = info.Network.NetworkAddress().String()
+			info.IPv6PrefixLen = strconv.Itoa(info.Network.PrefixLen)
+			info.IPv6Gateway = info.HostIPv6Address
+			info.DirectBridge = bridge
+			jsonNetworkFound = true
+		}
+	}
+	if !jsonNetworkFound && addressErr == nil && routeErr == nil {
 		if selected, selectErr := utils.SelectPublicIPv6InterfaceNetworkJSON(addressJSON, routeJSON, false); selectErr == nil {
 			info.Network = selected.Network
 			info.HostIPv6Address = selected.Network.Address.String()
@@ -613,35 +745,37 @@ func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
 		}
 	}
 
-	// 获取主机IPv6地址
-	if _, err := p.sshClient.Execute("[ -f /usr/local/bin/pve_check_ipv6 ]"); err == nil {
-		output, err := p.sshClient.Execute("cat /usr/local/bin/pve_check_ipv6")
-		if err == nil {
-			if !jsonNetworkFound {
-				info.HostIPv6Address = cleanIPv6Value(output)
-			}
-			if !jsonNetworkFound {
-				if network, parseErr := utils.ParseFirstIPv6NetworkOutput(output, 128); parseErr == nil {
-					info.Network = network
-					info.HostIPv6Address = network.Address.String()
-					info.IPv6AddressPrefix = network.NetworkAddress().String()
-					info.IPv6PrefixLen = strconv.Itoa(network.PrefixLen)
+	if !jsonNetworkFound {
+		// 获取主机IPv6地址
+		if _, err := p.sshClient.Execute("[ -f /usr/local/bin/pve_check_ipv6 ]"); err == nil {
+			output, err := p.sshClient.Execute("cat /usr/local/bin/pve_check_ipv6")
+			if err == nil {
+				if !jsonNetworkFound {
+					info.HostIPv6Address = cleanIPv6Value(output)
+				}
+				if !jsonNetworkFound {
+					if network, parseErr := utils.ParseFirstIPv6NetworkOutput(output, 128); parseErr == nil {
+						info.Network = network
+						info.HostIPv6Address = network.Address.String()
+						info.IPv6AddressPrefix = network.NetworkAddress().String()
+						info.IPv6PrefixLen = strconv.Itoa(network.PrefixLen)
+					}
 				}
 			}
 		}
-	}
 
-	// 获取IPv6前缀长度
-	if _, err := p.sshClient.Execute("[ -f /usr/local/bin/pve_ipv6_prefixlen ]"); err == nil {
-		output, err := p.sshClient.Execute("cat /usr/local/bin/pve_ipv6_prefixlen")
-		if err == nil {
-			parsed, parseErr := utils.ParseFirstIPv6PrefixLengthOutput(output)
-			if parseErr == nil && !jsonNetworkFound {
-				info.IPv6PrefixLen = strconv.Itoa(parsed)
-				if info.HostIPv6Address != "" {
-					if network, networkErr := utils.ParseIPv6Network(info.HostIPv6Address+"/"+info.IPv6PrefixLen, 64); networkErr == nil {
-						info.Network = network
-						info.IPv6AddressPrefix = network.NetworkAddress().String()
+		// 获取IPv6前缀长度
+		if _, err := p.sshClient.Execute("[ -f /usr/local/bin/pve_ipv6_prefixlen ]"); err == nil {
+			output, err := p.sshClient.Execute("cat /usr/local/bin/pve_ipv6_prefixlen")
+			if err == nil {
+				parsed, parseErr := utils.ParseFirstIPv6PrefixLengthOutput(output)
+				if parseErr == nil && !jsonNetworkFound {
+					info.IPv6PrefixLen = strconv.Itoa(parsed)
+					if info.HostIPv6Address != "" {
+						if network, networkErr := utils.ParseIPv6Network(info.HostIPv6Address+"/"+info.IPv6PrefixLen, 64); networkErr == nil {
+							info.Network = network
+							info.IPv6AddressPrefix = network.NetworkAddress().String()
+						}
 					}
 				}
 			}
@@ -649,11 +783,14 @@ func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
 	}
 
 	// 获取IPv6网关
-	if _, err := p.sshClient.Execute("[ -f /usr/local/bin/pve_ipv6_gateway ]"); err == nil {
-		output, err := p.sshClient.Execute("cat /usr/local/bin/pve_ipv6_gateway")
-		if err == nil {
-			info.IPv6Gateway = cleanIPv6Value(output)
+	if info.DirectBridge == "" {
+		if _, err := p.sshClient.Execute("[ -f /usr/local/bin/pve_ipv6_gateway ]"); err == nil {
+			output, err := p.sshClient.Execute("cat /usr/local/bin/pve_ipv6_gateway")
+			if err == nil {
+				info.IPv6Gateway = cleanIPv6Value(output)
+			}
 		}
+
 	}
 
 	return info, nil

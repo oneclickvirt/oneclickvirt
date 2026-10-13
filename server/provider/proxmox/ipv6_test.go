@@ -283,11 +283,12 @@ func setupProxmoxIPv6CommandTestDB(t *testing.T) {
 func TestProxmoxIPv6AddressSettingsUsesDiscoveredPrefixWhenNoStaticCIDR(t *testing.T) {
 	config := coreprovider.InstanceConfig{Metadata: map[string]string{}}
 	for _, prefix := range []int{38, 56, 64, 120} {
-		cidr, gateway, err := proxmoxIPv6AddressSettings(config, "2a01:4f8:c014:1a63::101", "2a01:4f8:c014:1a63::1", prefix)
+		address := "2a01:4f8:c014:1a63::65"
+		cidr, gateway, err := proxmoxIPv6AddressSettings(config, address, "2a01:4f8:c014:1a63::1", prefix)
 		if err != nil {
 			t.Fatalf("prefix /%d: %v", prefix, err)
 		}
-		if cidr != fmt.Sprintf("2a01:4f8:c014:1a63::101/%d", prefix) || gateway != "2a01:4f8:c014:1a63::1" {
+		if cidr != fmt.Sprintf("%s/%d", address, prefix) || gateway != "2a01:4f8:c014:1a63::1" {
 			t.Fatalf("prefix /%d: cidr=%q gateway=%q", prefix, cidr, gateway)
 		}
 	}
