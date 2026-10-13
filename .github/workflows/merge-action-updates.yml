@@ -21,3 +21,8 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: python3 .github/scripts/merge_action_updates.py
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false

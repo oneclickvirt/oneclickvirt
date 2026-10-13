@@ -28,3 +28,8 @@ jobs:
         if [[ -d .github/tests ]]; then python3 -m unittest discover -s .github/tests -p "test_*.py"; fi
     env:
       GOPROXY: https://proxy.golang.org|direct
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
