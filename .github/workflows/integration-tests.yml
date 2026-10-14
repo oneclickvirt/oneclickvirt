@@ -58,6 +58,7 @@ jobs:
       SELECTED_MODULES: ${{ inputs.modules }}
       REPORT_DIR: ${{ github.workspace }}/action_tests/reports/${{ github.run_id }}-${{ github.run_attempt }}-${{
         matrix.environment }}
+      PRIVATE_REPO: ${{ github.repository_owner == 'spiritLHLS' }}
       GOPROXY: https://proxy.golang.org|direct
     runs-on: ubuntu-latest
     timeout-minutes: 300
@@ -402,27 +403,26 @@ jobs:
         bash action_tests/run_env_test.sh \
           "${{ matrix.environment }}" \
           "$SELECTED_MODULES" \
-          "${{ steps.validate.outputs.instance_types }}" 2>&1 | tee ${{ env.REPORT_DIR }}/full-output.log
-        PIPE_STATUSES=("${PIPESTATUS[@]}")
-        TEST_EXIT=${PIPE_STATUSES[0]:-0}
-        TEE_EXIT=${PIPE_STATUSES[1]:-0}
+          "${{ steps.validate.outputs.instance_types }}" > "${{ env.REPORT_DIR }}/full-output.log" 2>&1
+        TEST_EXIT=$?
         set -e
         echo "test_exit=${TEST_EXIT}" >> "$GITHUB_OUTPUT"
-        if [[ "${TEE_EXIT}" != "0" ]]; then
-          echo "::warning::tee exited with ${TEE_EXIT}; continuing with captured harness exit ${TEST_EXIT}."
-        fi
 
-        # Ensure tee didn't break the pipe
+        # Keep command output on the runner so public workflow logs stay sanitized.
         if [[ ! -s ${{ env.REPORT_DIR }}/full-output.log ]]; then
           echo "WARNING: Test produced no output. Check that required platform secrets are configured." > ${{ env.REPORT_DIR }}/full-output.log
         fi
 
         # Ensure report directory has at least a fallback file
         if ! ls ${{ env.REPORT_DIR }}/*.html 1>/dev/null 2>&1; then
-          if [[ "${TEST_EXIT}" == "75" ]]; then
+          if [[ "${PRIVATE_REPO:-false}" == "true" && "${TEST_EXIT}" == "75" ]]; then
             echo "<html><body><h1>Test Skipped</h1><p>Temporary infrastructure/runtime prerequisite failure (exit code 75).</p><pre>$(cat ${{ env.REPORT_DIR }}/full-output.log)</pre></body></html>" > "${{ env.REPORT_DIR }}/${{ matrix.environment }}-report.html"
-          else
+          elif [[ "${PRIVATE_REPO:-false}" == "true" ]]; then
             echo "<html><body><h1>Test Failed</h1><p>Exit code: ${TEST_EXIT}</p><pre>$(cat ${{ env.REPORT_DIR }}/full-output.log)</pre></body></html>" > "${{ env.REPORT_DIR }}/${{ matrix.environment }}-report.html"
+          elif [[ "${TEST_EXIT}" == "75" ]]; then
+            echo "<html><body><h1>Test Skipped</h1><p>Temporary infrastructure/runtime prerequisite failure (exit code 75).</p></body></html>" > "${{ env.REPORT_DIR }}/${{ matrix.environment }}-report.html"
+          else
+            echo "<html><body><h1>Test Failed</h1><p>Exit code: ${TEST_EXIT}. Detailed diagnostics are restricted to the private repository.</p></body></html>" > "${{ env.REPORT_DIR }}/${{ matrix.environment }}-report.html"
           fi
         fi
 
@@ -444,7 +444,6 @@ jobs:
         # must never be produced without an authoritative harness status.
         if [[ -z "${TEST_EXIT:-}" ]]; then
           echo "::error::Test step did not produce an exit code — it was skipped or aborted before results were finalized."
-          [[ -f ${{ env.REPORT_DIR }}/full-output.log ]] && tail -200 ${{ env.REPORT_DIR }}/full-output.log || true
           exit 1
         fi
 
@@ -475,11 +474,9 @@ jobs:
               echo "| Harness Exit Code | ${TEST_EXIT} |"
               echo "| Status | INCOMPLETE (${_skip_reason}; no JSONL results) |"
             } >> "$GITHUB_STEP_SUMMARY"
-            [[ -f ${{ env.REPORT_DIR }}/full-output.log ]] && tail -200 ${{ env.REPORT_DIR }}/full-output.log || true
             exit 1
           fi
           echo "::error::Integration tests did not produce any JSONL result files."
-          [[ -f ${{ env.REPORT_DIR }}/full-output.log ]] && tail -200 ${{ env.REPORT_DIR }}/full-output.log || true
           exit 1
         fi
 
@@ -498,7 +495,6 @@ jobs:
             [[ -z "$line" ]] && continue
             if ! status=$(echo "$line" | jq -er '.status // "UNKNOWN"' 2>/dev/null); then
               echo "::error file=${f},line=${line_no}::Invalid JSONL result line"
-              printf '%s\n' "$line"
               corrupt=$((corrupt + 1))
               continue
             fi
@@ -512,7 +508,7 @@ jobs:
                 FAIL) harness_failed=$((harness_failed + 1)); failed=$((failed + 1)) ;;
                 SKIP) harness_skipped=$((harness_skipped + 1)); skipped=$((skipped + 1)) ;;
                 *)
-                  echo "::error file=${f},line=${line_no}::Unknown JSONL result status '${status}'"
+                  echo "::error file=${f},line=${line_no}::Unknown JSONL result status"
                   corrupt=$((corrupt + 1))
                   ;;
               esac
@@ -523,7 +519,7 @@ jobs:
                 FAIL) module_failed=$((module_failed + 1)); failed=$((failed + 1)) ;;
                 SKIP) module_skipped=$((module_skipped + 1)); skipped=$((skipped + 1)) ;;
                 *)
-                  echo "::error file=${f},line=${line_no}::Unknown JSONL result status '${status}'"
+                  echo "::error file=${f},line=${line_no}::Unknown JSONL result status"
                   corrupt=$((corrupt + 1))
                   ;;
               esac
@@ -554,7 +550,6 @@ jobs:
         if [[ "$total" -eq 0 ]]; then
           if [[ "${HARNESS_NONZERO}" == "true" ]]; then
             echo "::error::Integration tests produced an empty result set after ${_skip_reason}."
-            [[ -f ${{ env.REPORT_DIR }}/full-output.log ]] && tail -200 ${{ env.REPORT_DIR }}/full-output.log || true
             exit 1
           fi
           echo "::error::Integration tests produced an empty result set."
@@ -571,6 +566,10 @@ jobs:
         fi
 
         if [[ "$failed" -ne 0 ]]; then
+          if [[ "${PRIVATE_REPO:-false}" != "true" ]]; then
+            echo "::error::Integration tests recorded ${failed} failing assertions; detailed diagnostics are restricted to the private repository."
+            exit 1
+          fi
           {
             echo ""
             echo "### Failed Assertions"
@@ -641,13 +640,13 @@ jobs:
           echo "| Status | INCOMPLETE (${_skip_reason}) |" >> "$GITHUB_STEP_SUMMARY"
           exit 1
         fi
-    - name: Show integration log on failure
-      if: failure()
+    - name: Show private integration log on failure
+      if: failure() && github.repository_owner == 'spiritLHLS'
       run: |
         echo "=== Integration Test Output (last 200 lines) ==="
         tail -200 ${{ env.REPORT_DIR }}/full-output.log || true
-    - name: Upload test reports
-      if: always()
+    - name: Upload private test reports
+      if: always() && github.repository_owner == 'spiritLHLS'
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: test-reports-${{ matrix.environment }}-${{ github.run_number }}
@@ -659,18 +658,22 @@ jobs:
           ${{ env.REPORT_DIR }}/*.json
           ${{ env.REPORT_DIR }}/*.jsonl
         retention-days: 30
-    - name: Publish to GitHub Pages
-      if: always()
+    - name: Retain private diagnostics on a non-Pages branch
+      if: always() && github.repository_owner == 'spiritLHLS'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         source "$RUNNER_TEMP/ci-network.sh"
-        REPORT_BRANCH="gh-pages"
+        REPORT_BRANCH="private-action-logs"
         TIMESTAMP=$(date -u '+%Y%m%d-%H%M%S')
         ENV="${{ matrix.environment }}"
         REMOTE="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
         PUBLISH_SRC=$(mktemp -d)
         cp ${{ env.REPORT_DIR }}/*.html "$PUBLISH_SRC/" 2>/dev/null || true
+        cp ${{ env.REPORT_DIR }}/*.md "$PUBLISH_SRC/" 2>/dev/null || true
+        cp ${{ env.REPORT_DIR }}/*.log "$PUBLISH_SRC/" 2>/dev/null || true
+        cp ${{ env.REPORT_DIR }}/*.txt "$PUBLISH_SRC/" 2>/dev/null || true
+        cp ${{ env.REPORT_DIR }}/*.json "$PUBLISH_SRC/" 2>/dev/null || true
         cp ${{ env.REPORT_DIR }}/*.jsonl "$PUBLISH_SRC/" 2>/dev/null || true
 
         # Matrix jobs may finish together. Re-clone and rebuild the index on each retry so
@@ -686,9 +689,13 @@ jobs:
 
           mkdir -p "report-repo/reports/${ENV}/${TIMESTAMP}"
           cp "$PUBLISH_SRC"/*.html "report-repo/reports/${ENV}/${TIMESTAMP}/" 2>/dev/null || true
+          cp "$PUBLISH_SRC"/*.md "report-repo/reports/${ENV}/${TIMESTAMP}/" 2>/dev/null || true
+          cp "$PUBLISH_SRC"/*.log "report-repo/reports/${ENV}/${TIMESTAMP}/" 2>/dev/null || true
+          cp "$PUBLISH_SRC"/*.txt "report-repo/reports/${ENV}/${TIMESTAMP}/" 2>/dev/null || true
+          cp "$PUBLISH_SRC"/*.json "report-repo/reports/${ENV}/${TIMESTAMP}/" 2>/dev/null || true
           cp "$PUBLISH_SRC"/*.jsonl "report-repo/reports/${ENV}/${TIMESTAMP}/" 2>/dev/null || true
 
-          KEEP=7
+        KEEP=5
           if [[ -d "report-repo/reports/${ENV}" ]]; then
             SORTED=$(find "report-repo/reports/${ENV}" -mindepth 1 -maxdepth 1 -type d | sort -r)
             COUNT=0
@@ -715,11 +722,11 @@ jobs:
         done
         rm -rf "$PUBLISH_SRC"
         if [[ "$published" != "true" ]]; then
-          echo "::warning::Failed to push to gh-pages after retries. Reports remain available as workflow artifacts."
+          echo "::warning::Failed to retain diagnostics on the private-action-logs branch; private artifacts remain available."
         fi
       shell: bash
-    - name: Summary
-      if: always()
+    - name: Private integration summary
+      if: always() && github.repository_owner == 'spiritLHLS'
       run: |
         {
           echo "## Integration Test Results"
@@ -744,6 +751,16 @@ jobs:
           tail -30 "${REPORT_DIR}/full-output.log" 2>/dev/null || echo "No output log found"
           echo '```'
           echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+    - name: Public integration summary
+      if: always() && github.repository_owner != 'spiritLHLS'
+      run: |
+        {
+          echo "## Integration Test Results"
+          echo ""
+          echo "Environment: ${{ matrix.environment }}"
+          echo "Selected modules: ${SELECTED_MODULES}"
+          echo "Detailed request, response, and service output is restricted to the private repository."
         } >> "$GITHUB_STEP_SUMMARY"
 'on':
   workflow_dispatch:
