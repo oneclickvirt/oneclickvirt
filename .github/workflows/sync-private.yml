@@ -1,0 +1,25 @@
+name: Sync private counterpart
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: sync-private-counterpart
+  cancel-in-progress: false
+jobs:
+  sync:
+    if: github.repository == 'oneclickvirt/oneclickvirt'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Apply public changes and preserve private edits
+        env:
+          SYNC_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: python3 .github/scripts/sync_private_counterpart.py
