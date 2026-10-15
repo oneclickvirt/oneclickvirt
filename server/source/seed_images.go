@@ -302,9 +302,9 @@ func buildDesiredSystemImages(sortedURLs []string) []system.SystemImage {
 			continue
 		}
 
-		baseImageKey := fmt.Sprintf("%s-%s-%s-%s-%s",
+		baseImageKey := fmt.Sprintf("%s-%s-%s-%s-%s-%s",
 			imageInfo.ProviderType, imageInfo.InstanceType, imageInfo.Architecture,
-			imageInfo.OSType, imageInfo.OSVersion)
+			imageInfo.OSType, imageInfo.OSVersion, systemImageURLFamily(imageInfo.URL))
 		currentVariant := getImageVariant(imageURL)
 
 		// 如果是default镜像且已经导入了优先级更高的镜像（cloud/openrc/systemd），跳过

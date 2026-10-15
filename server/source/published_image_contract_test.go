@@ -154,9 +154,11 @@ func TestPublishedImageCatalogContract(t *testing.T) {
 	}
 	defer file.Close()
 	repos := map[string]int{"incus_images": 0, "lxd_images": 0, "lxc_amd64_images": 0, "lxc_arm_images": 0, "kvm_images": 0, "pve_kvm_images": 0, "pve_lxc_images": 0}
+	available := map[string]bool{}
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		imageURL := strings.TrimSpace(scanner.Text())
+		available[imageURL] = true
 		for repo := range repos {
 			if !strings.HasPrefix(imageURL, "https://github.com/oneclickvirt/"+repo+"/releases/download/") {
 				continue
@@ -190,6 +192,20 @@ func TestPublishedImageCatalogContract(t *testing.T) {
 	}
 	if err := scanner.Err(); err != nil {
 		t.Fatal(err)
+	}
+	// Filename parsing alone does not detect removed release addresses. Keep
+	// every built-in organization image and explicit migration target usable.
+	for _, imageURL := range getDefaultImageURLs() {
+		for repo := range repos {
+			if strings.HasPrefix(imageURL, "https://github.com/oneclickvirt/"+repo+"/releases/download/") && !available[imageURL] {
+				t.Errorf("built-in image is no longer published in the catalogue: %s", imageURL)
+			}
+		}
+	}
+	for _, target := range seededImageURLReplacements() {
+		if !available[target] {
+			t.Errorf("migration target is no longer published in the catalogue: %s", target)
+		}
 	}
 	for repo, count := range repos {
 		if count == 0 {
@@ -296,5 +312,20 @@ func TestSeededAndroidMirrorRepair(t *testing.T) {
 	}
 	if got.URL == old || !strings.HasPrefix(got.URL, "https://sourceforge.net/projects/android-x86/") || got.OSVersion != "9.0-r2" || got.Status != "inactive" {
 		t.Fatalf("retired mirror not repaired: %#v", got)
+	}
+}
+
+func TestPublishedArchiveFormatsKeepIndependentVariantSelection(t *testing.T) {
+	raw := "https://github.com/oneclickvirt/lxc_amd64_images/releases/download/ubuntu/ubuntu_24.04_noble_x86_64_cloud.tar.xz"
+	previous := "https://github.com/oneclickvirt/pve_lxc_images/releases/download/maintained/ubuntu_24.04_noble_x86_64_default_20261014_amd64.tar.zst"
+	current := "https://github.com/oneclickvirt/pve_lxc_images/releases/download/maintained/ubuntu_24.04_noble_x86_64_default_20261015_amd64.tar.zst"
+	images := buildDesiredSystemImages([]string{raw, previous, current})
+	if len(images) != 4 {
+		t.Fatalf("archive format lost during variant selection: %#v", images)
+	}
+	for _, image := range images {
+		if image.URL != raw && image.URL != current {
+			t.Fatalf("old native PVE template selected: %#v", image)
+		}
 	}
 }
