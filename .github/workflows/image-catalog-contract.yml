@@ -1,0 +1,56 @@
+name: Published image catalogue contract
+on:
+  push:
+    paths:
+      - server/source/seed_image*.go
+      - server/source/published_image_contract_test.go
+      - server/source/default.go
+      - .github/workflows/image-catalog-contract.yml
+  pull_request:
+    paths:
+      - server/source/seed_image*.go
+      - server/source/published_image_contract_test.go
+      - server/source/default.go
+      - .github/workflows/image-catalog-contract.yml
+  schedule:
+    - cron: '43 4 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: image-catalogue-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  current-published-images:
+    if: github.repository == 'oneclickvirt/oneclickvirt'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Fetch the current public catalogue with a bounded fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          origin=https://raw.githubusercontent.com/oneclickvirt/images_auto_list/refs/heads/main/images.txt
+          output="$RUNNER_TEMP/published-images.txt"
+          for url in "$origin" "https://cdn.spiritlhl.net/$origin"; do
+            if curl --fail --silent --show-error --location --connect-timeout 10 --max-time 45 --retry 2 --retry-max-time 120 "$url" -o "$output.tmp" && grep -q '^https://github.com/oneclickvirt/' "$output.tmp"; then
+              mv "$output.tmp" "$output"
+              exit 0
+            fi
+            rm -f "$output.tmp"
+          done
+          echo '::error::The published image catalogue is unavailable.'
+          exit 1
+      - name: Verify published filenames, architectures and release compatibility
+        working-directory: server
+        env:
+          ONECLICKVIRT_IMAGE_CATALOG_FILE: ${{ runner.temp }}/published-images.txt
+          GOPROXY: https://proxy.golang.org|direct
+        run: go test ./source -run TestPublishedImageCatalogContract -count=1 -v

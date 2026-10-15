@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"sort"
 	"strings"
 
 	"oneclickvirt/utils"
@@ -25,7 +26,7 @@ func parseGenericOneClickVirtImageURL(imageURL string) *ImageInfo {
 	instanceType := "container"
 	architecture := ""
 	switch {
-	case strings.Contains(lowerURL, "/lxc_amd64_images/"):
+	case strings.Contains(lowerURL, "/lxc_amd64_images/"), strings.Contains(lowerURL, "/pve_lxc_images/"):
 		providerType = "proxmox"
 		instanceType = "container"
 		architecture = "amd64"
@@ -56,7 +57,8 @@ func parseGenericOneClickVirtImageURL(imageURL string) *ImageInfo {
 		instanceType = "vm"
 	}
 
-	tokens := strings.Split(base, "_")
+	// Keep the architecture alias intact while splitting image fields.
+	tokens := strings.Split(strings.ReplaceAll(base, "x86_64", "amd64"), "_")
 	if len(tokens) == 0 {
 		return nil
 	}
@@ -99,7 +101,11 @@ func parseGenericOneClickVirtImageURL(imageURL string) *ImageInfo {
 	})
 	variantTokens = filterImageTokens(variantTokens, map[string]bool{"kvm": true})
 
-	osVersion := strings.Join(versionTokens, ".")
+	osVersion := ""
+	// The second field is the version; the following field is a codename.
+	if len(versionTokens) > 0 {
+		osVersion = versionTokens[0]
+	}
 	if osVersion == "" {
 		if isOCIArchiveProvider(providerType) {
 			osVersion = inferDockerOSVersion(osType)
@@ -234,7 +240,17 @@ func extractOSFromFilename(filename string) string {
 func extractVersionFromFilename(filename string) string {
 	versionRe := regexp.MustCompile(`(\d+(?:\.\d+)?)`)
 	if matches := versionRe.FindStringSubmatch(filename); matches != nil {
-		return matches[1]
+		version := matches[1]
+		if strings.HasPrefix(strings.ToLower(filename), "ubuntu") {
+			if len(version) == 4 && !strings.Contains(version, ".") {
+				return version[:2] + "." + version[2:]
+			}
+			switch version {
+			case "16", "18", "20", "22", "24", "26":
+				return version + ".04"
+			}
+		}
+		return version
 	}
 
 	lowerName := strings.ToLower(filename)
@@ -251,36 +267,75 @@ func extractVersionFromFilename(filename string) string {
 		return "edge"
 	}
 
+	if extractOSFromFilename(filename) == "archlinux" {
+		return "current"
+	}
+
 	return "unknown"
 }
 
 // prioritizeCloudImages 对镜像URL进行排序，cloud镜像优先
 func prioritizeCloudImages(imageURLs []string) []string {
-	cloudImages := make([]string, 0)
-	openrcSystemdImages := make([]string, 0)
-	defaultImages := make([]string, 0)
-	otherImages := make([]string, 0)
-
-	for _, url := range imageURLs {
-		if isCloudImage(url) {
-			cloudImages = append(cloudImages, url)
-		} else if strings.Contains(url, "_openrc") || strings.Contains(url, "_systemd") {
-			openrcSystemdImages = append(openrcSystemdImages, url)
-		} else if isDefaultImage(url) {
-			defaultImages = append(defaultImages, url)
-		} else {
-			otherImages = append(otherImages, url)
+	result := append([]string(nil), imageURLs...)
+	sort.SliceStable(result, func(i, j int) bool {
+		left, right := result[i], result[j]
+		// Maintained family releases take precedence over legacy catalogues.
+		if l, r := systemImageSourcePriority(left), systemImageSourcePriority(right); l != r {
+			return l < r
 		}
-	}
-
-	// 合并排序：cloud镜像 -> openrc/systemd镜像 -> 其他镜像 -> default镜像
-	result := make([]string, 0, len(imageURLs))
-	result = append(result, cloudImages...)
-	result = append(result, openrcSystemdImages...)
-	result = append(result, otherImages...)
-	result = append(result, defaultImages...)
-
+		if l, r := systemImageVariantPriority(left), systemImageVariantPriority(right); l != r {
+			return l < r
+		}
+		return publishedImageBuildDate(left) > publishedImageBuildDate(right)
+	})
 	return result
+}
+
+var publishedImageDatePattern = regexp.MustCompile(`_(20[0-9]{6})_(?:amd64|arm64)\.tar\.zst$`)
+
+func publishedImageBuildDate(imageURL string) string {
+	if !strings.Contains(imageURL, "github.com/oneclickvirt/pve_lxc_images/releases/download/maintained/") {
+		return ""
+	}
+	if matches := publishedImageDatePattern.FindStringSubmatch(imageURL); matches != nil {
+		return matches[1]
+	}
+	return ""
+}
+
+func systemImageSourcePriority(imageURL string) int {
+	lower := strings.ToLower(imageURL)
+	if strings.Contains(lower, "github.com/oneclickvirt/pve_lxc_images/") && !strings.Contains(lower, "/releases/download/maintained/") {
+		return 1
+	}
+	if strings.Contains(lower, "github.com/oneclickvirt/kvm_images/") {
+		return 2
+	}
+	if strings.Contains(lower, "github.com/oneclickvirt/") && strings.Contains(lower, "/releases/download/images/") {
+		return 1
+	}
+	return 0
+}
+
+func systemImageVariantPriority(imageURL string) int {
+	switch {
+	case isCloudImage(imageURL):
+		return 0
+	case strings.Contains(imageURL, "_openrc"), strings.Contains(imageURL, "_systemd"):
+		return 1
+	case isDefaultImage(imageURL):
+		return 3
+	default:
+		return 2
+	}
+}
+
+func isUnpublishedSystemImageURL(imageURL string) bool {
+	lower := strings.ToLower(imageURL)
+	return strings.Contains(lower, "github.com/oneclickvirt/") &&
+		(strings.Contains(lower, "/releases/download/legacy-archived/") ||
+			strings.Contains(lower, "/releases/download/processed/") ||
+			strings.Contains(lower, ".ci-stage-") || strings.Contains(lower, ".ci-backup-"))
 }
 
 // isCloudImage 检查是否为cloud镜像

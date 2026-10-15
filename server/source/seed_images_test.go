@@ -114,7 +114,7 @@ func TestParseInstallerImageURLs(t *testing.T) {
 			osVersion:    "sonoma",
 		},
 		{
-			url:          "https://mirrors.tuna.tsinghua.edu.cn/osdn/android-x86/71931/android-x86_64-9.0-r2.iso",
+			url:          "https://sourceforge.net/projects/android-x86/files/Release%209.0/android-x86_64-9.0-r2.iso/download",
 			providerType: "proxmox",
 			instanceType: "vm",
 			osType:       "android",
@@ -217,7 +217,7 @@ func TestDefaultImageURLsIncludeDockerRuntimeRefs(t *testing.T) {
 	for _, want := range []string{
 		"https://download.testip.xyz/Windows-VirtIO/virtio_zh-cn_windows_server_2019_x64_dvd_19d65722.iso",
 		"https://github.com/oneclickvirt/macos/releases/download/images/sonoma.iso.7z",
-		"https://mirrors.tuna.tsinghua.edu.cn/osdn/android-x86/71931/android-x86_64-9.0-r2.iso",
+		"https://sourceforge.net/projects/android-x86/files/Release%209.0/android-x86_64-9.0-r2.iso/download",
 		"https://sourceforge.net/projects/blissos-x86/files/Official/BlissOS15/Gapps/Generic/Bliss-v15.9.2-x86_64-OFFICIAL-gapps-20241012.iso/download",
 		"docker://spiritlhl/wds:10",
 		"docker://spiritlhl/wds:2019",

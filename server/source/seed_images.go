@@ -152,6 +152,11 @@ func SyncSystemImagesFromURL(sourceURL string) (*SystemImageSyncResult, error) {
 	}
 	result.Desired = len(desiredImages)
 
+	// 修正旧版本内置地址；仅处理系统生成的已知条目。
+	if err := repairSeededImageURLs(global.APP_DB, desiredImages); err != nil {
+		return nil, fmt.Errorf("修正旧系统镜像地址失败: %w", err)
+	}
+
 	// 一次性加载已有镜像身份，避免逐条查询导致 N+1。
 	var existingImages []system.SystemImage
 	if err := global.APP_DB.Select("id", "provider_type", "instance_type", "architecture", "os_type", "os_version", "url").Find(&existingImages).Error; err != nil {
@@ -280,7 +285,7 @@ func buildDesiredSystemImages(sortedURLs []string) []system.SystemImage {
 	desiredKeys := make(map[string]bool)
 	desiredImages := make([]system.SystemImage, 0, len(sortedURLs))
 
-	for _, imageURL := range sortedURLs {
+	for _, imageURL := range prioritizeCloudImages(sortedURLs) {
 		imageInfo := parseImageURL(imageURL)
 		if imageInfo == nil {
 			continue
@@ -477,12 +482,15 @@ func isUnresolvedSystemImageOS(osType string) bool {
 
 // parseImageURL 解析镜像URL并提取信息
 func parseImageURL(imageURL string) *ImageInfo {
+	if isUnpublishedSystemImageURL(imageURL) {
+		return nil
+	}
 	if imageInfo := parseDockerRuntimeImageURL(imageURL); imageInfo != nil {
 		return imageInfo
 	}
 
 	// Proxmox LXC AMD64 镜像
-	lxcAmd64Re := regexp.MustCompile(`https://github\.com/oneclickvirt/lxc_amd64_images/releases/download/([^/]+)/([^_]+)_([^_]+)_([^_]+)_([^_]+)_([^.]+)\.tar\.xz`)
+	lxcAmd64Re := regexp.MustCompile(`https://github\.com/oneclickvirt/lxc_amd64_images/releases/download/([^/]+)/([^_]+)_([^_]+)_([^_]+)_(x86_64|amd64|arm64|aarch64)_([^.]+)\.tar\.xz`)
 	if matches := lxcAmd64Re.FindStringSubmatch(imageURL); matches != nil {
 		return &ImageInfo{
 			Name:         fmt.Sprintf("%s-%s-%s", matches[2], matches[3], matches[6]),
@@ -497,7 +505,7 @@ func parseImageURL(imageURL string) *ImageInfo {
 	}
 
 	// Proxmox LXC ARM64 镜像
-	lxcArmRe := regexp.MustCompile(`https://github\.com/oneclickvirt/lxc_arm_images/releases/download/([^/]+)/([^_]+)_([^_]+)_([^_]+)_([^_]+)_([^.]+)\.tar\.xz`)
+	lxcArmRe := regexp.MustCompile(`https://github\.com/oneclickvirt/lxc_arm_images/releases/download/([^/]+)/([^_]+)_([^_]+)_([^_]+)_(x86_64|amd64|arm64|aarch64)_([^.]+)\.tar\.xz`)
 	if matches := lxcArmRe.FindStringSubmatch(imageURL); matches != nil {
 		return &ImageInfo{
 			Name:         fmt.Sprintf("%s-%s-%s", matches[2], matches[3], matches[6]),
@@ -512,7 +520,7 @@ func parseImageURL(imageURL string) *ImageInfo {
 	}
 
 	// LXD KVM镜像
-	lxdKvmRe := regexp.MustCompile(`https://github\.com/oneclickvirt/lxd_images/releases/download/kvm_images/([^_]+)_([^_]+)_([^_]+)_([^_]+)_([^_]+)_kvm\.zip`)
+	lxdKvmRe := regexp.MustCompile(`https://github\.com/oneclickvirt/lxd_images/releases/download/kvm_images/([^_]+)_([^_]+)_([^_]+)_(x86_64|amd64|arm64|aarch64)_([^_]+)_kvm\.zip`)
 	if matches := lxdKvmRe.FindStringSubmatch(imageURL); matches != nil {
 		return &ImageInfo{
 			Name:         fmt.Sprintf("%s-%s-kvm-%s", matches[1], matches[2], matches[5]),
@@ -527,7 +535,7 @@ func parseImageURL(imageURL string) *ImageInfo {
 	}
 
 	// LXD 容器镜像
-	lxdContainerRe := regexp.MustCompile(`https://github\.com/oneclickvirt/lxd_images/releases/download/([^/]+)/([^_]+)_([^_]+)_([^_]+)_([^_]+)_([^.]+)\.zip`)
+	lxdContainerRe := regexp.MustCompile(`https://github\.com/oneclickvirt/lxd_images/releases/download/([^/]+)/([^_]+)_([^_]+)_([^_]+)_(x86_64|amd64|arm64|aarch64)_([^.]+)\.zip`)
 	if matches := lxdContainerRe.FindStringSubmatch(imageURL); matches != nil {
 		return &ImageInfo{
 			Name:         fmt.Sprintf("%s-%s-%s", matches[2], matches[3], matches[6]),
@@ -542,7 +550,7 @@ func parseImageURL(imageURL string) *ImageInfo {
 	}
 
 	// Incus KVM镜像
-	incusKvmRe := regexp.MustCompile(`https://github\.com/oneclickvirt/incus_images/releases/download/kvm_images/([^_]+)_([^_]+)_([^_]+)_((?:x86_64|arm64))_([^_]+)_kvm\.zip`)
+	incusKvmRe := regexp.MustCompile(`https://github\.com/oneclickvirt/incus_images/releases/download/kvm_images/([^_]+)_([^_]+)_([^_]+)_(x86_64|amd64|arm64|aarch64)_([^_]+)_kvm\.zip`)
 	if matches := incusKvmRe.FindStringSubmatch(imageURL); matches != nil {
 		return &ImageInfo{
 			Name:         fmt.Sprintf("%s-%s-kvm-%s", matches[1], matches[2], matches[5]),
@@ -557,7 +565,7 @@ func parseImageURL(imageURL string) *ImageInfo {
 	}
 
 	// Incus 容器镜像
-	incusContainerRe := regexp.MustCompile(`https://github\.com/oneclickvirt/incus_images/releases/download/([^/]+)/([^_]+)_([^_]+)_([^_]+)_((?:x86_64|arm64))_([^.]+)\.zip`)
+	incusContainerRe := regexp.MustCompile(`https://github\.com/oneclickvirt/incus_images/releases/download/([^/]+)/([^_]+)_([^_]+)_([^_]+)_(x86_64|amd64|arm64|aarch64)_([^.]+)\.zip`)
 	if matches := incusContainerRe.FindStringSubmatch(imageURL); matches != nil {
 		return &ImageInfo{
 			Name:         fmt.Sprintf("%s-%s-%s", matches[2], matches[3], matches[6]),
