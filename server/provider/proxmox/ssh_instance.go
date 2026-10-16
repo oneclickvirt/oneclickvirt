@@ -227,7 +227,7 @@ func (p *ProxmoxProvider) sshSetInstancePassword(ctx context.Context, instanceID
 	case "vm":
 		// QEMU虚拟机 - 使用cloud-init设置密码
 		// 首先尝试通过cloud-init设置密码
-		setPasswordCmd := fmt.Sprintf("qm set %s --cipassword %s", shellSingleQuote(vmid), shellSingleQuote(password))
+		setPasswordCmd := fmt.Sprintf("qm set %s --cipassword=%s", shellSingleQuote(vmid), shellSingleQuote(password))
 
 		// 执行设置命令
 		_, err := p.sshClient.Execute(setPasswordCmd)

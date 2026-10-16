@@ -446,7 +446,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 		password = utils.GenerateInstancePassword()
 	}
 
-	_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --cipassword %s --ciuser root", vmid, shellSingleQuote(password)))
+	_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --cipassword=%s --ciuser root", vmid, shellSingleQuote(password)))
 	if err != nil {
 		return fmt.Errorf("设置用户密码失败: %v", err)
 	}
