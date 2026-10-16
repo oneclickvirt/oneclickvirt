@@ -32,8 +32,9 @@ func storesGuestPublicIPv6(providerType, networkType, ipv6PortMappingMethod stri
 		return true
 	case "nat_ipv4_ipv6":
 		providerType = strings.ToLower(strings.TrimSpace(providerType))
-		return (providerType == "incus" || providerType == "lxd") &&
-			strings.EqualFold(strings.TrimSpace(ipv6PortMappingMethod), "native")
+		return providerType == "proxmox" || providerType == "proxmoxve" ||
+			((providerType == "incus" || providerType == "lxd") &&
+				strings.EqualFold(strings.TrimSpace(ipv6PortMappingMethod), "native"))
 	default:
 		return false
 	}
@@ -91,6 +92,18 @@ func passwordVerificationEndpoint(instance providerModel.Instance, dbProvider pr
 	if mapping != nil {
 		if mapping.HostPort < 1 || mapping.HostPort > 65535 {
 			return "", 0, false
+		}
+		// A controller connected to its local PVE through a numeric loopback
+		// endpoint can reach the guest bridge directly. Public DNAT normally
+		// applies to PREROUTING, so probing it from this host needs hairpin
+		// rules and otherwise waits until timeout. Keep remote nodes on their
+		// advertised mapping and never substitute the node's own port 22.
+		if utils.NormalizeProviderType(dbProvider.Type) == "proxmox" {
+			node := net.ParseIP(utils.ExtractHost(strings.TrimSpace(dbProvider.Endpoint)))
+			guest := net.ParseIP(strings.TrimSpace(instance.PrivateIP))
+			if node != nil && node.IsLoopback() && guest != nil && guest.To4() != nil && guest.IsPrivate() && !guest.IsLoopback() {
+				return guest.String(), 22, true
+			}
 		}
 		host := strings.TrimSpace(dbProvider.PortIP)
 		if host == "" {
@@ -189,57 +202,20 @@ func (s *Service) waitForInstanceSSHReadyInRange(ctx context.Context, instanceID
 		return fmt.Errorf("获取Provider信息失败: %w", err)
 	}
 
-	// 获取SSH端口映射
-	var sshPort int
-	var sshPortMapping providerModel.Port
-	hasPortMapping := global.APP_DB.Where("instance_id = ? AND is_ssh = true AND status = 'active'", instanceID).First(&sshPortMapping).Error == nil
-	if hasPortMapping {
-		sshPort = sshPortMapping.HostPort
-	} else {
-		sshPort = instance.SSHPort
-		if sshPort == 0 {
-			sshPort = 22 // 默认端口
-		}
+	// The readiness probe must use the same per-instance endpoint as password
+	// verification; a provider default cannot override a guest's network mode.
+	var mapping providerModel.Port
+	var activeMapping *providerModel.Port
+	err := global.APP_DB.Where("instance_id = ? AND is_ssh = true AND status = 'active' AND protocol IN ?", instanceID, []string{"tcp", "both"}).First(&mapping).Error
+	if err == nil {
+		activeMapping = &mapping
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return fmt.Errorf("读取SSH映射失败: %w", err)
 	}
-
-	// 确定SSH连接地址：根据网络类型选择合适的IP
-	var sshHost string
-	networkType := provider.NetworkType
-
-	// 独立IP模式：实例有独立公网IP，直接连实例
-	if networkType == "dedicated_ipv4" || networkType == "dedicated_ipv4_ipv6" {
-		if instance.PublicIP != "" {
-			sshHost = instance.PublicIP
-		} else if instance.PrivateIP != "" {
-			// fallback: 某些独立IP场景下 private_ip 即为公网可达地址
-			sshHost = instance.PrivateIP
-		}
-	}
-
-	// NAT 模式：通过端口映射访问，使用 Provider 的公网IP
-	if sshHost == "" {
-		if provider.PortIP != "" {
-			sshHost = provider.PortIP
-		} else {
-			sshHost = provider.Endpoint
-		}
-	}
-
-	// 无端口映射且非独立IP模式（如纯IPv6、或未配置端口映射的NAT）：跳过SSH就绪检测
-	if !hasPortMapping && networkType != "dedicated_ipv4" && networkType != "dedicated_ipv4_ipv6" {
-		global.APP_LOG.Debug("无端口映射且非独立IP模式，跳过SSH就绪检测",
-			zap.Uint("instanceId", instanceID),
-			zap.String("instanceName", instance.Name),
-			zap.String("networkType", networkType))
+	sshHost, sshPort, available := passwordVerificationEndpoint(instance, provider, activeMapping)
+	if !available {
 		s.updateTaskProgress(taskID, progressEnd, "step.skipSSHDetection")
 		return nil
-	}
-
-	// 如果sshHost包含端口，去掉端口部分
-	if colonIndex := strings.LastIndex(sshHost, ":"); colonIndex > 0 {
-		if strings.Count(sshHost, ":") == 1 || strings.HasPrefix(sshHost, "[") {
-			sshHost = sshHost[:colonIndex]
-		}
 	}
 
 	global.APP_LOG.Debug("开始等待实例 SSH服务就绪",
@@ -463,28 +439,7 @@ func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID
 				}
 			}
 		case "proxmox", "proxmoxve":
-			if proxmoxProvider, ok := providerInstance.(interface {
-				GetInstanceIPv4(context.Context, string) (string, error)
-				GetInstanceIPv6(context.Context, string) (string, error)
-				GetInstancePublicIPv6(context.Context, string) (string, error)
-			}); ok {
-				if ip, err := proxmoxProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ip != "" {
-					updates["private_ip"] = ip
-					if dbProvider.NetworkType == "dedicated_ipv4" || dbProvider.NetworkType == "dedicated_ipv4_ipv6" {
-						updates["public_ip"] = ip
-					}
-				}
-				if ipv6, err := proxmoxProvider.GetInstanceIPv6(ctx, instance.Name); err == nil && ipv6 != "" {
-					updates["ipv6_address"] = ipv6
-				}
-				publicIPv6 := ""
-				if candidate, err := proxmoxProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil {
-					publicIPv6 = candidate
-				}
-				for key, value := range publicIPv6Update(dbProvider.Type, effectiveNetworkType, dbProvider.IPv6PortMappingMethod, publicIPv6) {
-					updates[key] = value
-				}
-			}
+			s.gatherProxmoxNetworkInfo(ctx, providerInstance, &instance, &dbProvider, updates)
 		case "qemu", "kubevirt", "vmware", "virtualbox", "multipass", "vagrant":
 			if actualInstance, err := providerInstance.GetInstance(ctx, instance.ProviderInstanceIdentifier()); err == nil && actualInstance != nil {
 				if actualInstance.PrivateIP != "" {
@@ -534,7 +489,7 @@ func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID
 }
 
 // verifySSHPasswordAuth 在密码设置完成后，通过密码认证验证SSH可用性（最多重试3次）
-func (s *Service) verifySSHPasswordAuth(instanceID uint, sshHost string, sshPort int, username, password string) bool {
+func (s *Service) verifySSHPasswordAuth(ctx context.Context, instanceID uint, sshHost string, sshPort int, username, password string) bool {
 	address := net.JoinHostPort(sshHost, fmt.Sprintf("%d", sshPort))
 	config := &ssh.ClientConfig{
 		User: username,
@@ -546,20 +501,42 @@ func (s *Service) verifySSHPasswordAuth(instanceID uint, sshHost string, sshPort
 	}
 
 	for i := 0; i < 3; i++ {
-		client, err := ssh.Dial("tcp", address, config)
+		if ctx.Err() != nil {
+			return false
+		}
+		// ssh.ClientConfig.Timeout bounds TCP connection establishment only.
+		// A peer which accepts TCP but never sends its SSH banner otherwise
+		// blocks finalization indefinitely, including after task cancellation.
+		dialer := net.Dialer{Timeout: 10 * time.Second}
+		raw, err := dialer.DialContext(ctx, "tcp", address)
 		if err == nil {
-			client.Close()
-			global.APP_LOG.Info("SSH密码认证验证成功",
-				zap.Uint("instanceId", instanceID),
-				zap.String("address", address))
-			return true
+			stop := context.AfterFunc(ctx, func() { _ = raw.Close() })
+			if err = raw.SetDeadline(time.Now().Add(10 * time.Second)); err == nil {
+				var client ssh.Conn
+				client, _, _, err = ssh.NewClientConn(raw, address, config)
+				if err == nil {
+					_ = client.Close()
+				}
+			}
+			stop()
+			_ = raw.Close()
+			if err == nil {
+				global.APP_LOG.Info("SSH密码认证验证成功",
+					zap.Uint("instanceId", instanceID),
+					zap.String("address", address))
+				return true
+			}
 		}
 		global.APP_LOG.Debug("SSH密码认证验证失败，等待重试",
 			zap.Uint("instanceId", instanceID),
 			zap.Int("attempt", i+1),
 			zap.Error(err))
 		if i < 2 {
-			time.Sleep(5 * time.Second)
+			select {
+			case <-ctx.Done():
+				return false
+			case <-time.After(5 * time.Second):
+			}
 		}
 	}
 	global.APP_LOG.Warn("SSH密码认证验证失败（密码可能未正确设置）",

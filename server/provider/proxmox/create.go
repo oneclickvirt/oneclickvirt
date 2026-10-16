@@ -99,6 +99,11 @@ func (p *ProxmoxProvider) sshCreateInstanceWithProgress(ctx context.Context, con
 	if err := p.sshStartKnownInstance(ctx, fmt.Sprintf("%d", vmid), config.InstanceType); err != nil {
 		return fmt.Errorf("启动已创建实例失败: %w", err)
 	}
+	if config.InstanceType == "container" {
+		if err := p.configureContainerDNS(vmid, networkConfig.NetworkType); err != nil {
+			return err
+		}
+	}
 
 	// 虚拟机和容器的带宽限制已在创建时通过 rate 参数配置
 
@@ -207,6 +212,9 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 		}
 	}
 
+	if err := p.prepareUnprivilegedTemplate(ctx, localImagePath); err != nil {
+		return err
+	}
 	updateProgress(50, "创建LXC容器...")
 
 	// Do the required routed/native IPv6 check before pct create. A failed
@@ -239,7 +247,7 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 
 	// 构建容器创建命令
 	createCmd := fmt.Sprintf(
-		"pct create %d %s -cores %s -memory %s -swap 128 -rootfs %s -onboot 1 -features nesting=1 -hostname %s",
+		"umask 022; pct create %d %s -cores %s -memory %s -swap 128 -rootfs %s -onboot 1 -features nesting=1 -hostname %s",
 		vmid,
 		shellSingleQuote(localImagePath),
 		shellSingleQuote(cpuFormatted),
@@ -305,7 +313,9 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 	updateProgress(85, "配置容器SSH...")
 
 	// 配置SSH
-	p.configureContainerSSH(ctx, vmid)
+	if err := p.configureContainerSSH(ctx, vmid, "nat_ipv4"); err != nil {
+		return err
+	}
 
 	return nil
 }

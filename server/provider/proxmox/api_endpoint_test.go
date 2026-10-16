@@ -93,7 +93,7 @@ func TestProxmoxLifecycleMutationsUseCorrectGuestResourceAndWait(t *testing.T) {
 		{
 			name:       "container stop",
 			identifier: "100",
-			listOutput: "VMID Status Lock Name\n100 running - guest\n",
+			listOutput: `[{"vmid":100,"type":"lxc","name":"guest"}]`,
 			call: func(p *ProxmoxProvider) error {
 				return p.apiStopInstance(context.Background(), "100")
 			},
@@ -102,7 +102,7 @@ func TestProxmoxLifecycleMutationsUseCorrectGuestResourceAndWait(t *testing.T) {
 		{
 			name:       "vm restart",
 			identifier: "101",
-			listOutput: " VMID NAME STATUS MEM(MB) BOOTDISK(GB) PID\n101 guest running 512 8 1\n",
+			listOutput: `[{"vmid":101,"type":"qemu","name":"guest"}]`,
 			call: func(p *ProxmoxProvider) error {
 				return p.apiRestartInstance(context.Background(), "101")
 			},
@@ -118,13 +118,10 @@ func TestProxmoxLifecycleMutationsUseCorrectGuestResourceAndWait(t *testing.T) {
 			p.node = "pve-node"
 			p.apiClient = &http.Client{Transport: transport}
 			p.sshClient.SetExecutor(&ipv6CommandExecutor{output: func(command string) string {
-				if strings.HasPrefix(command, "pct list") && test.identifier == "100" {
+				if strings.Contains(command, "pvesh get /cluster/resources") {
 					return test.listOutput
 				}
-				if strings.HasPrefix(command, "qm list") && test.identifier == "101" {
-					return test.listOutput
-				}
-				return "VMID Status Lock Name\n"
+				return ""
 			}})
 
 			if err := test.call(p); err != nil {

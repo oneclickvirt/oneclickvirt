@@ -614,20 +614,3 @@ func (p *ProxmoxProvider) detectContainerPackageManager(vmid int) string {
 	global.APP_LOG.Warn("未检测到任何已知的包管理器", zap.Int("vmid", vmid))
 	return "unknown"
 }
-
-// configureContainerDNS 配置容器DNS
-func (p *ProxmoxProvider) configureContainerDNS(vmid int) {
-	dnsCommands := []string{
-		"sh -c \"if [ -f /etc/resolv.conf ]; then cp /etc/resolv.conf /etc/resolv.conf.bak; fi\"",
-		"sh -c \"echo 'nameserver 8.8.8.8' | tee -a /etc/resolv.conf >/dev/null\"",
-		"sh -c \"echo 'nameserver 8.8.4.4' | tee -a /etc/resolv.conf >/dev/null\"",
-	}
-
-	for _, cmd := range dnsCommands {
-		fullCmd := fmt.Sprintf("pct exec %d -- %s", vmid, cmd)
-		_, err := p.sshClient.Execute(fullCmd)
-		if err != nil {
-			global.APP_LOG.Warn("配置DNS失败", zap.Int("vmid", vmid), zap.Error(err))
-		}
-	}
-}

@@ -161,7 +161,9 @@ func (p *ProxmoxProvider) apiCreateInstanceWithProgress(ctx context.Context, con
 	// existing API capability boundary remains explicit.
 	if config.InstanceType == "container" && p.sshClient.HasExecutor() {
 		updateProgress(90, "配置容器SSH...")
-		p.configureContainerSSH(ctx, vmid)
+		if err := p.configureContainerSSH(ctx, vmid, networkConfig.NetworkType); err != nil {
+			return proxmoxAPICreateMutationError(vmid, err)
+		}
 	}
 
 	// 虚拟机和容器的带宽限制已在创建时通过 rate 参数配置

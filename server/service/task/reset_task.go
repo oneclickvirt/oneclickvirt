@@ -122,6 +122,9 @@ func resetReplacementInstance(resetCtx *ResetTaskContext) providerModel.Instance
 	if publicIPv4 == "" {
 		publicIPv4 = resetCtx.Provider.Endpoint
 	}
+	if strings.TrimSpace(resetCtx.Instance.NetworkType) == "ipv6_only" {
+		publicIPv4 = ""
+	}
 	return providerModel.Instance{
 		UUID:            resetCtx.Instance.UUID,
 		Name:            resetCtx.OldInstanceName,

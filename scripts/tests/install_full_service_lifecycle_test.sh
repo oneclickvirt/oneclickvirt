@@ -9,6 +9,20 @@ trap '[[ -n "${TEST_PID:-}" ]] && kill "$TEST_PID" 2>/dev/null || true; rm -rf "
 # shellcheck disable=SC1090
 source <(sed '/^main "\$@"$/d' "$ROOT_DIR/scripts/install_full.sh")
 
+# Real Debian 13 os-release contains VERSION="13 (trixie)". Detection must
+# not overwrite either an empty or an explicitly resolved controller tag.
+(
+    printf 'ID=debian\nVERSION_ID=13\nVERSION="13 (trixie)"\n' >"$TMP_DIR/os-release"
+    OS_RELEASE_FILE="$TMP_DIR/os-release"
+    detect_package_manager() { PKG_MANAGER=apt; }
+    detect_service_manager() { SERVICE_MANAGER=systemd; }
+    for expected_version in '' v20261016-120000; do
+        VERSION="$expected_version"
+        detect_os
+        [[ "$OS" == debian && "$OS_VERSION" == 13 && "$VERSION" == "$expected_version" ]]
+    done
+)
+
 DOMAIN='panel.example.com'
 validate_domain "$DOMAIN"
 DOMAIN='2001:db8::1'
@@ -23,6 +37,22 @@ if validate_db_type; then
     exit 1
 fi
 DB_TYPE='mysql'
+
+# A same-host controller must not activate UFW's default DROP routing policy.
+(
+    ufw() { printf '%s\n' "$*" >>"$TMP_DIR/ufw-calls"; [[ "${FAIL_UFW:-false}" != true ]]; }
+    configure_firewall
+    [[ "$(wc -l <"$TMP_DIR/ufw-calls" | tr -d ' ')" == 3 ]]
+    if grep -q enable "$TMP_DIR/ufw-calls"; then
+        echo 'controller installer unexpectedly enabled a forwarding firewall' >&2
+        exit 1
+    fi
+    FAIL_UFW=true
+    if configure_firewall; then
+        echo 'firewall rule failure unexpectedly succeeded' >&2
+        exit 1
+    fi
+)
 
 # Critical installer artifacts must propagate write/permission failures.  Keep
 # these checks close to the lifecycle tests so a future refactor cannot turn a

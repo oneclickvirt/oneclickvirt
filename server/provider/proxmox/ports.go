@@ -106,8 +106,8 @@ func (p *ProxmoxProvider) cleanupInstancePortMappings(ctx context.Context, vmid 
 
 	var instanceName string
 	for _, instance := range instances {
-		// 从实例ID中提取vmid（假设ID格式是vmid或包含vmid）
-		if instance.ID == vmid || strings.Contains(instance.ID, vmid) {
+		// 清单使用规范 VMID；子串匹配可能清理另一个客体的端口。
+		if instance.ID == vmid {
 			instanceName = instance.Name
 			break
 		}

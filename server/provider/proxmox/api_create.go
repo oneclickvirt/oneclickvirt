@@ -77,6 +77,10 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 		}
 	}
 
+	if err := p.prepareUnprivilegedTemplate(ctx, localImagePath); err != nil {
+		return err
+	}
+
 	// 获取存储配置
 	var providerRecord providerModel.Provider
 	if err := global.APP_DB.Where("id = ?", p.config.ID).First(&providerRecord).Error; err != nil {
@@ -457,6 +461,9 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 		return proxmoxAPICreateMutationError(vmid, fmt.Errorf("设置VM IPv4网络配置失败: %w", err))
 	}
 
+	if err := p.configureVMDNS(vmid, networkConfig.NetworkType); err != nil {
+		return proxmoxAPICreateMutationError(vmid, err)
+	}
 	updateProgress(80, "虚拟机配置完成...")
 
 	// 启动虚拟机（通过API创建后不会自动启动）

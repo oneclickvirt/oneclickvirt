@@ -2,7 +2,9 @@ package proxmox
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -301,159 +303,115 @@ func (p *ProxmoxProvider) sshRestartInstance(ctx context.Context, id string) err
 	return nil
 }
 
-// findVMIDByNameOrID 根据实例名称或ID查找对应的VMID和类型
+// A confirmed absent guest makes deletion idempotent. Transport/parse failures
+// are deliberately different and must never release its controller allocations.
+var errProxmoxInstanceNotFound = errors.New("Proxmox instance does not exist")
+
+// findVMIDByNameOrID uses one authoritative inventory and exact names. Substring
+// matching could delete a different guest after a failed create reused its VMID.
 func (p *ProxmoxProvider) findVMIDByNameOrID(ctx context.Context, identifier string) (string, string, error) {
-	global.APP_LOG.Debug("查找实例VMID",
-		zap.String("identifier", identifier))
-
-	// 首先尝试从容器列表中查找
-	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, "pct list")
-	if err == nil {
-		lines := strings.Split(strings.TrimSpace(output), "\n")
-		for _, line := range lines[1:] { // 跳过标题行
-			fields := strings.Fields(line)
-			if len(fields) < 2 {
-				continue
-			}
-
-			vmid := fields[0]
-			var name string
-
-			// pct list 格式: VMID Status [Lock] [Name]
-			// Name字段可能在不同位置，取最后一个非空字段作为名称
-			if len(fields) >= 4 {
-				name = fields[3] // 通常Name在第4列
-			} else if len(fields) >= 3 && fields[2] != "" {
-				name = fields[2] // 有时候Lock为空，Name在第3列
-			} else {
-				name = fields[0] // 默认使用VMID作为名称
-			}
-
-			// 匹配VMID或名称
-			if vmid == identifier || name == identifier {
-				global.APP_LOG.Debug("在容器列表中找到匹配项",
-					zap.String("identifier", identifier),
-					zap.String("vmid", vmid),
-					zap.String("name", name))
-				return vmid, "container", nil
-			}
+	identifier = strings.TrimSpace(identifier)
+	if identifier == "" {
+		return "", "", fmt.Errorf("实例标识为空")
+	}
+	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, "LC_ALL=C NO_COLOR=1 pvesh get /cluster/resources --type vm --output-format json")
+	if err != nil {
+		return "", "", fmt.Errorf("读取PVE实例清单失败: %w", err)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(utils.StripTerminalCSI(output)), "[") {
+		return "", "", fmt.Errorf("PVE实例清单不是有效数组")
+	}
+	rows, err := parseProxmoxResourcesJSON(output)
+	if err != nil {
+		return "", "", fmt.Errorf("解析PVE实例清单失败: %w", err)
+	}
+	var vmid, instanceType string
+	for _, row := range rows {
+		if row.VMID <= 0 || (row.Type != "lxc" && row.Type != "qemu") {
+			return "", "", fmt.Errorf("PVE实例清单包含无效来宾记录")
 		}
-
-		// 如果通过名称没找到，再检查hostname配置
-		for _, line := range lines[1:] { // 跳过标题行
-			fields := strings.Fields(line)
-			if len(fields) >= 1 {
-				vmid := fields[0]
-				// 检查容器的hostname配置
-				configCmd := fmt.Sprintf("pct config %s | grep hostname", vmid)
-				configOutput, configErr := utils.ExecuteShellCommandContext(ctx, p.sshClient, configCmd)
-				if configErr == nil && strings.Contains(configOutput, identifier) {
-					global.APP_LOG.Debug("通过hostname在容器列表中找到匹配项",
-						zap.String("identifier", identifier),
-						zap.String("vmid", vmid),
-						zap.String("hostname", configOutput))
-					return vmid, "container", nil
-				}
-			}
+		current := strconv.FormatInt(row.VMID, 10)
+		if current != identifier && row.Name != identifier {
+			continue
+		}
+		if vmid != "" {
+			return "", "", fmt.Errorf("PVE实例标识匹配多个来宾，请使用VMID")
+		}
+		vmid, instanceType = current, "vm"
+		if row.Type == "lxc" {
+			instanceType = "container"
 		}
 	}
-
-	// 然后尝试从虚拟机列表中查找
-	output, err = utils.ExecuteShellCommandContext(ctx, p.sshClient, "qm list")
-	if err == nil {
-		lines := strings.Split(strings.TrimSpace(output), "\n")
-		for _, line := range lines[1:] { // 跳过标题行
-			fields := strings.Fields(line)
-			if len(fields) >= 2 {
-				vmid := fields[0]
-				name := fields[1]
-
-				// qm list输出格式: VMID NAME STATUS MEM(MB) BOOTDISK(GB) PID UPTIME
-				// 匹配VMID或名称
-				if vmid == identifier || name == identifier {
-					global.APP_LOG.Debug("在虚拟机列表中找到匹配项",
-						zap.String("identifier", identifier),
-						zap.String("vmid", vmid),
-						zap.String("name", name))
-					return vmid, "vm", nil
-				}
-			}
-		}
-
-		// 如果直接匹配失败，尝试检查虚拟机的配置中的名称
-		for _, line := range lines[1:] {
-			fields := strings.Fields(line)
-			if len(fields) >= 1 {
-				vmid := fields[0]
-				// 检查虚拟机的配置中的name属性
-				configCmd := fmt.Sprintf("qm config %s | grep -E '^name:' || true", vmid)
-				configOutput, configErr := utils.ExecuteShellCommandContext(ctx, p.sshClient, configCmd)
-				if configErr == nil && strings.Contains(configOutput, identifier) {
-					global.APP_LOG.Debug("通过配置名称在虚拟机列表中找到匹配项",
-						zap.String("identifier", identifier),
-						zap.String("vmid", vmid),
-						zap.String("config_name", configOutput))
-					return vmid, "vm", nil
-				}
-			}
-		}
+	if vmid == "" {
+		return "", "", fmt.Errorf("%w: %s", errProxmoxInstanceNotFound, identifier)
 	}
-
-	return "", "", fmt.Errorf("未找到实例: %s", identifier)
+	return vmid, instanceType, nil
 }
 
 // getInstanceIPAddress 获取实例IP地址
 func (p *ProxmoxProvider) getInstanceIPAddress(ctx context.Context, vmid string, instanceType string) (string, error) {
-	var cmd string
-
+	id, err := strconv.Atoi(vmid)
+	if err != nil || id < MinVMID || id > MaxVMID {
+		return "", fmt.Errorf("invalid PVE guest ID")
+	}
+	tool, key := "qm", "ipconfig"
 	if instanceType == "container" {
-		// 对于容器，首先尝试从配置中获取静态IP
-		cmd = fmt.Sprintf("pct config %s | grep -oP 'ip=\\K[0-9.]+' || true", vmid)
-		output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, cmd)
-		if err == nil && utils.CleanCommandOutput(output) != "" {
-			return utils.CleanCommandOutput(output), nil
+		tool, key = "pct", "net"
+	}
+	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("%s config %d", tool, id))
+	if err != nil {
+		return "", fmt.Errorf("read PVE guest network config: %w", err)
+	}
+	for _, line := range strings.Split(utils.StripTerminalCSI(output), "\n") {
+		name, settings, found := strings.Cut(line, ":")
+		if !found || !strings.HasPrefix(name, key) {
+			continue
 		}
-
-		// 如果没有静态IP，尝试从容器内部获取动态IP
-		cmd = fmt.Sprintf("pct exec %s -- hostname -I | awk '{print $1}' || true", vmid)
-	} else {
-		// 对于虚拟机，首先尝试从配置中获取静态IP
-		cmd = fmt.Sprintf("qm config %s | grep -oP 'ip=\\K[0-9.]+' || true", vmid)
-		output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, cmd)
-		if err == nil && utils.CleanCommandOutput(output) != "" {
-			return utils.CleanCommandOutput(output), nil
+		if _, err := strconv.ParseUint(strings.TrimPrefix(name, key), 10, 32); err != nil {
+			continue
 		}
-
-		// 如果没有静态IP配置，尝试通过guest agent获取IP
-		cmd = fmt.Sprintf("qm guest cmd %s network-get-interfaces 2>/dev/null | grep -oP '\"ip-address\":\\s*\"\\K[^\"]+' | grep -E '^(172\\.|192\\.|10\\.)' | head -1 || true", vmid)
-		output, err = utils.ExecuteShellCommandContext(ctx, p.sshClient, cmd)
-		if err == nil && utils.CleanCommandOutput(output) != "" {
-			return utils.CleanCommandOutput(output), nil
-		}
-
-		// 最后尝试从网络配置推断IP地址 (如果使用标准内网配置)
-		// 使用VMID到IP的映射函数
-		vmidInt, err := strconv.Atoi(vmid)
-		if err == nil && vmidInt >= MinVMID && vmidInt <= MaxVMID {
-			inferredIP := p.vmidToInternalIP(vmidInt)
-			// 验证这个IP是否能ping通
-			pingCmd := fmt.Sprintf("ping -c 1 -W 2 %s >/dev/null 2>&1 && echo 'reachable' || echo 'unreachable'", inferredIP)
-			pingOutput, pingErr := utils.ExecuteShellCommandContext(ctx, p.sshClient, pingCmd)
-			if pingErr == nil && strings.Contains(pingOutput, "reachable") {
-				return inferredIP, nil
+		for _, option := range strings.Split(settings, ",") {
+			if value, found := strings.CutPrefix(strings.TrimSpace(option), "ip="); found {
+				if address := validProxmoxIPv4(value); address != "" {
+					return address, nil
+				}
 			}
 		}
 	}
-
-	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, cmd)
+	// BusyBox hostname has no -I flag. Read structured addresses instead, and
+	// never persist command diagnostics or guess an address from a VMID/ping.
+	command := fmt.Sprintf("qm guest cmd %d network-get-interfaces", id)
+	if instanceType == "container" {
+		command = fmt.Sprintf("pct exec %d -- env LC_ALL=C NO_COLOR=1 ip -o -4 addr show scope global", id)
+	}
+	output, err = utils.ExecuteShellCommandContext(ctx, p.sshClient, command)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("read PVE guest IPv4 addresses: %w", err)
 	}
-
-	ip := utils.CleanCommandOutput(output)
-	if ip == "" {
-		return "", fmt.Errorf("no IP address found for %s %s", instanceType, vmid)
+	if instanceType != "container" {
+		return proxmoxAgentAddress(output, false)
 	}
+	for _, line := range strings.Split(utils.StripTerminalCSI(output), "\n") {
+		fields := strings.Fields(line)
+		for i := 0; i+1 < len(fields); i++ {
+			if fields[i] == "inet" {
+				if address := validProxmoxIPv4(fields[i+1]); address != "" {
+					return address, nil
+				}
+			}
+		}
+	}
+	return "", fmt.Errorf("no valid IPv4 address found for %s %s", instanceType, vmid)
+}
 
-	return ip, nil
+func validProxmoxIPv4(value string) string {
+	value = strings.TrimSpace(value)
+	if prefix, err := netip.ParsePrefix(value); err == nil {
+		value = prefix.Addr().String()
+	}
+	address, err := netip.ParseAddr(value)
+	if err != nil || !address.Is4() || !address.IsGlobalUnicast() {
+		return ""
+	}
+	return address.String()
 }

@@ -178,8 +178,8 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 			if providerInfo.ConnectionType == "agent" && providerInfo.NetworkType == "no_port_mapping" {
 				publicIP = ""
 			}
-			// 兼容旧实例：如果实例的NetworkType为空或为默认值，使用Provider的NetworkType
-			if modifiedInstance.NetworkType == "" || modifiedInstance.NetworkType == "nat_ipv4" {
+			// 仅为空的旧实例继承节点默认值；显式 NAT 模式必须保留。
+			if modifiedInstance.NetworkType == "" {
 				if providerInfo.NetworkType != "" {
 					modifiedInstance.NetworkType = providerInfo.NetworkType
 				}

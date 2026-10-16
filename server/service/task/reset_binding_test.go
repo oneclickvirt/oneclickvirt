@@ -45,6 +45,20 @@ func TestResetReplacementInstancePreservesLogicalNetworkIdentity(t *testing.T) {
 	}
 }
 
+func TestResetIPv6OnlyNeverInheritsNodeIPv4(t *testing.T) {
+	ctx := &ResetTaskContext{
+		Instance: providerModel.Instance{NetworkType: "ipv6_only", PublicIP: "127.0.0.1"},
+		Provider: providerModel.Provider{Endpoint: "198.51.100.1"},
+	}
+	if got := resetReplacementInstance(ctx).PublicIP; got != "" {
+		t.Fatalf("IPv6-only replacement inherited node IPv4: %q", got)
+	}
+	ctx.Instance.PublicIP = ""
+	if got := resetReplacementInstance(ctx).PublicIP; got != "" {
+		t.Fatalf("IPv6-only replacement fell back to node IPv4: %q", got)
+	}
+}
+
 func TestTransferResetEgressBindingInTxMovesOnlyActiveBinding(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:reset_egress_active_%d?mode=memory&cache=shared", time.Now().UnixNano())), &gorm.Config{})
 	if err != nil {

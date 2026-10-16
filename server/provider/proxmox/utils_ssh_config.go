@@ -1,8 +1,11 @@
 package proxmox
 
 import (
+	"context"
 	"fmt"
 	"strings"
+
+	"oneclickvirt/utils"
 )
 
 // repairSSHDropInsCommand fixes image-provided sshd drop-ins. Debian cloud
@@ -12,15 +15,9 @@ const repairSSHDropInsCommand = `sh -c 'if [ -d /etc/ssh/sshd_config.d ]; then f
 
 func (p *ProxmoxProvider) configureAlpineSSH(vmid int) {
 	commands := []string{
-		// 更新包管理器
-		"apk update",
-		// 安装必要软件
-		"apk add --no-cache openssh-server",
-		"apk add --no-cache sshpass",
-		"apk add --no-cache openssh-keygen",
-		"apk add --no-cache bash",
-		"apk add --no-cache curl",
-		"apk add --no-cache wget",
+		// Maintained templates already contain these packages. Avoid six
+		// redundant repository refreshes, especially on IPv6-only guests.
+		"sh -c 'apk info -e openssh-server sshpass openssh-keygen bash curl wget >/dev/null 2>&1 || apk add --no-cache --timeout 30 openssh-server sshpass openssh-keygen bash curl wget'",
 		// 生成SSH密钥
 		"sh -c \"cd /etc/ssh && ssh-keygen -A\"",
 		// 配置sshd_config - 使用chattr解锁
@@ -115,17 +112,28 @@ func (p *ProxmoxProvider) configureArchSSH(vmid int) {
 }
 
 // configureDebianBasedSSH 配置Debian/Ubuntu等基于APT的系统SSH
-func (p *ProxmoxProvider) configureDebianBasedSSH(vmid int) {
+func (p *ProxmoxProvider) configureDebianBasedSSH(ctx context.Context, vmid int) error {
+	// Fresh templates may have locally customized sshd_config files. UCF's
+	// dialog otherwise waits indefinitely during an unconditional upgrade.
+	// Install missing dependencies only, keep existing config, and bound both
+	// package operations and dpkg lock waits. Never import keys from APT errors.
+	packageScript := `set -eu
+missing=''
+for package in openssh-server sshpass curl; do
+    if ! dpkg-query -W -f='${Status}\n' "$package" 2>/dev/null | grep -qx 'install ok installed'; then
+        missing="$missing $package"
+    fi
+done
+[ -n "$missing" ] || exit 0
+export DEBIAN_FRONTEND=noninteractive UCF_FORCE_CONFFOLD=1
+apt-get -o APT::Update::Error-Mode=any -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+apt-get -o DPkg::Lock::Timeout=45 -o Dpkg::Options::=--force-confold -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y $missing
+`
+	command := fmt.Sprintf("pct exec %d -- timeout --kill-after=15s 240s sh -c %s", vmid, shellSingleQuote(packageScript))
+	if _, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, command); err != nil {
+		return fmt.Errorf("准备Debian容器SSH依赖失败: %w", err)
+	}
 	commands := []string{
-		// 检查并确认APT
-		"sh -c \"apt-get update 2>&1 | tee /tmp/apt_fix.txt\"",
-		"sh -c \"if grep -q 'NO_PUBKEY' /tmp/apt_fix.txt; then public_keys=$(grep -oE 'NO_PUBKEY [0-9A-F]+' /tmp/apt_fix.txt | awk '{ print $2 }' | paste -sd ' '); apt-key adv --keyserver keyserver.ubuntu.com --recv-keys $public_keys; apt-get update; fi\"",
-		// 确认损坏的包
-		"apt-get --fix-broken install -y",
-		// 更新包列表
-		"apt-get update -y",
-		// 安装必要软件
-		"apt-get install -y openssh-server sshpass curl",
 		// 生成SSH密钥
 		"ssh-keygen -A",
 		// 配置sshd_config
@@ -155,6 +163,10 @@ func (p *ProxmoxProvider) configureDebianBasedSSH(vmid int) {
 	}
 
 	p.executeContainerCommands(vmid, commands, "Debian-based")
+	if _, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("pct exec %d -- /usr/sbin/sshd -t", vmid)); err != nil {
+		return fmt.Errorf("验证Debian容器SSH配置失败: %w", err)
+	}
+	return nil
 }
 
 // configureRHELBasedSSH 配置RHEL/CentOS/Fedora等基于YUM/DNF的系统SSH

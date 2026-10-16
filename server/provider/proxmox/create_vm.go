@@ -424,10 +424,8 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 		return fmt.Errorf("设置IP配置失败: %v", err)
 	}
 
-	// 设置DNS
-	_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --nameserver 8.8.8.8", vmid))
-	if err != nil {
-		global.APP_LOG.Warn("设置DNS失败", zap.Int("vmid", vmid), zap.Error(err))
+	if err := p.configureVMDNS(vmid, networkConfig.NetworkType); err != nil {
+		return err
 	}
 
 	// 设置搜索域

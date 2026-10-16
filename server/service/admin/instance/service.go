@@ -355,9 +355,8 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest, ownerAdminID ui
 		if instance.ProviderID > 0 {
 			if prov, ok := providerMap[instance.ProviderID]; ok {
 				instanceResponse.ProviderType = prov.Type
-				// 如果实例的NetworkType为空或为默认值nat_ipv4，使用Provider的NetworkType作为fallback
-				// 兼容旧实例（创建时未设置NetworkType字段）
-				if instanceResponse.NetworkType == "" || instanceResponse.NetworkType == "nat_ipv4" {
+				// 仅为空的旧实例继承节点默认值；显式 NAT 模式必须保留。
+				if instanceResponse.NetworkType == "" {
 					if prov.NetworkType != "" {
 						instanceResponse.NetworkType = prov.NetworkType
 					}

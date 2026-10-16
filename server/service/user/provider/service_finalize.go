@@ -47,7 +47,7 @@ func (s *Service) gatherInstanceNetworkInfo(ctx context.Context, instance *provi
 	}
 
 	// 设置公网IP
-	if !(dbProvider.ConnectionType == "agent" && dbProvider.NetworkType == "no_port_mapping") {
+	if !ipv6Only && !(dbProvider.ConnectionType == "agent" && effectiveNetworkType == "no_port_mapping") {
 		publicIPSource := dbProvider.PortIP
 		if publicIPSource == "" {
 			publicIPSource = dbProvider.Endpoint
@@ -98,7 +98,7 @@ func (s *Service) gatherInstanceNetworkInfo(ctx context.Context, instance *provi
 		if !ipv6Only && actualInstance.PrivateIP != "" {
 			instanceUpdates["private_ip"] = actualInstance.PrivateIP
 		}
-		if actualInstance.PublicIP != "" {
+		if !ipv6Only && actualInstance.PublicIP != "" {
 			instanceUpdates["public_ip"] = actualInstance.PublicIP
 		}
 		if actualInstance.IPv6Address != "" {
@@ -182,57 +182,71 @@ func (s *Service) gatherInstanceNetworkInfo(ctx context.Context, instance *provi
 
 // gatherProxmoxNetworkInfo 收集Proxmox实例的网络信息（事务外调用）
 func (s *Service) gatherProxmoxNetworkInfo(ctx context.Context, providerInstance provider.Provider, instance *providerModel.Instance, dbProvider *providerModel.Provider, instanceUpdates map[string]interface{}) {
+	effectiveNetworkType := effectiveInstanceNetworkType(instance.NetworkType, dbProvider.NetworkType)
+	ipv4Enabled := instanceRequiresIPv4(instance.NetworkType, dbProvider.NetworkType)
+	ipv6Enabled := effectiveNetworkType == "nat_ipv4_ipv6" || effectiveNetworkType == "dedicated_ipv4_ipv6" || effectiveNetworkType == "ipv6_only"
+	applyIPv4 := func(value string) {
+		ip := net.ParseIP(strings.TrimSpace(value))
+		if !ipv4Enabled || ip == nil || ip.To4() == nil || !ip.IsGlobalUnicast() {
+			return
+		}
+		instanceUpdates["private_ip"] = ip.String()
+		if effectiveNetworkType == "dedicated_ipv4" || effectiveNetworkType == "dedicated_ipv4_ipv6" {
+			instanceUpdates["public_ip"] = ip.String()
+		}
+	}
+	applyIPv6 := func(value string) {
+		if !ipv6Enabled {
+			return
+		}
+		address, err := utils.NormalizeIPv6Address(value)
+		if err == nil {
+			instanceUpdates["ipv6_address"] = address
+		}
+	}
+	if !ipv4Enabled {
+		instanceUpdates["private_ip"] = ""
+		instanceUpdates["public_ip"] = ""
+		instanceUpdates["pmacct_interface_v4"] = ""
+	}
 	type proxmoxWithIPv interface {
-		GetInstanceIPv4(ctx context.Context, instanceName string) (string, error)
-		GetInstanceIPv6(ctx context.Context, instanceName string) (string, error)
-		GetInstancePublicIPv6(ctx context.Context, instanceName string) (string, error)
+		GetInstanceIPv4(context.Context, string) (string, error)
+		GetInstanceIPv6(context.Context, string) (string, error)
+		GetInstancePublicIPv6(context.Context, string) (string, error)
 	}
 	if pxProvider, ok := providerInstance.(proxmoxWithIPv); ok {
-		if ipv4Address, err := pxProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ipv4Address != "" {
-			instanceUpdates["private_ip"] = ipv4Address
-			if dbProvider.NetworkType == "dedicated_ipv4" || dbProvider.NetworkType == "dedicated_ipv4_ipv6" {
-				instanceUpdates["public_ip"] = ipv4Address
-			}
-		}
-		if ipv6Address, err := pxProvider.GetInstanceIPv6(ctx, instance.Name); err == nil && ipv6Address != "" {
-			if dbProvider.NetworkType == "nat_ipv4_ipv6" {
-				instanceUpdates["ipv6_address"] = ipv6Address
-			} else if dbProvider.NetworkType == "dedicated_ipv4_ipv6" || dbProvider.NetworkType == "ipv6_only" {
-				instanceUpdates["public_ipv6"] = ipv6Address
+		if ipv4Enabled {
+			if address, err := pxProvider.GetInstanceIPv4(ctx, instance.Name); err == nil {
+				applyIPv4(address)
 			}
 		}
 		publicIPv6 := ""
-		if candidate, err := pxProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil {
-			publicIPv6 = candidate
+		if ipv6Enabled {
+			if address, err := pxProvider.GetInstanceIPv6(ctx, instance.Name); err == nil {
+				applyIPv6(address)
+			}
+			if address, err := pxProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil && utils.IsPublicIPv6(address) {
+				publicIPv6, _ = utils.NormalizeIPv6Address(address)
+			}
 		}
-		for key, value := range publicIPv6Update(dbProvider.Type, dbProvider.NetworkType, dbProvider.IPv6PortMappingMethod, publicIPv6) {
+		for key, value := range publicIPv6Update(dbProvider.Type, effectiveNetworkType, dbProvider.IPv6PortMappingMethod, publicIPv6) {
 			instanceUpdates[key] = value
 		}
 		return
 	}
-	// 回退到 GetInstance
-	type proxmoxWithGet interface {
-		GetInstance(ctx context.Context, instanceID string) (*provider.Instance, error)
-	}
-	if pxProvider, ok := providerInstance.(proxmoxWithGet); ok {
-		if proxmoxInstance, err := pxProvider.GetInstance(ctx, instance.ProviderInstanceIdentifier()); err == nil && proxmoxInstance != nil {
-			ip := proxmoxInstance.IP
-			if ip == "" {
-				ip = proxmoxInstance.PrivateIP
-			}
-			if ip != "" {
-				instanceUpdates["private_ip"] = ip
-				if dbProvider.NetworkType == "dedicated_ipv4" || dbProvider.NetworkType == "dedicated_ipv4_ipv6" {
-					instanceUpdates["public_ip"] = ip
-				}
-			}
-			if proxmoxInstance.IPv6Address != "" {
-				if dbProvider.NetworkType == "nat_ipv4_ipv6" {
-					instanceUpdates["ipv6_address"] = proxmoxInstance.IPv6Address
-				} else if dbProvider.NetworkType == "dedicated_ipv4_ipv6" || dbProvider.NetworkType == "ipv6_only" {
-					instanceUpdates["public_ipv6"] = proxmoxInstance.IPv6Address
-				}
-			}
+	if actual, err := providerInstance.GetInstance(ctx, instance.ProviderInstanceIdentifier()); err == nil && actual != nil {
+		ip := actual.PrivateIP
+		if ip == "" {
+			ip = actual.IP
+		}
+		applyIPv4(ip)
+		applyIPv6(actual.IPv6Address)
+		publicIPv6 := ""
+		if ipv6Enabled && utils.IsPublicIPv6(actual.IPv6Address) {
+			publicIPv6, _ = utils.NormalizeIPv6Address(actual.IPv6Address)
+		}
+		for key, value := range publicIPv6Update(dbProvider.Type, effectiveNetworkType, dbProvider.IPv6PortMappingMethod, publicIPv6) {
+			instanceUpdates[key] = value
 		}
 	}
 }
@@ -507,7 +521,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 						}
 						if mappingLookupOK {
 							if verifyHost, verifyPort, ok := passwordVerificationEndpoint(currentInstance, sshVerifyProvider, mapping); ok {
-								s.verifySSHPasswordAuth(instanceID, verifyHost, verifyPort, currentInstance.Username, currentInstance.Password)
+								s.verifySSHPasswordAuth(taskCtx, instanceID, verifyHost, verifyPort, currentInstance.Username, currentInstance.Password)
 							} else {
 								global.APP_LOG.Debug("实例没有无歧义的SSH密码验证端点，跳过远程验证",
 									zap.Uint("instanceId", instanceID),

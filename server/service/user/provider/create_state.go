@@ -39,3 +39,23 @@ func quarantineFailedCreate(tx *gorm.DB, instance *providerModel.Instance) error
 	}
 	return nil
 }
+
+// A failed finalization transaction may have rolled back the status change
+// while the remote guest already exists. Make the row operable for recovery,
+// but retain its allocations and never overwrite a cancelled task or a later
+// lifecycle transition.
+func quarantineCreateFinalizationFailure(db *gorm.DB, taskID uint, instance *providerModel.Instance) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := lockRunningCreate(tx, taskID); err != nil {
+			return err
+		}
+		var current providerModel.Instance
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id", "status").First(&current, instance.ID).Error; err != nil {
+			return err
+		}
+		if current.Status != "creating" {
+			return nil
+		}
+		return quarantineFailedCreate(tx, instance)
+	})
+}

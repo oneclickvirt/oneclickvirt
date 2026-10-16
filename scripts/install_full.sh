@@ -107,6 +107,9 @@ usage() {
 Usage / 用法: bash install_full.sh [OPTIONS] / [选项]
 
 Options / 选项:
+  ONECLICKVIRT_ADMIN_PASSWORD (environment / 环境变量)
+                          Initial admin password; set it before unattended installs.
+                          自动安装时可预设初始管理员密码。
   --db-type TYPE          Database type: mysql (default) or mariadb
                           数据库类型: mysql（默认）或 mariadb
   --db-password PASS      Database root password (auto-generated if not set)
@@ -195,7 +198,7 @@ DB_USER_EXT="oneclickvirt"
 DB_PASS_EXT=""
 # Auto-init admin credentials
 ADMIN_USER="admin"
-ADMIN_PASS="Admin123!@#"
+ADMIN_PASS="${ONECLICKVIRT_ADMIN_PASSWORD:-$(head -c 24 /dev/urandom | base64 | tr -d '\n')}"
 ADMIN_EMAIL="admin@oneclickvirt.local"
 
 # Normalize domain: strip https:// or http:// prefix, auto-detect TLS preference
@@ -464,9 +467,13 @@ detect_service_manager() {
 }
 
 detect_os() {
-    if [[ -f /etc/os-release ]]; then
+    # os-release defines VERSION too. Keep it local so distribution labels
+    # such as "13 (trixie)" cannot become a controller download tag.
+    local VERSION="" ID="" VERSION_ID="" ID_LIKE=""
+    local os_release_file="${OS_RELEASE_FILE:-/etc/os-release}"
+    if [[ -f "$os_release_file" ]]; then
         # shellcheck source=/dev/null
-        . /etc/os-release
+        . "$os_release_file"
         OS="${ID:-unknown}"
         OS_VERSION="${VERSION_ID:-}"
         OS_LIKE="${ID_LIKE:-}"
@@ -1850,14 +1857,16 @@ configure_openresty() {
 configure_firewall() {
     log_info "Configuring firewall..." "正在配置防火墙..."
     if command -v ufw &>/dev/null; then
-        ufw allow 80/tcp 2>/dev/null || true
-        ufw allow 443/tcp 2>/dev/null || true
-        ufw allow 22/tcp 2>/dev/null || true
-        ufw --force enable 2>/dev/null || true
-    elif command -v firewall-cmd &>/dev/null; then
-        firewall-cmd --permanent --add-service=http 2>/dev/null || true
-        firewall-cmd --permanent --add-service=https 2>/dev/null || true
-        firewall-cmd --reload 2>/dev/null || true
+        ufw allow 80/tcp || return 1
+        ufw allow 443/tcp || return 1
+        ufw allow 22/tcp || return 1
+        # Installing a controller beside PVE/LXD must not activate a second
+        # firewall with a default DROP forwarding policy. Preserve the user's
+        # active/inactive state; allow rules also persist for later activation.
+    elif command -v firewall-cmd &>/dev/null && firewall-cmd --state >/dev/null 2>&1; then
+        firewall-cmd --permanent --add-service=http || return 1
+        firewall-cmd --permanent --add-service=https || return 1
+        firewall-cmd --reload || return 1
     fi
     log_success "Firewall configured (80, 443 open)." "防火墙已配置（80, 443 端口已开放）。"
 }
@@ -2628,7 +2637,7 @@ main() {
     esac
 
     # 3. Firewall
-    configure_firewall
+    configure_firewall || exit 1
 
     # 4. Application
     get_latest_version || exit 1
@@ -2642,11 +2651,7 @@ main() {
     echo ""
     # Determine URL scheme
     local _url_scheme="http"
-    local _is_bare="false"
-    if [[ "$DOMAIN" == "localhost" || "$DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        _is_bare="true"
-        _url_scheme="http"
-    elif [[ "$TLS_METHOD" != "off" ]]; then
+    if [[ "$TLS_METHOD" != "off" ]]; then
         _url_scheme="https"
     fi
     local _display_url="${_url_scheme}://${DOMAIN}"

@@ -2,6 +2,7 @@ package proxmox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"oneclickvirt/global"
 	"oneclickvirt/utils"
@@ -16,6 +17,9 @@ func (p *ProxmoxProvider) sshDeleteInstance(ctx context.Context, id string) erro
 		zap.String("instance_id", id))
 	// 查找实例对应的VMID
 	vmid, instanceType, err := p.findVMIDByNameOrID(ctx, id)
+	if errors.Is(err, errProxmoxInstanceNotFound) {
+		return nil
+	}
 	if err != nil {
 		global.APP_LOG.Error("无法找到实例对应的VMID",
 			zap.String("id", id),

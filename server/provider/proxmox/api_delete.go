@@ -2,6 +2,7 @@ package proxmox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -14,6 +15,9 @@ import (
 func (p *ProxmoxProvider) apiDeleteInstance(ctx context.Context, id string) error {
 	// 先通过SSH查找实例信息（API可能无法直接获取所有必要信息）
 	vmid, instanceType, err := p.findVMIDByNameOrID(ctx, id)
+	if errors.Is(err, errProxmoxInstanceNotFound) {
+		return nil
+	}
 	if err != nil {
 		global.APP_LOG.Error("API删除: 无法找到实例对应的VMID",
 			zap.String("id", id),

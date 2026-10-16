@@ -497,7 +497,11 @@ func (s *PortMappingService) UpdateProviderPortConfig(providerID uint, req admin
 
 // CreateDefaultPortMappings 为实例创建默认端口映射
 func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, providerID uint) error {
-	return s.createDefaultPortMappings(context.Background(), instanceID, providerID, "", "active")
+	var instance provider.Instance
+	if err := global.APP_DB.Select("id", "network_type").Where("id = ? AND provider_id = ?", instanceID, providerID).First(&instance).Error; err != nil {
+		return fmt.Errorf("读取实例网络模式失败: %w", err)
+	}
+	return s.createDefaultPortMappings(context.Background(), instanceID, providerID, strings.TrimSpace(instance.NetworkType), "active")
 }
 
 // ReserveDefaultPortMappingsForCreate reserves controller-owned ports before a

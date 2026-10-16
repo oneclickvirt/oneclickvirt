@@ -110,6 +110,32 @@ func TestReserveDefaultControllerMappingsBeforePrivateIPExists(t *testing.T) {
 	}
 }
 
+func TestDefaultPortMappingsUseInstanceModeInsteadOfProviderDefault(t *testing.T) {
+	for _, mode := range []string{"nat_ipv4", "dedicated_ipv4", "ipv6_only"} {
+		t.Run(mode, func(t *testing.T) {
+			db, node, instance := setupControllerCreateTest(t, "dedicated_ipv4_ipv6", "172.16.1.9", 2)
+			if err := db.Model(&instance).Update("network_type", mode).Error; err != nil {
+				t.Fatal(err)
+			}
+			ControllerPortForwardFunc = func(uint, uint, int, string, int) error { return nil }
+			if err := (&PortMappingService{}).CreateDefaultPortMappings(instance.ID, node.ID); err != nil {
+				t.Fatal(err)
+			}
+			var count int64
+			if err := db.Model(&providerModel.Port{}).Where("instance_id = ?", instance.ID).Count(&count).Error; err != nil {
+				t.Fatal(err)
+			}
+			want := int64(0)
+			if mode == "nat_ipv4" {
+				want = 2
+			}
+			if count != want {
+				t.Fatalf("mode %s allocated %d ports, want %d", mode, count, want)
+			}
+		})
+	}
+}
+
 func TestReserveDefaultControllerMappingsUsesPublishedRange(t *testing.T) {
 	t.Setenv(utils.ControllerPortRangeStartEnv, "12000")
 	t.Setenv(utils.ControllerPortRangeEndEnv, "12003")

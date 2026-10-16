@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
@@ -97,6 +98,11 @@ func (s *Service) ProcessCreateInstanceTask(ctx context.Context, task *adminMode
 			return finalizeErr
 		}
 		global.APP_LOG.Error("实例创建最终化失败", zap.Uint("taskId", task.ID), zap.Error(finalizeErr))
+		recoveryCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := quarantineCreateFinalizationFailure(global.APP_DB.WithContext(recoveryCtx), task.ID, instance); err != nil {
+			global.APP_LOG.Error("保留创建失败实例待恢复失败", zap.Uint("taskId", task.ID), zap.Uint("instanceId", instance.ID), zap.Error(err))
+		}
 		return finalizeErr
 	}
 	global.APP_LOG.Debug("实例创建结果处理完成", zap.Uint("taskId", task.ID), zap.Bool("hasApiError", apiError != nil))

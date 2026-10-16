@@ -414,6 +414,9 @@ func (p *ProxmoxProvider) resolveProxmoxSharedNAT66Mode(ctx context.Context) (*p
 // already expose its bridge, gateway, route, and forwarding state; otherwise
 // pct/qm would leave a guest behind after a network failure.
 func (p *ProxmoxProvider) preflightIPv6Create(ctx context.Context, config provider.InstanceConfig, networkType string) error {
+	if _, err := p.dedicatedIPv4Config(ctx, config, networkType); err != nil {
+		return fmt.Errorf("创建实例前独立IPv4环境检查失败: %w", err)
+	}
 	requested := requestedProxmoxIPv6(config)
 	if !hasProxmoxIPv6(networkType) {
 		if requested != "" {
@@ -1381,16 +1384,7 @@ func (p *ProxmoxProvider) getInstanceIPv6ByVMID(ctx context.Context, vmid string
 		}
 
 		// 如果没有静态IPv6配置，尝试通过guest agent获取IPv6
-		cmd = fmt.Sprintf("qm guest cmd %s network-get-interfaces 2>/dev/null | grep -o '\"ip-address\":[[:space:]]*\"[^\"]*:' | sed 's/.*\"\\([^\"]*\\)\".*/\\1/' | head -1 || true", vmid)
-		output, err = p.sshClient.Execute(cmd)
-		if err == nil {
-			if ipv6, parseErr := utils.ParseFirstIPv6AddressOutput(output); parseErr == nil {
-				return ipv6, nil
-			}
-		}
-
-		// 最后尝试从虚拟机内部获取IPv6地址
-		cmd = fmt.Sprintf("qm guest exec %s -- ip -6 addr show | grep 'inet6.*global' | awk '{print $2}' | cut -d'/' -f1 | head -1 2>/dev/null || true", vmid)
+		cmd = fmt.Sprintf("qm guest cmd %s network-get-interfaces", vmid)
 	}
 
 	output, err := p.sshClient.Execute(cmd)
@@ -1403,7 +1397,7 @@ func (p *ProxmoxProvider) getInstanceIPv6ByVMID(ctx context.Context, vmid string
 	if instanceType == "container" {
 		ipv6, parseErr = utils.ParseFirstGlobalIPv6AddressJSON(output)
 	} else {
-		ipv6, parseErr = utils.ParseFirstIPv6AddressOutput(output)
+		ipv6, parseErr = proxmoxAgentAddress(output, true)
 	}
 	if parseErr != nil {
 		return "", fmt.Errorf("no valid IPv6 address found for %s %s: %w", instanceType, vmid, parseErr)
