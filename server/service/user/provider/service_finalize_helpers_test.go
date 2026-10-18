@@ -36,6 +36,8 @@ func TestPublicIPv6PersistenceDistinguishesNATFromRoutedGuest(t *testing.T) {
 		{name: "LXD managed NAT", providerType: "lxd", network: "nat_ipv4_ipv6", method: "iptables", value: "2607:9d00:2000:45::35b0:f1cd", want: ""},
 		{name: "Incus native dual stack", providerType: "incus", network: "nat_ipv4_ipv6", method: "native", value: "2001:db8::19", want: "2001:db8::19"},
 		{name: "LXD native dual stack", providerType: "lxd", network: "nat_ipv4_ipv6", method: "NATIVE", value: "2001:db8::1a", want: "2001:db8::1a"},
+		{name: "Podman native dual stack", providerType: "podman", network: "nat_ipv4_ipv6", method: "native", value: "2001:db8::23", want: "2001:db8::23"},
+		{name: "Podman NAT66", providerType: "podman", network: "nat_ipv4_ipv6", method: "iptables", value: "2001:db8::24", want: ""},
 		{name: "dedicated dual stack", providerType: "incus", network: "dedicated_ipv4_ipv6", value: "2001:db8::20", want: "2001:db8::20"},
 		{name: "IPv6 only", providerType: "incus", network: "ipv6_only", value: "2001:db8::21/128", want: "2001:db8::21/128"},
 		{name: "IPv4 only", providerType: "incus", network: "nat_ipv4", value: "2001:db8::22", want: ""},

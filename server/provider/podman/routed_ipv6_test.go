@@ -98,16 +98,16 @@ func TestPodmanRestoreRoutedIPv6AfterStartReattachesVeth(t *testing.T) {
 }
 
 func TestPodmanRestoreIPv6AfterStartReattachesManualAddress(t *testing.T) {
-	executor := &routedPodmanExecutor{outputs: []string{"", "", ""}}
+	executor := &routedPodmanExecutor{outputs: []string{"", "", "", ""}}
 	p := NewPodmanProvider().(*PodmanProvider)
 	p.sshClient.SetExecutor(executor)
 	if err := p.restoreIPv6AfterStart("instance-a"); err != nil {
 		t.Fatalf("restoreIPv6AfterStart() error = %v", err)
 	}
-	if len(executor.commands) != 3 {
-		t.Fatalf("restore commands = %#v, want manual check, helper, and routed label check", executor.commands)
+	if len(executor.commands) != 4 {
+		t.Fatalf("restore commands = %#v, want IPv4 isolation state, manual check, helper, and routed label check", executor.commands)
 	}
-	if !strings.Contains(executor.commands[0], "podman_ipv6_allocations") || !strings.Contains(executor.commands[1], "podman-ipv6-attach.sh") {
+	if !strings.Contains(executor.commands[0], ipv6NoIPv4Label) || !strings.Contains(executor.commands[1], "podman_ipv6_allocations") || !strings.Contains(executor.commands[2], "podman-ipv6-attach.sh") {
 		t.Fatalf("manual restore commands = %#v", executor.commands)
 	}
 }

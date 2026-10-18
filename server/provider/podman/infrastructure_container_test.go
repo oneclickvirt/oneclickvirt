@@ -26,7 +26,7 @@ func TestPodmanInfrastructureContainerIsNotDiscoveredOrManaged(t *testing.T) {
 		t.Fatalf("discovered infrastructure container: %#v, %v", discovered, err)
 	}
 
-	executor = &routedPodmanExecutor{outputs: []string{"NAMES\tSTATUS\tIMAGE\tID\tCREATED\nndpresponder\tUp\tservice-image\tservice-id\tnow\n"}}
+	executor = &routedPodmanExecutor{outputs: []string{"/ndpresponder|running|service-image|service-id\n"}}
 	p.sshClient.SetExecutor(executor)
 	listed, err := p.sshListInstances(ctx)
 	if err != nil || len(listed) != 0 {

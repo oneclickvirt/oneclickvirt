@@ -104,6 +104,11 @@ func (s *Service) gatherInstanceNetworkInfo(ctx context.Context, instance *provi
 		if actualInstance.IPv6Address != "" {
 			instanceUpdates["ipv6_address"] = actualInstance.IPv6Address
 		}
+		if dbProvider.Type == "podman" && utils.IsPublicIPv6(actualInstance.IPv6Address) {
+			for key, value := range publicIPv6Update(dbProvider.Type, effectiveNetworkType, dbProvider.IPv6PortMappingMethod, actualInstance.IPv6Address) {
+				instanceUpdates[key] = value
+			}
+		}
 		if actualInstance.Status != "" {
 			providerStatus := strings.ToLower(actualInstance.Status)
 			if providerStatus == "running" || providerStatus == "active" {

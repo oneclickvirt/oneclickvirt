@@ -247,7 +247,7 @@ func TestPodmanUnmanagedIPv6UsesIPv4PrimaryThenConnectsStaticIPv6(t *testing.T) 
 		t.Fatalf("connectPodmanAdditionalNetworks() error = %v", err)
 	}
 	if len(executor.commands) != 1 {
-		t.Fatalf("commands = %#v, want exactly one network connect", executor.commands)
+		t.Fatalf("commands = %#v, want network connect with IPv4 destination preserved", executor.commands)
 	}
 	for _, fragment := range []string{"podman network connect", "--ip6='2001:db8::20'", "'podman-ipv6'", "'instance-a'"} {
 		if !strings.Contains(executor.commands[0], fragment) {

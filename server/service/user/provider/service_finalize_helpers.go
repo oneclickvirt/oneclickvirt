@@ -33,7 +33,7 @@ func storesGuestPublicIPv6(providerType, networkType, ipv6PortMappingMethod stri
 	case "nat_ipv4_ipv6":
 		providerType = strings.ToLower(strings.TrimSpace(providerType))
 		return providerType == "proxmox" || providerType == "proxmoxve" ||
-			((providerType == "incus" || providerType == "lxd") &&
+			((providerType == "incus" || providerType == "lxd" || providerType == "podman") &&
 				strings.EqualFold(strings.TrimSpace(ipv6PortMappingMethod), "native"))
 	default:
 		return false

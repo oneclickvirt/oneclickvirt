@@ -34,7 +34,20 @@ func (p *PodmanProvider) sshStartInstance(ctx context.Context, id string) error 
 	if err := utils.EnsureRuntimeContainerRunning(ctx, p.sshClient, cliName, id); err != nil {
 		return err
 	}
-	return p.restoreIPv6AfterStart(id, ctx)
+	if err := p.restoreIPv6AfterStart(id, ctx); err != nil {
+		return p.stopAfterNetworkRestoreFailure(ctx, id, err)
+	}
+	return nil
+}
+
+func (p *PodmanProvider) stopAfterNetworkRestoreFailure(ctx context.Context, id string, restoreErr error) error {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	output, err := utils.ExecuteShellCommandContext(cleanupCtx, p.sshClient, fmt.Sprintf("%s stop %s", cliName, shellSingleQuote(id)))
+	if err != nil {
+		return fmt.Errorf("network restore failed: %w; stopping container also failed: %v; output: %s", restoreErr, err, utils.TruncateString(strings.TrimSpace(output), 1000))
+	}
+	return fmt.Errorf("network restore failed; container stopped to avoid running with incomplete network configuration: %w", restoreErr)
 }
 
 // sshStopInstance confirms stopped state before returning success.
@@ -57,7 +70,10 @@ func (p *PodmanProvider) sshRestartInstance(ctx context.Context, id string) erro
 		return fmt.Errorf("failed to restart container: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
 	global.APP_LOG.Info("Podman实例重启成功", zap.String("id", utils.TruncateString(id, 32)))
-	return p.restoreIPv6AfterStart(id, ctx)
+	if err := p.restoreIPv6AfterStart(id, ctx); err != nil {
+		return p.stopAfterNetworkRestoreFailure(ctx, id, err)
+	}
+	return nil
 }
 
 // sshDeleteInstance 删除实例 - 多重删除策略

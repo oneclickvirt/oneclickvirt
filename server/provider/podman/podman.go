@@ -28,6 +28,7 @@ const (
 	ipv6CheckFile            = "/usr/local/bin/podman_check_ipv6"
 	ipv6NetworkModeFile      = "/usr/local/bin/podman_ipv6_network_mode"
 	ipv6ManualHelper         = "/usr/local/bin/podman-ipv6-attach.sh"
+	ipv6NoIPv4Label          = "oneclickvirt.network.ipv6-no-ipv4"
 	ipv6ManualPrefix         = "/usr/local/bin/podman_ipv6_public_prefix"
 	ipv6AllocationFile       = "/usr/local/bin/podman_ipv6_allocations"
 	ipv6NDPReadyFile         = "/usr/local/bin/podman_ipv6_ndp_ready"
@@ -432,66 +433,9 @@ func (p *PodmanProvider) GetInstance(ctx context.Context, id string) (*provider.
 }
 
 func (p *PodmanProvider) enrichInstanceWithNetworkInfo(instance *provider.Instance) {
-	cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", cliName, shellSingleQuote(instance.Name))
-	output, err := p.sshClient.Execute(cmd)
-	if err == nil {
-		ipAddress, parseErr := utils.ParseFirstIPv4AddressOutput(output)
-		if parseErr == nil {
-			instance.PrivateIP = ipAddress
-			instance.IP = ipAddress
-		}
-	}
-
-	vethCmd := fmt.Sprintf(`
-CONTAINER_NAME=%s
-CONTAINER_PID=$(%s inspect -f '{{.State.Pid}}' "$CONTAINER_NAME" 2>/dev/null)
-if [ -z "$CONTAINER_PID" ] || [ "$CONTAINER_PID" = "0" ]; then
-    exit 1
-fi
-HOST_VETH_IFINDEX=$(nsenter -t $CONTAINER_PID -n ip link show eth0 2>/dev/null | head -n1 | sed -n 's/.*@if\([0-9]\+\).*/\1/p')
-if [ -z "$HOST_VETH_IFINDEX" ]; then
-    exit 1
-fi
-VETH_NAME=$(ip -o link show 2>/dev/null | awk -v idx="$HOST_VETH_IFINDEX" -F': ' '$1 == idx {print $2}' | cut -d'@' -f1)
-if [ -n "$VETH_NAME" ]; then
-    echo "$VETH_NAME"
-fi
-`, shellSingleQuote(instance.Name), cliName)
-	vethOutput, err := p.sshClient.Execute(vethCmd)
-	if err == nil {
-		vethInterface, parseErr := utils.ParseFirstNetworkInterfaceOutput(vethOutput)
-		if parseErr == nil {
-			if instance.Metadata == nil {
-				instance.Metadata = make(map[string]string)
-			}
-			instance.Metadata["network_interface"] = vethInterface
-		}
-	}
-
-	if instance.PrivateIP == "" {
-		fallbackCmd := fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", cliName, shellSingleQuote(instance.Name))
-		fallbackOutput, fallbackErr := p.sshClient.Execute(fallbackCmd)
-		if fallbackErr == nil {
-			ipAddress, parseErr := utils.ParseFirstIPv4AddressOutput(fallbackOutput)
-			if parseErr == nil {
-				instance.PrivateIP = ipAddress
-				instance.IP = ipAddress
-			}
-		}
-	}
-
-	checkIPv6Cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$net}}{{println}}{{end}}'", cliName, shellSingleQuote(instance.Name))
-	networksOutput, err := p.sshClient.Execute(checkIPv6Cmd)
-	if err == nil && strings.Contains(networksOutput, ipv6Network) {
-		cmd = fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", cliName, shellSingleQuote(instance.Name))
-		output, err = p.sshClient.Execute(cmd)
-		if err == nil {
-			ipv6Address, parseErr := utils.ParseFirstIPv6AddressOutput(output)
-			if parseErr == nil {
-				instance.IPv6Address = ipv6Address
-			}
-		}
-	}
+	instances := []provider.Instance{*instance}
+	p.enrichInstancesWithNetworkInfo(&instances)
+	*instance = instances[0]
 }
 
 // checkIPv6NetworkAvailable 检查IPv6网络是否可用

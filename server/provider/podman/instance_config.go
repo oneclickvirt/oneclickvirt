@@ -195,21 +195,31 @@ func (p *PodmanProvider) configureInstanceSSHPassword(ctx context.Context, confi
 
 // getContainerPrivateIP 获取容器的内网IP地址
 func (p *PodmanProvider) getContainerPrivateIP(containerName string) (string, error) {
+	disabledOutput, disabledErr := p.sshClient.Execute(fmt.Sprintf("%s inspect %s --format %s", cliName, shellSingleQuote(containerName), shellSingleQuote("{{index .Config.Labels \""+ipv6NoIPv4Label+"\"}}")))
+	secondaryIPv4Disabled := disabledErr == nil && strings.EqualFold(strings.TrimSpace(disabledOutput), "true")
 	formats := []string{
 		fmt.Sprintf("{{with index .NetworkSettings.Networks %q}}{{.IPAddress}}{{end}}", ipv4Network),
-		"{{range $net, $config := .NetworkSettings.Networks}}{{if $config.IPAddress}}{{$config.IPAddress}}{{println}}{{end}}{{end}}",
+		fmt.Sprintf("{{range $net, $config := .NetworkSettings.Networks}}{{if and (ne $net %q) $config.IPAddress}}{{$config.IPAddress}}{{println}}{{end}}{{end}}", ipv6Network),
 		"{{.NetworkSettings.IPAddress}}",
 	}
 	var lastErr error
-	for _, format := range formats {
+	for index, format := range formats {
 		cmd := fmt.Sprintf("%s inspect %s --format %s", cliName, shellSingleQuote(containerName), shellSingleQuote(format))
 		output, err := p.sshClient.Execute(cmd)
 		if err != nil {
 			lastErr = err
+			if index == 0 && secondaryIPv4Disabled {
+				return "", fmt.Errorf("failed to inspect primary IPv4 network: %w", err)
+			}
 			continue
 		}
 		if ipAddress, parseErr := utils.ParseFirstIPv4AddressOutput(output); parseErr == nil {
 			return ipAddress, nil
+		}
+		// This label isolates only the IPv6 attachment. A separate primary
+		// IPv4 network remains valid on dual-stack guests.
+		if index == 0 && secondaryIPv4Disabled {
+			return "", fmt.Errorf("IPv6-only attachment has no primary IPv4 network")
 		}
 	}
 

@@ -586,6 +586,18 @@ func getResetInstancePublicIPv6(ctx context.Context, prov interface{}, name stri
 			}
 		}
 	}
+	// Runtime providers such as Podman expose the routed GUA through
+	// GetInstance rather than a separate public-address getter. Never reuse
+	// the deleted guest's address or promote an internal ULA to public IPv6.
+	if getter, ok := prov.(interface {
+		GetInstance(context.Context, string) (*providerModel.ProviderInstance, error)
+	}); ok {
+		if instance, err := getter.GetInstance(ctx, name); err == nil && instance != nil {
+			if address := canonicalResetIPv6(instance.IPv6Address); utils.IsPublicIPv6(address) {
+				return address
+			}
+		}
+	}
 	return ""
 }
 

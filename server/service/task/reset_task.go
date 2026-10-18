@@ -885,7 +885,7 @@ func (s *TaskService) resetTask_SetPassword(ctx context.Context, task *adminMode
 		resetCtx.NewPrivateIP = getInstancePrivateIP(ctx, prov, resetCtx.Provider.Type, resetCtx.NewProviderInstanceID)
 		if resetNeedsIPv6Addresses(resetCtx) {
 			resetCtx.NewGuestIPv6 = getResetInstanceIPv6(ctx, prov, resetCtx.Provider.Type, resetCtx.NewProviderInstanceID)
-			if strings.TrimSpace(resetCtx.Instance.PublicIPv6) != "" {
+			if strings.TrimSpace(resetCtx.Instance.PublicIPv6) != "" || utils.IsPublicIPv6(resetCtx.NewGuestIPv6) {
 				if resetCtx.Instance.PublicIPv6 == resetCtx.OldAllocatedIPv6 {
 					resetCtx.NewPublicIPv6 = strings.TrimSpace(resetCtx.NewAllocatedIPv6)
 				}

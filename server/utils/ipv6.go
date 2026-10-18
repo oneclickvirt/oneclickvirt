@@ -57,6 +57,8 @@ type ContainerNetworkSelection struct {
 	RoutedTunnelID        uint
 	RoutedTunnelInterface string
 	IPv6                  bool
+	// IPv6Only forbids runtime-assigned IPv4 addresses, including on IPv6 attachments.
+	IPv6Only bool
 	// ManualIPv6 means the runtime network only provides an internal link-local
 	// or ULA attachment; the provider must apply the public /128 through its
 	// installer-owned routed-address helper after the container starts.

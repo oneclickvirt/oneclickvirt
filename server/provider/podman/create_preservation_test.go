@@ -37,3 +37,19 @@ func TestCancelledStartDoesNotRestoreNetworkOrStopGuest(t *testing.T) {
 		t.Fatalf("cancelled task changed guest: %v", e.commands)
 	}
 }
+
+func TestNetworkRestoreFailureStopsGuestAfterTaskCancellation(t *testing.T) {
+	e := &routedPodmanExecutor{}
+	p := NewPodmanProvider().(*PodmanProvider)
+	p.sshClient.SetExecutor(e)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := p.stopAfterNetworkRestoreFailure(ctx, "guest", context.Canceled)
+	if err == nil || !strings.Contains(err.Error(), "stopped to avoid running") {
+		t.Fatalf("network restore failure error = %v", err)
+	}
+	if len(e.commands) != 1 || e.commands[0] != "podman stop 'guest'" {
+		t.Fatalf("cleanup did not stop the guest with an independent bounded context: %v", e.commands)
+	}
+}

@@ -18,41 +18,34 @@ import (
 
 // sshListInstances 列出所有实例
 func (p *PodmanProvider) sshListInstances(ctx context.Context) ([]provider.Instance, error) {
-	output, err := p.sshClient.ExecuteWithLogging(cliName+" ps -a --format 'table {{.Names}}\\t{{.Status}}\\t{{.Image}}\\t{{.ID}}\\t{{.CreatedAt}}'", "PODMAN_LIST")
+	command := fmt.Sprintf("ids=$(%s ps -aq) || exit; [ -z \"$ids\" ] || %s inspect --format '{{.Name}}|{{.State.Status}}|{{.Config.Image}}|{{.Id}}' $ids", cliName, cliName)
+	output, err := p.sshClient.ExecuteWithLogging(command, "PODMAN_LIST")
 	if err != nil {
 		return nil, err
 	}
-
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-	if len(lines) <= 1 {
+	if strings.TrimSpace(output) == "" {
 		return []provider.Instance{}, nil
 	}
-
 	var instances []provider.Instance
-	for _, line := range lines[1:] {
-		fields := strings.Fields(line)
-		if len(fields) < 4 {
+	validRecords := 0
+	for _, line := range strings.Split(output, "\n") {
+		record, err := utils.ParseContainerInspectOutput(line)
+		if err != nil {
 			continue
 		}
-		if provider.IsRuntimeInfrastructureContainer(fields[0]) {
+		validRecords++
+		if provider.IsRuntimeInfrastructureContainer(record.Name) {
 			continue
 		}
-
-		status := "unknown"
-		statusField := strings.ToLower(fields[1])
-		if strings.Contains(statusField, "up") {
-			status = "running"
-		} else if strings.Contains(statusField, "exited") {
-			status = "stopped"
-		}
-
-		instance := provider.Instance{
-			ID:     fields[3],
-			Name:   fields[0],
-			Status: status,
-			Image:  fields[2],
-		}
-		instances = append(instances, instance)
+		state := strings.ToLower(record.Status)
+		instances = append(instances, provider.Instance{
+			ID: record.ID, Name: strings.TrimPrefix(record.Name, "/"),
+			Status: mapContainerStatus(state, state == "running", state == "paused"),
+			Image:  record.Image,
+		})
+	}
+	if validRecords == 0 {
+		return nil, fmt.Errorf("Podman inspect returned non-empty output without valid instance records")
 	}
 
 	p.enrichInstancesWithNetworkInfo(&instances)
@@ -300,6 +293,9 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		return err
 	}
 	cmd = appendPodmanNetworkOptions(cmd, networkSelection)
+	if shouldRemovePodmanIPv6IPv4(networkSelection) {
+		cmd += " --label " + shellSingleQuote(ipv6NoIPv4Label+"=true")
+	}
 	if networkSelection.RoutedVeth {
 		labelArgs, labelErr := provider.RoutedIPv6RuntimeLabelArgs(networkSelection)
 		if labelErr != nil {
@@ -576,20 +572,40 @@ func (p *PodmanProvider) resolvePodmanContainerNetwork(networkType, staticIPv6 s
 	}
 
 	selection, err := utils.ResolveContainerNetwork(networkType, staticIPv6, ipv4Network, ipv6Network, ipv6Available)
-	if err != nil || !selection.IPv6 || (mode != podmanIPv6NetworkModeUnmanaged && mode != podmanIPv6NetworkModeManual) {
+	if err != nil || !selection.IPv6 {
 		return selection, err
 	}
 
-	// Unmanaged Netavark IPv6 has no managed gateway. Keep the primary
-	// attachment on podman-net for IPv4 NAT and published ports, then attach
-	// the public IPv6 network after the container exists.
-	selection.Network = ipv4Network
-	selection.AdditionalNetworks = append(selection.AdditionalNetworks, selection.IPv6Network)
-	selection.ManualIPv6 = mode == podmanIPv6NetworkModeManual
+	if mode == podmanIPv6NetworkModeUnmanaged || mode == podmanIPv6NetworkModeManual {
+		// Keep IPv4 NAT primary, then attach the routed IPv6 network separately.
+		selection.Network = ipv4Network
+		selection.AdditionalNetworks = append(selection.AdditionalNetworks, selection.IPv6Network)
+		selection.ManualIPv6 = mode == podmanIPv6NetworkModeManual
+	}
+	if strings.EqualFold(strings.TrimSpace(networkType), "ipv6_only") {
+		// Older Podman cannot connect a network to a container created with
+		// --network=none. Start on IPv6 directly, then remove implicit IPv4.
+		selection.Network = selection.IPv6Network
+		selection.AdditionalNetworks = nil
+		selection.IPv6Only = true
+	}
 	return selection, nil
 }
 
+func shouldRemovePodmanIPv6IPv4(selection utils.ContainerNetworkSelection) bool {
+	// Netavark installs published IPv4 ports for every attached IPv4 subnet.
+	// Removing the secondary address on dual-stack guests leaves live DNAT
+	// rules pointing at an absent address, with ordering changing on restart.
+	// Only IPv6-only guests must suppress every runtime-assigned IPv4.
+	return selection.IPv6Network == ipv6Network && selection.IPv6Only
+}
+
 func appendPodmanNetworkOptions(command string, selection utils.ContainerNetworkSelection) string {
+	if selection.IPv6Only {
+		// Inheriting an IPv4-only host resolv.conf makes an otherwise routed
+		// IPv6-only guest unable to resolve package mirrors or SSH dependencies.
+		command += " --dns=2606:4700:4700::1111 --dns=2001:4860:4860::8888"
+	}
 	if selection.Network != "" {
 		command += fmt.Sprintf(" --network=%s", shellSingleQuote(selection.Network))
 	}
@@ -639,6 +655,11 @@ func (p *PodmanProvider) connectPodmanAdditionalNetworks(name string, selection 
 		diagnostics := p.collectCreateDiagnostics(name)
 		return fmt.Errorf("附加隧道路由IPv6网络失败，保留容器供排障: %w; output: %s; diagnostics: %s",
 			err, utils.TruncateString(strings.TrimSpace(output), 4000), utils.TruncateString(strings.TrimSpace(diagnostics), 6000))
+	}
+	if shouldRemovePodmanIPv6IPv4(selection) {
+		if err := p.removeIPv4FromPodmanIPv6Attachment(name, ctx); err != nil {
+			return fmt.Errorf("移除Podman IPv6网络意外分配的IPv4失败: %w", err)
+		}
 	}
 	if selection.ManualIPv6 {
 		helpCommand := fmt.Sprintf("%s %s", shellSingleQuote(ipv6ManualHelper), shellSingleQuote(name))

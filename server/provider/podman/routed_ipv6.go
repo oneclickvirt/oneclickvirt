@@ -82,6 +82,9 @@ func (p *PodmanProvider) restoreIPv6AfterStart(name string, contexts ...context.
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := p.restoreIPv4IsolationAfterStart(name, ctx); err != nil {
+		return err
+	}
 	if _, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("test -x %s && test -f %s && awk -v name=%s '$1 == name {found=1} END {exit found ? 0 : 1}' %s", shellSingleQuote(ipv6ManualHelper), shellSingleQuote(ipv6AllocationFile), shellSingleQuote(name), shellSingleQuote(ipv6AllocationFile))); err == nil {
 		var output string
 		var attachErr error

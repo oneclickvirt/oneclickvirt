@@ -127,14 +127,32 @@ func (p *PodmanProvider) sshDiscoverInstances(ctx context.Context) ([]provider.D
 			if netName == "none" {
 				continue
 			}
-			if discovered.PrivateIP == "" {
-				discovered.PrivateIP = netInfo.IPAddress
-			}
 			if discovered.IPv6Address == "" && netInfo.GlobalIPv6Address != "" {
 				discovered.IPv6Address = netInfo.GlobalIPv6Address
 			}
 			if discovered.MACAddress == "" {
 				discovered.MACAddress = netInfo.MacAddress
+			}
+		}
+		if netInfo, ok := container.NetworkSettings.Networks[ipv4Network]; ok {
+			discovered.PrivateIP = netInfo.IPAddress
+		}
+		if !strings.EqualFold(container.Config.Labels[ipv6NoIPv4Label], "true") {
+			if discovered.PrivateIP == "" {
+				for _, netName := range networkNames {
+					if netName == ipv6Network || netName == "none" {
+						continue
+					}
+					if address := container.NetworkSettings.Networks[netName].IPAddress; address != "" {
+						discovered.PrivateIP = address
+						break
+					}
+				}
+			}
+			if discovered.PrivateIP == "" {
+				if netInfo, ok := container.NetworkSettings.Networks[ipv6Network]; ok {
+					discovered.PrivateIP = netInfo.IPAddress
+				}
 			}
 		}
 		// Manual routed mode has an internal ULA in Podman's inspect output and
