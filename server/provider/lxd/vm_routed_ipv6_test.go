@@ -29,7 +29,10 @@ func TestVMRoutedIPv6PropagatesGuestFailure(t *testing.T) {
 	if len(e.commands) != 1 {
 		t.Fatal("unexpected execution count")
 	}
-	for _, f := range []string{"timeout 5 lxc exec", "volatile.eth1.hwaddr", "/sys/class/net/*", "metric 50", "systemctl restart", "systemctl is-active --quiet", "RemainAfterExit=yes"} {
+	if strings.Contains(e.commands[0], "network-online.target") {
+		t.Fatal("IPv6 service must not wait for removed IPv4 interface")
+	}
+	for _, f := range []string{"timeout 5 lxc exec", "volatile.eth1.hwaddr", "/sys/class/net/*", "metric 50", "systemctl restart", "systemctl is-active --quiet", "RemainAfterExit=yes", "After=network.target"} {
 		if !strings.Contains(e.commands[0], f) {
 			t.Fatalf("missing %q", f)
 		}

@@ -47,8 +47,7 @@ mv -f "$script" /usr/local/sbin/oneclickvirt-routed-ipv6
 cat > /etc/systemd/system/oneclickvirt-routed-ipv6.service <<'UNIT'
 [Unit]
 Description=OneClickVirt routed IPv6 guest address
-After=network-online.target
-Wants=network-online.target
+After=network.target
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/oneclickvirt-routed-ipv6
