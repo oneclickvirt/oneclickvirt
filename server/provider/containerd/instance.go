@@ -475,7 +475,7 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 
 	// 若使用 registry 回退拉取的原始镜像（无持久进程），追加 keep-alive 命令
 	if registryFallback {
-		cmd += " sh -c 'trap : TERM INT; tail -f /dev/null & wait'"
+		cmd += " sh -c " + shellSingleQuote(containerdRegistryFallbackCommand)
 		global.APP_LOG.Debug("使用 registry 回退镜像，附加 keep-alive 命令",
 			zap.String("name", utils.TruncateString(config.Name, 32)))
 	}
