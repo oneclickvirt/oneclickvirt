@@ -10,7 +10,6 @@ import (
 
 	"oneclickvirt/global"
 	"oneclickvirt/provider"
-	"oneclickvirt/provider/firewall"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -207,7 +206,9 @@ func (p *KubeVirtProvider) sshCreateInstance(ctx context.Context, config provide
 
 	// 确保命名空间和目录存在
 	p.sshClient.Execute(fmt.Sprintf("kubectl create namespace %s 2>/dev/null || true", shellSingleQuote(Namespace)))
-	p.sshClient.Execute(fmt.Sprintf("mkdir -p %s", shellSingleQuote(VMLogDir)))
+	if output, err := p.sshClient.Execute("if [ -d /root/vmlog ]; then rmdir /root/vmlog || exit 1; fi; umask 077; touch /root/vmlog && chmod 600 /root/vmlog"); err != nil {
+		return fmt.Errorf("prepare VM log: %w: %s", err, output)
+	}
 
 	updateProgress(20, "解析镜像地址")
 
@@ -320,32 +321,14 @@ func (p *KubeVirtProvider) sshCreateInstance(ctx context.Context, config provide
 
 	updateProgress(80, "配置端口转发")
 
-	// 配置防火墙端口转发（用于不通过 NodePort 的额外端口范围）
-	if startPort > 0 && endPort > 0 && startPort <= endPort {
-		fwMgr := firewall.NewManager(p.sshClient, NFTTableName, "")
-		if _, err := fwMgr.DetectBackend(FWBackendFile); err == nil {
-			if initErr := fwMgr.InitTable(); initErr != nil {
-				if cleanupErr := p.sshDeleteInstance(context.Background(), config.Name); cleanupErr != nil {
-					global.APP_LOG.Error("防火墙初始化失败后的KubeVirt资源清理失败", zap.Error(cleanupErr))
-				}
-				p.deleteRoutedKubeVirtNAD(ipv6Plan)
-				return fmt.Errorf("kubevirt: 防火墙初始化失败，端口映射不可用: %w", initErr)
+	// Kubernetes Services track launcher Pod replacements; static Pod-IP DNAT does not.
+	if startPort > 0 && endPort >= startPort {
+		for port := startPort; port <= endPort; port++ {
+			if err := p.SetupStablePortMapping(ctx, config.Name, port, port, "both"); err != nil {
+				_ = p.sshDeleteInstance(context.Background(), config.Name)
+				_ = p.deleteRoutedKubeVirtNAD(ipv6Plan)
+				return fmt.Errorf("create VM port Service: %w", err)
 			}
-			// KubeVirt 额外端口范围通过防火墙 DNAT 到 Pod IP
-			// 此处仅初始化，实际端口映射在 VM 运行后通过 portmapping 层处理
-			if saveErr := fwMgr.SaveRules(); saveErr != nil {
-				if cleanupErr := p.sshDeleteInstance(context.Background(), config.Name); cleanupErr != nil {
-					global.APP_LOG.Error("防火墙规则保存失败后的KubeVirt资源清理失败", zap.Error(cleanupErr))
-				}
-				p.deleteRoutedKubeVirtNAD(ipv6Plan)
-				return fmt.Errorf("kubevirt: 保存防火墙规则失败，端口映射不可用: %w", saveErr)
-			}
-		} else {
-			if cleanupErr := p.sshDeleteInstance(context.Background(), config.Name); cleanupErr != nil {
-				global.APP_LOG.Error("防火墙检测失败后的KubeVirt资源清理失败", zap.Error(cleanupErr))
-			}
-			p.deleteRoutedKubeVirtNAD(ipv6Plan)
-			return fmt.Errorf("kubevirt: 检测防火墙后端失败，端口映射不可用: %w", err)
 		}
 	}
 
@@ -408,8 +391,9 @@ metadata:
   namespace: %s
 spec:
   type: NodePort
+  ipFamilyPolicy: PreferDualStack
   selector:
-    vm.kubevirt.io/name: %s
+    kubevirt.io/vm: %s
   ports:
     - name: ssh
       protocol: TCP

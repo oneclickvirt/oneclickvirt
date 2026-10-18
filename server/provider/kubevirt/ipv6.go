@@ -21,6 +21,7 @@ type routedKubeVirtIPv6Plan struct {
 	NADName     string
 	MAC         string
 	NodeName    string
+	PrimaryMAC  string
 }
 
 func kubeVirtNetworkType(config provider.InstanceConfig) string {
@@ -33,7 +34,7 @@ func kubeVirtNetworkType(config provider.InstanceConfig) string {
 }
 
 func resolveKubeVirtIPv6Plan(config provider.InstanceConfig) (routedKubeVirtIPv6Plan, error) {
-	plan := routedKubeVirtIPv6Plan{NetworkType: kubeVirtNetworkType(config)}
+	plan := routedKubeVirtIPv6Plan{NetworkType: kubeVirtNetworkType(config), PrimaryMAC: kubeVirtRoutedMAC(config.Name + "-primary")}
 	routed, present, err := provider.ResolveRoutedIPv6(config)
 	if err != nil {
 		return plan, err
@@ -180,33 +181,43 @@ func kubeVirtVMRoutedNetworkData(plan routedKubeVirtIPv6Plan) string {
 	if plan.Routed == nil {
 		return ""
 	}
-	return fmt.Sprintf(`version: 2
-ethernets:
-  tunnelv6:
-    match:
-      macaddress: %s
-    set-name: tunnelv6
-    dhcp4: false
-    dhcp6: false
-    accept-ra: false
-    addresses:
-      - %s
-    routes:
-      - to: "::/0"
-        via: %s
-        on-link: true
-`, yamlDoubleQuote(plan.MAC), yamlDoubleQuote(plan.Routed.AddressCIDR()), yamlDoubleQuote(plan.Routed.Gateway))
+	primary := ""
+	if plan.NetworkType != "ipv6_only" {
+		primary = fmt.Sprintf(`  - type: physical
+    name: eth0
+    mac_address: %s
+    subnets:
+      - type: dhcp4
+`, yamlDoubleQuote(plan.PrimaryMAC))
+	}
+	return fmt.Sprintf(`version: 1
+config:
+%s  - type: physical
+    name: tunnelv6
+    mac_address: %s
+    subnets:
+      - type: static6
+        address: %s
+        gateway: %s
+  - type: nameserver
+    address:
+      - "2606:4700:4700::1111"
+      - "2001:4860:4860::8888"
+`, primary, yamlDoubleQuote(plan.MAC), yamlDoubleQuote(plan.Routed.AddressCIDR()), yamlDoubleQuote(plan.Routed.Gateway))
 }
 
 // kubeVirtVMYAML renders a complete VM manifest with optional routed IPv6.
 // Keeping optional blocks outside a loose raw-string interpolation avoids
 // tabs/blank keys in YAML when the instance uses an existing native network.
 func kubeVirtVMYAML(name string, cpu, memoryMB int, dvName, password string, plan routedKubeVirtIPv6Plan) string {
+	if plan.PrimaryMAC == "" {
+		plan.PrimaryMAC = kubeVirtRoutedMAC(name + "-primary")
+	}
 	annotations := ""
 	if annotation := kubeVirtRoutedNetworkAnnotation(plan); annotation != "" {
 		annotations = fmt.Sprintf("\n      annotations:\n        k8s.v1.cni.cncf.io/networks: %s", yamlDoubleQuote(annotation))
 	}
-	primaryInterface := "            - name: default\n              masquerade: {}\n"
+	primaryInterface := fmt.Sprintf("            - name: default\n              macAddress: %s\n              masquerade: {}\n", yamlDoubleQuote(plan.PrimaryMAC))
 	primaryNetwork := "        - name: default\n          pod: {}\n"
 	if plan.NetworkType == "ipv6_only" {
 		primaryInterface = ""
@@ -237,7 +248,7 @@ metadata:
     kubevirt.io/vm: %s
     app: kubevirt-vm
 spec:
-  running: true
+  runStrategy: Always
   template:
     metadata:
       labels:

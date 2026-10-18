@@ -593,6 +593,16 @@ func (s *TaskService) removePortMappingsFromNode(ctx context.Context, provInstan
 		return
 	}
 
+	if utils.NormalizeProviderType(prov.Type) == "kubevirt" && instance.InstanceType == "vm" {
+		applier := newPortMappingApplier(ctx, provInstance, prov)
+		for _, port := range ports {
+			if err := applier.Remove(instance, &port); err != nil {
+				global.APP_LOG.Warn("清理KubeVirt端口Service失败", zap.Uint("portId", port.ID), zap.Error(err))
+			}
+		}
+		return
+	}
+
 	providerType := utils.NormalizeProviderType(prov.Type)
 	portMappingType := providerType
 	if portMappingType == "proxmox" || portMappingType == "proxmoxve" || portMappingType == "kubevirt" || portMappingType == "qemu" || utils.IsVMOnlyProvider(portMappingType) {

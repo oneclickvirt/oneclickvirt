@@ -169,3 +169,23 @@ func TestKubeVirtContainerDeploymentYAMLIsValidForRoutedAndNativeNetworks(t *tes
 		})
 	}
 }
+
+func TestRoutedNetworkDataSupportsLegacyENIAndKeepsPrimaryDHCP(t *testing.T) {
+	plan, err := resolveKubeVirtIPv6Plan(routedKubeVirtConfig("nat_ipv4_ipv6"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := kubeVirtVMRoutedNetworkData(plan)
+	for _, want := range []string{"version: 1", "type: dhcp4", "mac_address:", "type: static6", "gateway:", "type: nameserver"} {
+		if !strings.Contains(data, want) {
+			t.Fatalf("missing %q: %s", want, data)
+		}
+	}
+	if strings.Contains(data, "::/0") {
+		t.Fatal("legacy ENI misrenders an explicit default route")
+	}
+	plan.NetworkType = "ipv6_only"
+	if strings.Contains(kubeVirtVMRoutedNetworkData(plan), "type: dhcp4") {
+		t.Fatal("IPv6-only guest obtained primary IPv4 configuration")
+	}
+}

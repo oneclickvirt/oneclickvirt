@@ -11,6 +11,7 @@ import (
 	providerCore "oneclickvirt/provider"
 	"oneclickvirt/provider/firewall"
 	incusProvider "oneclickvirt/provider/incus"
+	kubevirtProvider "oneclickvirt/provider/kubevirt"
 	lxdProvider "oneclickvirt/provider/lxd"
 	proxmoxProvider "oneclickvirt/provider/proxmox"
 	qemuProvider "oneclickvirt/provider/qemu"
@@ -220,6 +221,19 @@ func (a *portMappingApplier) applyNodeMapping(instance *providerModel.Instance, 
 	if utils.IsDockerFamilyProvider(a.providerInfo.Type) {
 		return fmt.Errorf("容器运行时原生映射必须按实例重启")
 	}
+	if p, ok := a.providerInstance.(*kubevirtProvider.KubeVirtProvider); ok && instance != nil && instance.InstanceType == "vm" {
+		endpoints, err := expandPortEndpoints(*port)
+		if err != nil {
+			return err
+		}
+		for _, endpoint := range endpoints {
+			if err := p.SetupStablePortMapping(a.ctx, portMappingProviderIdentifier(instance, a.providerInfo.Type), endpoint.host, endpoint.guest, port.Protocol); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
 	targetAddress, ipv6, err := mappingTarget(instance, port)
 	if err != nil {
 		return err
@@ -279,6 +293,14 @@ func (a *portMappingApplier) removeNodeMapping(instance *providerModel.Instance,
 	endpoints, err := expandPortEndpoints(*port)
 	if err != nil {
 		return err
+	}
+	if p, ok := a.providerInstance.(*kubevirtProvider.KubeVirtProvider); ok && instance.InstanceType == "vm" {
+		for _, endpoint := range endpoints {
+			if err := p.RemoveStablePortMapping(a.ctx, portMappingProviderIdentifier(instance, a.providerInfo.Type), endpoint.host, endpoint.guest, port.Protocol); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	targetAddress, ipv6, err := mappingTarget(instance, port)
 	if err != nil {

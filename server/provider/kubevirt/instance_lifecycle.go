@@ -257,6 +257,9 @@ func (p *KubeVirtProvider) sshDeleteInstance(ctx context.Context, id string) err
 			return err
 		}
 	}
+	if err := p.deleteKubeVirtResource(ctx, fmt.Sprintf("kubectl delete svc -n %s -l %s --ignore-not-found=true", shellSingleQuote(Namespace), shellSingleQuote("oneclickvirt.io/instance="+id)), "删除端口Services"); err != nil {
+		return err
+	}
 	// 4. 删除关联的 DataVolume 和 PVC
 	// DataVolume 名称为 {id}-dv（与创建时保持一致），删除 DataVolume 后 CDI 会同步删除其 PVC
 	if err := p.deleteKubeVirtResource(ctx, fmt.Sprintf("kubectl delete datavolume %s -n %s --ignore-not-found=true 2>&1", shellSingleQuote(id+"-dv"), shellSingleQuote(Namespace)), "删除DataVolume"); err != nil {

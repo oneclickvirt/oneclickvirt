@@ -30,10 +30,10 @@ func TestKubeVirtSSHServiceYAMLUsesStableVMNameSelector(t *testing.T) {
 	if !strings.Contains(yaml, "name: \"vm-1-ssh\"") {
 		t.Fatalf("SSH service YAML should name the service after the VM, got:\n%s", yaml)
 	}
-	if !strings.Contains(yaml, "vm.kubevirt.io/name: \"vm-1\"") {
+	if !strings.Contains(yaml, "kubevirt.io/vm: \"vm-1\"") {
 		t.Fatalf("SSH service YAML should select KubeVirt launcher pods by VM name label, got:\n%s", yaml)
 	}
-	if strings.Contains(yaml, "kubevirt.io/domain:") || strings.Contains(yaml, "kubevirt.io/vm:") {
+	if strings.Contains(yaml, "kubevirt.io/domain:") {
 		t.Fatalf("SSH service YAML should not use KubeVirt version-dependent selector labels, got:\n%s", yaml)
 	}
 	if !strings.Contains(yaml, "nodePort: 30122") {

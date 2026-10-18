@@ -308,7 +308,13 @@ func (p *KubeVirtProvider) fetchAllServices() []svcItem {
 
 	result := make([]svcItem, 0, len(raw.Items))
 	for _, it := range raw.Items {
-		targetName := it.Spec.Selector["kubevirt.io/domain"]
+		targetName := it.Spec.Selector["kubevirt.io/vm"]
+		if targetName == "" {
+			targetName = it.Spec.Selector["vm.kubevirt.io/name"]
+		}
+		if targetName == "" {
+			targetName = it.Spec.Selector["kubevirt.io/domain"]
+		}
 		if targetName == "" {
 			targetName = it.Spec.Selector["oneclickvirt.io/instance"]
 		}
