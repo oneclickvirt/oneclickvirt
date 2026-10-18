@@ -2,6 +2,7 @@ package containerd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -375,4 +376,43 @@ func (c *ContainerdProvider) imageExists(imageName string) bool {
 		}
 	}
 	return false
+}
+
+const containerdRegistryFallbackLabel = "oneclickvirt.registry-fallback"
+
+// Older cached shell-only registry images have no marker. Recognize their
+// non-daemon default command without overriding an image's real entrypoint.
+func containerdCachedImageNeedsKeepAlive(output string) (bool, error) {
+	var image struct {
+		Image       struct{ Labels map[string]string }
+		ImageConfig struct {
+			Config struct {
+				Entrypoint []string
+				Cmd        []string
+			}
+		}
+	}
+	data := []byte(strings.TrimSpace(output))
+	if len(data) > 0 && data[0] == '[' {
+		var images []json.RawMessage
+		if err := json.Unmarshal(data, &images); err != nil || len(images) == 0 {
+			return false, fmt.Errorf("解析缓存镜像列表失败")
+		}
+		data = images[0]
+	}
+	if err := json.Unmarshal(data, &image); err != nil {
+		return false, fmt.Errorf("解析缓存镜像启动配置失败: %w", err)
+	}
+	if image.Image.Labels[containerdRegistryFallbackLabel] == "true" {
+		return true, nil
+	}
+	config := image.ImageConfig.Config
+	if len(config.Entrypoint) != 0 || len(config.Cmd) != 1 {
+		return false, nil
+	}
+	switch config.Cmd[0] {
+	case "sh", "/bin/sh", "bash", "/bin/bash", "/bin/ash", "ash":
+		return true, nil
+	}
+	return false, nil
 }

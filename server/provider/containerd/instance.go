@@ -270,6 +270,10 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 						zap.Error(tagErr))
 					return fmt.Errorf("registry镜像打标失败: %w; output: %s", tagErr, out)
 				}
+				labelCommand := fmt.Sprintf("ctr images label %s %s", shellSingleQuote(containerdRuntimeImageRef(imageNameWithPrefix)), shellSingleQuote(containerdRegistryFallbackLabel+"=true"))
+				if _, labelErr := utils.ExecuteShellCommandContext(ctx, c.sshClient, labelCommand); labelErr != nil {
+					return fmt.Errorf("记录 registry 回退镜像属性失败: %w", labelErr)
+				}
 				registryFallback = true
 				updateProgress(55, "原始镜像拉取并打标完成")
 			}
@@ -281,9 +285,21 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 	if err := c.ensureContainerdRuntimeImageRef(imageNameWithPrefix); err != nil {
 		return fmt.Errorf("Containerd镜像运行引用不可用: %w", err)
 	}
+	if !registryFallback {
+		inspectCmd := fmt.Sprintf("%s image inspect --mode=native %s", cliName, shellSingleQuote(containerdRuntimeImageRef(imageNameWithPrefix)))
+		imageConfig, inspectErr := utils.ExecuteShellCommandContext(ctx, c.sshClient, inspectCmd)
+		if inspectErr != nil {
+			return fmt.Errorf("读取缓存镜像启动配置失败: %w", inspectErr)
+		}
+		needsKeepAlive, parseErr := containerdCachedImageNeedsKeepAlive(imageConfig)
+		if parseErr != nil {
+			return parseErr
+		}
+		registryFallback = needsKeepAlive
+	}
 
 	updateProgress(72, "构建nerdctl run命令...")
-	cmd := fmt.Sprintf("%s run -d --name %s", cliName, shellSingleQuote(config.Name))
+	cmd := fmt.Sprintf("%s run -d --restart always --name %s", cliName, shellSingleQuote(config.Name))
 	cmd += " --label " + shellSingleQuote("oneclickvirt.create-token="+createOwner)
 
 	networkType := c.config.NetworkType
@@ -530,7 +546,7 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		global.APP_LOG.Warn("配置SSH密码失败", zap.Error(err))
+		return fmt.Errorf("配置SSH密码失败，实例保留以供排障: %w", err)
 	}
 
 	updateProgress(97, "获取实例内网IP...")

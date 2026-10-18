@@ -20,3 +20,24 @@ func TestContainerdManagedImageName(t *testing.T) {
 		})
 	}
 }
+
+func TestContainerdCachedImageNeedsKeepAlive(t *testing.T) {
+	for _, test := range []struct {
+		name, config  string
+		want, wantErr bool
+	}{
+		{"legacy raw shell", `{"ImageConfig":{"config":{"Cmd":["bash"]}}}`, true, false},
+		{"managed entrypoint", `{"ImageConfig":{"config":{"Entrypoint":["/entrypoint.sh"],"Cmd":["bash"]}}}`, false, false},
+		{"daemon", `{"ImageConfig":{"config":{"Cmd":["/usr/sbin/sshd","-D"]}}}`, false, false},
+		{"recorded fallback", `{"Image":{"Labels":{"oneclickvirt.registry-fallback":"true"}},"ImageConfig":{"config":{"Entrypoint":["/entrypoint.sh"]}}}`, true, false},
+		{"alias list", `[{"ImageConfig":{"config":{"Cmd":["bash"]}}},{"ImageConfig":{"config":{"Cmd":["bash"]}}}]`, true, false},
+		{"malformed", `not json`, false, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := containerdCachedImageNeedsKeepAlive(test.config)
+			if got != test.want || (err != nil) != test.wantErr {
+				t.Fatalf("got %v %v", got, err)
+			}
+		})
+	}
+}
