@@ -37,12 +37,16 @@ func (p *QEMUProvider) ResetInstancePassword(ctx context.Context, instanceID str
 
 // sshSetPassword 通过SSH设置VM密码
 func (p *QEMUProvider) sshSetPassword(ctx context.Context, instanceID, password string) error {
+	if strings.ContainsAny(password, "\r\n\x00") {
+		return fmt.Errorf("password must not contain line breaks or NUL")
+	}
+
 	global.APP_LOG.Info("设置QEMU实例密码",
 		zap.String("instance", utils.TruncateString(instanceID, 32)))
 
 	if p.isLXCInstance(ctx, instanceID) {
 		rootfs := fmt.Sprintf("%s/%s/rootfs", LXCBaseDir, qemuSafeFileComponent(instanceID))
-		cmd := fmt.Sprintf("test -d %s && chroot %s /bin/sh -c %s", shellSingleQuote(rootfs), shellSingleQuote(rootfs), shellSingleQuote("echo root:"+password+" | chpasswd"))
+		cmd := fmt.Sprintf("test -d %s && chroot %s /bin/sh -c %s", shellSingleQuote(rootfs), shellSingleQuote(rootfs), shellSingleQuote(qemuRootPasswordCommand(password)))
 		if output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, cmd+" 2>&1"); err != nil {
 			return fmt.Errorf("failed to set LXC password: %s, %w", utils.TruncateString(output, 200), err)
 		}
@@ -79,7 +83,7 @@ func (p *QEMUProvider) sshSetPassword(ctx context.Context, instanceID, password 
 		if err := p.ensureSSHPassAvailable(ctx); err != nil {
 			lastErr = err
 		} else {
-			remoteCmd := fmt.Sprintf("printf 'root:%%s\\n' %s | chpasswd", shellSingleQuote(password))
+			remoteCmd := qemuRootPasswordCommand(password)
 			for _, authPassword := range qemuPasswordCandidates(password) {
 				chpasswdCmd := fmt.Sprintf(
 					"SSHPASS=%s sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o PreferredAuthentications=password -o PasswordAuthentication=yes -o PubkeyAuthentication=no -o KbdInteractiveAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=5 %s %s 2>&1",
@@ -190,4 +194,9 @@ command -v sshpass >/dev/null 2>&1`)
 		return fmt.Errorf("sshpass is required for VM password SSH fallback and could not be installed: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 300))
 	}
 	return nil
+}
+
+// Quote the password as data in the guest shell, including LXC chroot paths.
+func qemuRootPasswordCommand(password string) string {
+	return fmt.Sprintf("printf 'root:%%s\\n' %s | chpasswd", shellSingleQuote(password))
 }

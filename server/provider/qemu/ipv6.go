@@ -97,6 +97,11 @@ func qemuCloudInitNetworkData(plan qemuIPv6Plan, primaryMAC, routedMAC string) s
 		return builder.String()
 	}
 	fmt.Fprintf(&builder, "  oneclickvirt6:\n    match:\n      macaddress: %s\n    set-name: oneclickvirt6\n    dhcp4: false\n    dhcp6: false\n    accept-ra: false\n    addresses:\n      - %s\n    routes:\n      - to: \"::/0\"\n        via: %s\n        on-link: true\n", yamlDoubleQuote(routedMAC), yamlDoubleQuote(plan.Routed.AddressCIDR()), yamlDoubleQuote(plan.Routed.Gateway))
+	if plan.IPv6Only {
+		// Without IPv4 DHCP there is no DNS server to inherit. Use IPv6
+		// resolvers so a static guest can resolve names on its only interface.
+		builder.WriteString("    nameservers:\n      addresses:\n        - 2606:4700:4700::1111\n        - 2001:4860:4860::8888\n")
+	}
 	return builder.String()
 }
 

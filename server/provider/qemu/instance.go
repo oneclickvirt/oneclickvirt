@@ -736,7 +736,7 @@ runcmd:
     fi
   - systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
 final_message: "cloud-init done after $UPTIME seconds"
-`, yamlDoubleQuote(qemuSafeFileComponent(vmName)), yamlDoubleQuote(fmt.Sprintf("printf 'root:%%s\\n' %s | chpasswd", shellSingleQuote(userPassword))))
+`, yamlDoubleQuote(qemuSafeFileComponent(vmName)), yamlDoubleQuote(qemuRootPasswordCommand(userPassword)))
 }
 
 // getOSVariant 根据系统名返回 virt-install --os-variant 值
