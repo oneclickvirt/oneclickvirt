@@ -2,6 +2,7 @@ package qemu
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -233,7 +234,7 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	updateProgress(10, "确保镜像存在")
 
 	// 确保目录存在
-	if output, err := p.sshClient.Execute(fmt.Sprintf("mkdir -p %s %s 2>&1", shellSingleQuote(ImageDir), shellSingleQuote(VMLogDir))); err != nil {
+	if output, err := p.sshClient.Execute(qemuPrepareVMStorageCommand(ImageDir, VMLogDir)); err != nil {
 		return fmt.Errorf("failed to prepare QEMU directories: %s, %w", utils.TruncateString(strings.TrimSpace(output), 300), err)
 	}
 
@@ -283,6 +284,14 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 		global.APP_LOG.Info("QEMU基础镜像下载成功",
 			zap.String("system", system),
 			zap.String("url", utils.TruncateString(downloadURL, 200)))
+	}
+
+	imageInfo, infoErr := p.sshClient.Execute("qemu-img info --output=json " + shellSingleQuote(baseImage))
+	if infoErr != nil {
+		return fmt.Errorf("failed to inspect base image capacity: %w", infoErr)
+	}
+	if err := qemuValidateImageCapacity(imageInfo, diskGB); err != nil {
+		return err
 	}
 
 	updateProgress(15, "确保 libvirt 网络就绪")
@@ -533,16 +542,10 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 
 	p.applyLibvirtIOLimits(ctx, "qemu:///system", config.Name, "vda", config)
 
-	// cloud-init ISO 仅首次启动时需要。virt-install 使用 virtio 时目标盘符可能是 vdb，
-	// 因此按 libvirt 实际块设备列表查找 target，再从持久配置中分离。
-	if err := p.detachCloudInitISO(ctx, "qemu:///system", config.Name, ciISO); err != nil {
-		global.APP_LOG.Warn("QEMU cloud-init ISO分离失败，保留ISO避免后续启动失败",
-			zap.String("name", utils.TruncateString(config.Name, 32)),
-			zap.String("iso", ciISO),
-			zap.Error(err))
-	} else {
-		p.sshClient.Execute(fmt.Sprintf("rm -f %s 2>/dev/null || true", shellSingleQuote(ciISO)))
-	}
+	// Keep the private seed attached across early stop/start and host reboots.
+	// A running QEMU process does not prove cloud-init has consumed the seed;
+	// detaching here can permanently lose initial network/password setup.
+	// Instance deletion removes this seed together with the guest disk.
 
 	updateProgress(95, "虚拟机创建完成")
 
@@ -629,7 +632,11 @@ func (p *QEMUProvider) createCloudInitISOWithNetwork(vmName, password, networkDa
 	userData := qemuCloudInitUserData(vmName, password)
 
 	// 创建 user-data
-	userDataCmd := fmt.Sprintf(`cat > %s << 'CIEOF'
+	userDataCmd := fmt.Sprintf(`set -eu
+umask 077
+mkdir -p /run/oneclickvirt-qemu
+chmod 700 /run/oneclickvirt-qemu
+cat > %s << 'CIEOF'
 %s
 CIEOF`, shellSingleQuote(userDataPath), userData)
 	if _, err := p.sshClient.Execute(userDataCmd); err != nil {
@@ -637,7 +644,9 @@ CIEOF`, shellSingleQuote(userDataPath), userData)
 	}
 
 	// 创建 meta-data
-	metaDataCmd := fmt.Sprintf(`cat > %s << 'METAEOF'
+	metaDataCmd := fmt.Sprintf(`set -eu
+umask 077
+cat > %s << 'METAEOF'
 instance-id: %s
 local-hostname: %s
 METAEOF`, shellSingleQuote(metaDataPath), qemuSafeFileComponent(vmName), qemuSafeFileComponent(vmName))
@@ -658,7 +667,9 @@ METAEOF`, shellSingleQuote(metaDataPath), qemuSafeFileComponent(vmName), qemuSaf
 
 	// 创建 ISO（优先 cloud-localds，回退到 genisoimage/mkisofs）
 	isoCmd := fmt.Sprintf(
-		`%s
+		`set -eu
+umask 077
+%s
 if command -v cloud-localds >/dev/null 2>&1; then
   cloud-localds%s %s %s %s
 elif command -v genisoimage >/dev/null 2>&1; then
@@ -680,8 +691,8 @@ else
 fi%s`,
 		networkSetup,
 		networkArg, shellSingleQuote(ciISO), shellSingleQuote(userDataPath), shellSingleQuote(metaDataPath),
-		shellSingleQuote("/tmp/qemu-ci-"+artifactName), shellSingleQuote(userDataPath), shellSingleQuote(metaDataPath), networkCopy, shellSingleQuote(ciISO),
-		shellSingleQuote("/tmp/qemu-ci-"+artifactName), shellSingleQuote(userDataPath), shellSingleQuote(metaDataPath), networkCopy, shellSingleQuote(ciISO), networkCleanup)
+		shellSingleQuote("/run/oneclickvirt-qemu/qemu-ci-"+artifactName), shellSingleQuote(userDataPath), shellSingleQuote(metaDataPath), networkCopy, shellSingleQuote(ciISO),
+		shellSingleQuote("/run/oneclickvirt-qemu/qemu-ci-"+artifactName), shellSingleQuote(userDataPath), shellSingleQuote(metaDataPath), networkCopy, shellSingleQuote(ciISO), networkCleanup)
 
 	output, err := p.sshClient.Execute(isoCmd)
 	if err != nil {
@@ -717,7 +728,7 @@ write_files:
       PubkeyAuthentication yes
 runcmd:
   - systemctl enable --now serial-getty@ttyS0.service 2>/dev/null || true
-  - printf 'root:%%s\n' %s | chpasswd
+  - %s
   - |
     if [ -f /etc/ssh/sshd_config ]; then
       sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
@@ -725,7 +736,7 @@ runcmd:
     fi
   - systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
 final_message: "cloud-init done after $UPTIME seconds"
-`, yamlDoubleQuote(qemuSafeFileComponent(vmName)), shellSingleQuote(userPassword))
+`, yamlDoubleQuote(qemuSafeFileComponent(vmName)), yamlDoubleQuote(fmt.Sprintf("printf 'root:%%s\\n' %s | chpasswd", shellSingleQuote(userPassword))))
 }
 
 // getOSVariant 根据系统名返回 virt-install --os-variant 值
@@ -814,15 +825,15 @@ func qemuSafeFileComponent(s string) string {
 }
 
 func qemuCloudInitUserDataPath(vmName string) string {
-	return fmt.Sprintf("/tmp/qemu-cloudinit-%s.yaml", qemuSafeFileComponent(vmName))
+	return fmt.Sprintf("/run/oneclickvirt-qemu/qemu-cloudinit-%s.yaml", qemuSafeFileComponent(vmName))
 }
 
 func qemuCloudInitMetaDataPath(vmName string) string {
-	return fmt.Sprintf("/tmp/qemu-cloudinit-%s-meta.yaml", qemuSafeFileComponent(vmName))
+	return fmt.Sprintf("/run/oneclickvirt-qemu/qemu-cloudinit-%s-meta.yaml", qemuSafeFileComponent(vmName))
 }
 
 func qemuCloudInitNetworkDataPath(vmName string) string {
-	return fmt.Sprintf("/tmp/qemu-cloudinit-%s-network.yaml", qemuSafeFileComponent(vmName))
+	return fmt.Sprintf("/run/oneclickvirt-qemu/qemu-cloudinit-%s-network.yaml", qemuSafeFileComponent(vmName))
 }
 
 func yamlDoubleQuote(s string) string {
@@ -911,4 +922,27 @@ func qemuBIOSBootArgs(architecture string) string {
 	default:
 		return ""
 	}
+}
+
+func qemuPrepareVMStorageCommand(imageDir, logFile string) string {
+	// The standalone script and both provider writers use vmlog as a file.
+	// Repair only an empty directory left by older provider versions; preserve
+	// a directory containing data and return an actionable failure instead.
+	return fmt.Sprintf(`set -eu; mkdir -p %s; if [ -d %s ]; then rmdir -- %s; fi; touch -- %s; chmod 0600 %s`,
+		shellSingleQuote(imageDir), shellSingleQuote(logFile), shellSingleQuote(logFile), shellSingleQuote(logFile), shellSingleQuote(logFile))
+}
+
+// Never create an overlay smaller than its backing disk: GRUB/filesystems may
+// reference sectors beyond the requested capacity even before first boot.
+func qemuValidateImageCapacity(info string, diskGB int) error {
+	var image struct {
+		VirtualSize int64 `json:"virtual-size"`
+	}
+	if err := json.Unmarshal([]byte(info), &image); err != nil || image.VirtualSize <= 0 {
+		return fmt.Errorf("base image has invalid qemu-img virtual-size metadata")
+	}
+	if int64(diskGB)*1024*1024*1024 < image.VirtualSize {
+		return fmt.Errorf("requested disk %d GiB is smaller than base image (%d bytes); increase disk allocation", diskGB, image.VirtualSize)
+	}
+	return nil
 }

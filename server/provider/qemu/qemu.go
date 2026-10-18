@@ -20,7 +20,7 @@ import (
 const (
 	// ImageDir qcow2 镜像存放目录
 	ImageDir = "/var/lib/libvirt/images"
-	// VMLogDir VM 信息日志目录
+	// VMLogDir VM 信息日志文件（保留历史常量名称以兼容调用方）
 	VMLogDir = "/root/vmlog"
 	// LXCBaseDir libvirt-lxc 容器根目录
 	LXCBaseDir = "/var/lib/libvirt/oneclickvirt-lxc"

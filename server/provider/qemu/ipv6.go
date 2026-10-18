@@ -88,13 +88,13 @@ func qemuVirtInstallNetworkArgs(plan qemuIPv6Plan, primaryMAC, routedMAC string)
 }
 
 func qemuCloudInitNetworkData(plan qemuIPv6Plan, primaryMAC, routedMAC string) string {
-	if plan.Routed == nil {
-		return ""
-	}
 	var builder strings.Builder
 	builder.WriteString("version: 2\nethernets:\n")
 	if !plan.IPv6Only {
-		fmt.Fprintf(&builder, "  oneclickvirt0:\n    match:\n      macaddress: %s\n    set-name: oneclickvirt0\n    dhcp4: true\n    dhcp6: false\n", yamlDoubleQuote(primaryMAC))
+		fmt.Fprintf(&builder, "  oneclickvirt0:\n    match:\n      macaddress: %s\n    set-name: oneclickvirt0\n    dhcp4: true\n    dhcp6: false\n    accept-ra: false\n", yamlDoubleQuote(primaryMAC))
+	}
+	if plan.Routed == nil {
+		return builder.String()
 	}
 	fmt.Fprintf(&builder, "  oneclickvirt6:\n    match:\n      macaddress: %s\n    set-name: oneclickvirt6\n    dhcp4: false\n    dhcp6: false\n    accept-ra: false\n    addresses:\n      - %s\n    routes:\n      - to: \"::/0\"\n        via: %s\n        on-link: true\n", yamlDoubleQuote(routedMAC), yamlDoubleQuote(plan.Routed.AddressCIDR()), yamlDoubleQuote(plan.Routed.Gateway))
 	return builder.String()
