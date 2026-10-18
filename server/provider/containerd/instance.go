@@ -322,6 +322,11 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 	if err != nil {
 		return err
 	}
+	if networkSelection.StaticIPv6 != "" && !networkSelection.RoutedVeth {
+		if err := c.ensureStaticIPv6Capability(ctx); err != nil {
+			return err
+		}
+	}
 	cmd = appendContainerdNetworkOptions(cmd, networkSelection)
 	if networkSelection.RoutedVeth {
 		labelArgs, labelErr := provider.RoutedIPv6RuntimeLabelArgs(networkSelection)
