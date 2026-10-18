@@ -532,7 +532,7 @@ func (ps *ProviderService) ListProviders() []uint {
 }
 
 // SetInstancePassword 设置实例密码
-func (ps *ProviderService) SetInstancePassword(ctx context.Context, providerID uint, instanceName, password string) error {
+func (ps *ProviderService) SetInstancePassword(ctx context.Context, providerID uint, instanceName, password string, currentPassword ...string) error {
 	// 获取Provider信息
 	var dbProvider providerModel.Provider
 	if err := global.APP_DB.First(&dbProvider, providerID).Error; err != nil {
@@ -567,7 +567,12 @@ func (ps *ProviderService) SetInstancePassword(ctx context.Context, providerID u
 		}
 	}
 
-	// 调用Provider的密码设置方法
+	// Providers that authenticate inside the guest need the old credential.
+	if setter, ok := prov.(interface {
+		SetInstancePasswordWithCurrent(context.Context, string, string, string) error
+	}); ok && len(currentPassword) > 0 {
+		return setter.SetInstancePasswordWithCurrent(ctx, instanceName, currentPassword[0], password)
+	}
 	return prov.SetInstancePassword(ctx, instanceName, password)
 }
 

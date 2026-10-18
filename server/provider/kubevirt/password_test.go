@@ -70,3 +70,15 @@ func TestKubeVirtPersistContainerPasswordCommandUpdatesDeploymentEnv(t *testing.
 		t.Fatalf("password persistence command should strip newlines, got %q", cmd)
 	}
 }
+
+func TestPasswordRotationIncludesCurrentAndDeduplicates(t *testing.T) {
+	got := kubeVirtPasswordCandidates("new password ", "old password ")
+	want := []string{"new password ", "old password ", kubeVirtDefaultGuestPassword}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatal("rotation must preserve exact current/target credentials")
+	}
+	got = kubeVirtPasswordCandidates("same", "same")
+	if len(got) != 2 {
+		t.Fatal("duplicate credential attempted")
+	}
+}

@@ -27,6 +27,15 @@ func (p *KubeVirtProvider) SetInstancePassword(ctx context.Context, instanceID, 
 	return p.sshSetPassword(ctx, instanceID, password)
 }
 
+// SetInstancePasswordWithCurrent authenticates with the persisted current
+// guest password when rotating an already customized password.
+func (p *KubeVirtProvider) SetInstancePasswordWithCurrent(ctx context.Context, instanceID, currentPassword, password string) error {
+	if !p.connected || p.sshClient == nil {
+		return fmt.Errorf("not connected")
+	}
+	return p.sshSetPassword(ctx, instanceID, password, currentPassword)
+}
+
 // ResetInstancePassword 重置虚拟机密码
 func (p *KubeVirtProvider) ResetInstancePassword(ctx context.Context, instanceID string) (string, error) {
 	if !p.connected || p.sshClient == nil {
@@ -41,7 +50,7 @@ func (p *KubeVirtProvider) ResetInstancePassword(ctx context.Context, instanceID
 }
 
 // sshSetPassword 通过SSH设置VM密码
-func (p *KubeVirtProvider) sshSetPassword(ctx context.Context, instanceID, password string) error {
+func (p *KubeVirtProvider) sshSetPassword(ctx context.Context, instanceID, password string, currentPassword ...string) error {
 	global.APP_LOG.Info("设置KubeVirt实例密码",
 		zap.String("instance", utils.TruncateString(instanceID, 32)))
 
@@ -65,7 +74,7 @@ func (p *KubeVirtProvider) sshSetPassword(ctx context.Context, instanceID, passw
 	}
 	defer cancel()
 
-	passwordCandidates := kubeVirtPasswordCandidates(password)
+	passwordCandidates := kubeVirtPasswordCandidates(password, currentPassword...)
 	var lastErr error
 	for attempt := 1; ; attempt++ {
 		if err := runCtx.Err(); err != nil {
@@ -82,6 +91,10 @@ func (p *KubeVirtProvider) sshSetPassword(ctx context.Context, instanceID, passw
 				for _, host := range p.kubeVirtSSHNodePortHosts(ctx) {
 					for _, candidate := range passwordCandidates {
 						if err := p.kubeVirtSSHSetPasswordViaNodePort(ctx, host, sshPort, candidate, password); err == nil {
+							if verifyErr := p.kubeVirtSSHCheckPasswordViaNodePort(ctx, host, sshPort, password); verifyErr != nil {
+								lastErr = verifyErr
+								continue
+							}
 							global.APP_LOG.Info("通过SSH设置密码成功",
 								zap.String("instance", utils.TruncateString(instanceID, 32)),
 								zap.String("host", utils.TruncateString(host, 50)),
@@ -244,14 +257,23 @@ func (p *KubeVirtProvider) kubeVirtContainerSSHNodePort(ctx context.Context, ins
 	return port, nil
 }
 
-func kubeVirtPasswordCandidates(password string) []string {
-	password = strings.TrimSpace(password)
-	candidates := make([]string, 0, 2)
-	if password != "" {
-		candidates = append(candidates, password)
-	}
-	if password != kubeVirtDefaultGuestPassword {
-		candidates = append(candidates, kubeVirtDefaultGuestPassword)
+func kubeVirtPasswordCandidates(password string, currentPassword ...string) []string {
+	candidates := make([]string, 0, 3)
+	// Try the target first so a retried successful rotation remains idempotent.
+	for _, value := range append(append([]string{password}, currentPassword...), kubeVirtDefaultGuestPassword) {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		duplicate := false
+		for _, existing := range candidates {
+			if existing == value {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			candidates = append(candidates, value)
+		}
 	}
 	return candidates
 }

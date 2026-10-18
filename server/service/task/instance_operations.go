@@ -780,7 +780,7 @@ func (s *TaskService) executeResetPasswordTask(ctx context.Context, task *adminM
 		}
 
 		providerInstanceID := providerInstanceIdentifier(instance)
-		err := providerService.SetInstancePassword(ctx, instance.ProviderID, providerInstanceID, newPassword)
+		err := providerService.SetInstancePassword(ctx, instance.ProviderID, providerInstanceID, newPassword, instance.Password)
 		if err != nil {
 			lastErr = err
 			global.APP_LOG.Warn("重置实例密码失败，准备重试",
