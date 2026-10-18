@@ -99,3 +99,10 @@ func TestKubeVirtContainerStartupUsesPersistentPasswordEnvironment(t *testing.T)
 		t.Fatalf("container startup script should not embed a concrete password:\n%s", script)
 	}
 }
+
+func TestSSHServiceDoesNotAdvertiseUnconfiguredGuestIPv6(t *testing.T) {
+	s := kubeVirtSSHServiceYAML("vm-1", 30122)
+	if !strings.Contains(s, "ipFamilyPolicy: SingleStack") || !strings.Contains(s, "ipFamilies: [IPv4]") {
+		t.Fatal("IPv4 guest must use IPv4 endpoints")
+	}
+}

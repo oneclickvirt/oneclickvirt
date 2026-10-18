@@ -31,7 +31,7 @@ func TestStablePortMappingPropagatesServiceFailureWithoutRemovingLegacyAccess(t 
 	if len(e.commands) != 1 {
 		t.Fatalf("legacy access was mutated after failed apply: %v", e.commands)
 	}
-	for _, required := range []string{"PreferDualStack", `"kubevirt.io/vm":$name`, "ownerReferences", "--ignore-not-found=true", "vm-test-ssh"} {
+	for _, required := range []string{"SingleStack", `ipFamilies:["IPv4"]`, `"kubevirt.io/vm":$name`, "ownerReferences", "--ignore-not-found=true", "vm-test-ssh"} {
 		if !strings.Contains(e.commands[0], required) {
 			t.Errorf("missing %q", required)
 		}

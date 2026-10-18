@@ -221,7 +221,7 @@ func (a *portMappingApplier) applyNodeMapping(instance *providerModel.Instance, 
 	if utils.IsDockerFamilyProvider(a.providerInfo.Type) {
 		return fmt.Errorf("容器运行时原生映射必须按实例重启")
 	}
-	if p, ok := a.providerInstance.(*kubevirtProvider.KubeVirtProvider); ok && instance != nil && instance.InstanceType == "vm" {
+	if p, ok := a.providerInstance.(*kubevirtProvider.KubeVirtProvider); ok && kubeVirtPortUsesPodService(instance, port) {
 		endpoints, err := expandPortEndpoints(*port)
 		if err != nil {
 			return err
@@ -294,7 +294,7 @@ func (a *portMappingApplier) removeNodeMapping(instance *providerModel.Instance,
 	if err != nil {
 		return err
 	}
-	if p, ok := a.providerInstance.(*kubevirtProvider.KubeVirtProvider); ok && instance.InstanceType == "vm" {
+	if p, ok := a.providerInstance.(*kubevirtProvider.KubeVirtProvider); ok && kubeVirtPortUsesPodService(instance, port) {
 		for _, endpoint := range endpoints {
 			if err := p.RemoveStablePortMapping(a.ctx, portMappingProviderIdentifier(instance, a.providerInfo.Type), endpoint.host, endpoint.guest, port.Protocol); err != nil {
 				return err
@@ -411,4 +411,11 @@ func firewallConfigForProvider(providerType string) (tableName, markerFile, subn
 	default:
 		return "portmap", "", ""
 	}
+}
+
+// IPv6 is a stable routed guest address on Multus, not the launcher Pod's
+// masquerade interface. Keep it on its own family-specific firewall path.
+func kubeVirtPortUsesPodService(instance *providerModel.Instance, port *providerModel.Port) bool {
+	return instance != nil && port != nil && instance.InstanceType == "vm" &&
+		instance.NetworkType != "ipv6_only" && !port.IPv6Enabled && strings.TrimSpace(port.IPv6Address) == ""
 }

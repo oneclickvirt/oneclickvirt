@@ -301,7 +301,7 @@ func (p *KubeVirtProvider) sshCreateInstance(ctx context.Context, config provide
 	updateProgress(75, "创建 SSH NodePort Service")
 
 	// 创建 SSH Service (NodePort)
-	if sshPort > 0 {
+	if sshPort > 0 && ipv6Plan.NetworkType != "ipv6_only" {
 		sshSvcYAML := kubeVirtSSHServiceYAML(config.Name, sshPort)
 
 		sshSvcCmd := fmt.Sprintf("cat << 'SVCEOF' | kubectl apply -f - 2>&1\n%s\nSVCEOF", sshSvcYAML)
@@ -322,7 +322,7 @@ func (p *KubeVirtProvider) sshCreateInstance(ctx context.Context, config provide
 	updateProgress(80, "配置端口转发")
 
 	// Kubernetes Services track launcher Pod replacements; static Pod-IP DNAT does not.
-	if startPort > 0 && endPort >= startPort {
+	if startPort > 0 && endPort >= startPort && ipv6Plan.NetworkType != "ipv6_only" {
 		for port := startPort; port <= endPort; port++ {
 			if err := p.SetupStablePortMapping(ctx, config.Name, port, port, "both"); err != nil {
 				_ = p.sshDeleteInstance(context.Background(), config.Name)
@@ -391,7 +391,8 @@ metadata:
   namespace: %s
 spec:
   type: NodePort
-  ipFamilyPolicy: PreferDualStack
+  ipFamilyPolicy: SingleStack
+  ipFamilies: [IPv4]
   selector:
     kubevirt.io/vm: %s
   ports:

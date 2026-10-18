@@ -147,3 +147,19 @@ func TestParseContainerRuntimePortBindingsRejectsInvalidJSON(t *testing.T) {
 		t.Fatal("expected invalid runtime binding JSON to fail")
 	}
 }
+
+func TestKubeVirtPodServiceKeepsRoutedIPv6OnItsOwnPath(t *testing.T) {
+	vm := &providerModel.Instance{InstanceType: "vm", NetworkType: "nat_ipv4_ipv6"}
+	if !kubeVirtPortUsesPodService(vm, &providerModel.Port{}) {
+		t.Fatal("IPv4 service must work before Pod IP discovery")
+	}
+	for _, port := range []providerModel.Port{{IPv6Enabled: true}, {IPv6Address: "2001:db8::2"}} {
+		if kubeVirtPortUsesPodService(vm, &port) {
+			t.Fatal("routed IPv6 mapping would mutate IPv4 service")
+		}
+	}
+	vm.NetworkType = "ipv6_only"
+	if kubeVirtPortUsesPodService(vm, &providerModel.Port{}) {
+		t.Fatal("IPv6-only VM has no primary Pod interface")
+	}
+}
