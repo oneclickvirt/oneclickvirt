@@ -418,4 +418,4 @@ func containerdCachedImageNeedsKeepAlive(output string) (bool, error) {
 }
 
 // Raw registry images have no init system to restart the installed SSH daemon.
-const containerdRegistryFallbackCommand = `if command -v sshd >/dev/null 2>&1; then mkdir -p /run/sshd && sshd -t && sshd || exit 1; fi; trap : TERM INT; tail -f /dev/null & wait`
+const containerdRegistryFallbackCommand = `sshd_path=$(command -v sshd || true); if [ -n "$sshd_path" ]; then mkdir -p /run/sshd && "$sshd_path" -t && "$sshd_path" || exit 1; fi; trap : TERM INT; tail -f /dev/null & wait`
