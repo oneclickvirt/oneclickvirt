@@ -66,6 +66,7 @@ import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Refresh } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
+import 'echarts/theme/v5.js'
 import { getInstanceResourceMonitoring, getSharedInstanceResourceMonitoring } from '@/api/user'
 
 const { t } = useI18n()
@@ -147,7 +148,7 @@ const renderCharts = (data) => {
 
   // CPU chart
   if (cpuChartRef.value) {
-    if (!cpuChart || cpuChart.isDisposed()) cpuChart = echarts.init(cpuChartRef.value)
+    if (!cpuChart || cpuChart.isDisposed()) cpuChart = echarts.init(cpuChartRef.value, 'v5')
     cpuChart.setOption(buildLineOption(times,
       [{ name: 'CPU %', data: cpuData }],
       (v) => v.toFixed(1) + '%',
@@ -157,7 +158,7 @@ const renderCharts = (data) => {
 
   // Memory chart
   if (memChartRef.value) {
-    if (!memChart || memChart.isDisposed()) memChart = echarts.init(memChartRef.value)
+    if (!memChart || memChart.isDisposed()) memChart = echarts.init(memChartRef.value, 'v5')
     memChart.setOption(buildLineOption(times,
       [
         { name: t('user.instanceDetail.memUsed'), data: memUsed },
@@ -172,7 +173,7 @@ const renderCharts = (data) => {
 
   // Disk chart
   if (diskMonitoringEnabled.value && diskChartRef.value) {
-    if (!diskChart || diskChart.isDisposed()) diskChart = echarts.init(diskChartRef.value)
+    if (!diskChart || diskChart.isDisposed()) diskChart = echarts.init(diskChartRef.value, 'v5')
     diskChart.setOption(buildLineOption(times,
       [
         { name: t('user.instanceDetail.diskUsed'), data: diskUsed },

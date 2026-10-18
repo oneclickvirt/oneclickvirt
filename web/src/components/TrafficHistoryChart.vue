@@ -87,6 +87,7 @@
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
+import 'echarts/theme/v5.js'
 import request from '@/utils/request'
 import { getUserTrafficHistory, getInstanceTrafficHistory } from '@/api/user'
 import { ElMessage } from 'element-plus'
@@ -301,7 +302,7 @@ const renderChart = (data) => {
     if (chartInstance.value) {
       chartInstance.value.dispose()
     }
-    chartInstance.value = echarts.init(chartRef.value)
+    chartInstance.value = echarts.init(chartRef.value, 'v5')
   }
   
   // 准备数据

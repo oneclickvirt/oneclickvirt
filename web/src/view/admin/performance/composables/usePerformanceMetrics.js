@@ -2,6 +2,7 @@ import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import * as echarts from 'echarts'
+import 'echarts/theme/v5.js'
 import request from '@/utils/request'
 
 export function usePerformanceMetrics() {
@@ -231,9 +232,9 @@ export function usePerformanceMetrics() {
     }
 
     try {
-      memoryChart = echarts.init(memoryChartRef.value)
-      gcChart = echarts.init(gcChartRef.value)
-      goroutineChart = echarts.init(goroutineChartRef.value)
+      memoryChart = echarts.init(memoryChartRef.value, 'v5')
+      gcChart = echarts.init(gcChartRef.value, 'v5')
+      goroutineChart = echarts.init(goroutineChartRef.value, 'v5')
 
       // 保存resize处理函数引用，以便后续移除
       resizeHandler = () => {

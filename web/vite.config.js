@@ -2,11 +2,14 @@ import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 
+const browserTargets = ['chrome89', 'edge89', 'firefox89', 'safari15']
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   return {
     base: mode === 'production' ? '/' : '/',
     plugins: [vue()],
+    optimizeDeps: { esbuildOptions: { target: browserTargets } },
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url))
@@ -35,6 +38,8 @@ export default defineConfig(({ mode }) => {
       }
     },
     build: {
+      // noVNC 1.7 uses native top-level await for codec capability detection.
+      target: browserTargets,
       outDir: 'dist',
       assetsDir: 'assets',
       sourcemap: false,
