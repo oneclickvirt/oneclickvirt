@@ -160,6 +160,9 @@ func (p *QEMUProvider) sshCreateLXCContainer(ctx context.Context, config provide
 	updateProgress(55, "配置端口转发")
 	if !ipv6Plan.IPv6Only {
 		fwMgr := firewall.NewManager(p.sshClient, NFTTableName, InternalSubnet)
+		if err := p.ensureLibvirtDNATForwarding(); err != nil {
+			return err
+		}
 		if _, err := fwMgr.DetectBackend(FWBackendFile); err != nil {
 			return fmt.Errorf("防火墙后端检测失败: %w", err)
 		}

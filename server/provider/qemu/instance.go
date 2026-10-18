@@ -361,6 +361,9 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	// IPv6-only guest has no IPv4 DNAT target, so leave the firewall untouched.
 	if !ipv6Plan.IPv6Only {
 		fwMgr := firewall.NewManager(p.sshClient, NFTTableName, InternalSubnet)
+		if err := p.ensureLibvirtDNATForwarding(); err != nil {
+			return err
+		}
 		if _, err := fwMgr.DetectBackend(FWBackendFile); err != nil {
 			p.sshClient.Execute(fmt.Sprintf("rm -f %s %s", shellSingleQuote(vmDisk), shellSingleQuote(ciISO)))
 			return fmt.Errorf("防火墙后端检测失败: %w", err)
@@ -401,17 +404,19 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 
 	// 构建 virt-install 命令
 	networkArgs := qemuVirtInstallNetworkArgs(ipv6Plan, vmMAC, routedMAC)
+	nodeArch, _ := p.sshClient.Execute("uname -m")
+	bootArgs := qemuBIOSBootArgs(nodeArch)
 	virtCmd := fmt.Sprintf(
 		`virt-install --name %s --memory %d --vcpus %d --virt-type %s --import `+
 			`--disk %s --disk %s %s --os-variant %s --sysinfo %s `+
-			`--graphics none --serial pty --console %s --noautoconsole 2>&1`,
+			`--graphics none --serial pty --console %s --noautoconsole %s 2>&1`,
 		shellSingleQuote(config.Name), memoryMB, cpu, shellSingleQuote(virtType),
 		shellSingleQuote(fmt.Sprintf("path=%s,format=qcow2,bus=virtio,cache=none", vmDisk)),
 		shellSingleQuote(fmt.Sprintf("path=%s,format=raw,bus=virtio,readonly=on", ciISO)),
 		networkArgs,
 		shellSingleQuote(osVariant),
 		shellSingleQuote("type=smbios,system.serial=ds=nocloud"),
-		shellSingleQuote("pty,target_type=serial"))
+		shellSingleQuote("pty,target_type=serial"), bootArgs)
 
 	output, err = p.sshClient.Execute(virtCmd)
 	virtRC := err
@@ -420,20 +425,20 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	if virtRC != nil {
 		global.APP_LOG.Warn("virt-install 失败，用通用 os-variant 重试",
 			zap.String("output", utils.TruncateString(output, 500)))
-		p.sshClient.Execute(fmt.Sprintf("virsh undefine %s --remove-all-storage 2>/dev/null || virsh undefine %s 2>/dev/null || true", shellSingleQuote(config.Name), shellSingleQuote(config.Name)))
+		p.sshClient.Execute(fmt.Sprintf("virsh undefine %s --nvram 2>/dev/null || virsh undefine %s 2>/dev/null || true", shellSingleQuote(config.Name), shellSingleQuote(config.Name)))
 		// 重建磁盘
 		p.sshClient.Execute(fmt.Sprintf("test -f %s || qemu-img create -f qcow2 -b %s -F qcow2 %s %dG 2>/dev/null", shellSingleQuote(vmDisk), shellSingleQuote(baseImage), shellSingleQuote(vmDisk), diskGB))
 		retryCmd := fmt.Sprintf(
 			`virt-install --name %s --memory %d --vcpus %d --virt-type %s --import `+
 				`--disk %s --disk %s %s --os-variant %s --sysinfo %s `+
-				`--graphics none --serial pty --console %s --noautoconsole 2>&1`,
+				`--graphics none --serial pty --console %s --noautoconsole %s 2>&1`,
 			shellSingleQuote(config.Name), memoryMB, cpu, shellSingleQuote(virtType),
 			shellSingleQuote(fmt.Sprintf("path=%s,format=qcow2,bus=virtio,cache=none", vmDisk)),
 			shellSingleQuote(fmt.Sprintf("path=%s,format=raw,bus=virtio,readonly=on", ciISO)),
 			networkArgs,
 			shellSingleQuote("detect=on,require=off"),
 			shellSingleQuote("type=smbios,system.serial=ds=nocloud"),
-			shellSingleQuote("pty,target_type=serial"))
+			shellSingleQuote("pty,target_type=serial"), bootArgs)
 		output, err = p.sshClient.Execute(retryCmd)
 		virtRC = err
 	}
@@ -442,19 +447,19 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	if virtRC != nil && virtType == "kvm" {
 		global.APP_LOG.Warn("KVM 模式失败，降级到 TCG",
 			zap.String("output", utils.TruncateString(output, 500)))
-		p.sshClient.Execute(fmt.Sprintf("virsh undefine %s --remove-all-storage 2>/dev/null || virsh undefine %s 2>/dev/null || true", shellSingleQuote(config.Name), shellSingleQuote(config.Name)))
+		p.sshClient.Execute(fmt.Sprintf("virsh undefine %s --nvram 2>/dev/null || virsh undefine %s 2>/dev/null || true", shellSingleQuote(config.Name), shellSingleQuote(config.Name)))
 		p.sshClient.Execute(fmt.Sprintf("test -f %s || qemu-img create -f qcow2 -b %s -F qcow2 %s %dG 2>/dev/null", shellSingleQuote(vmDisk), shellSingleQuote(baseImage), shellSingleQuote(vmDisk), diskGB))
 		tcgCmd := fmt.Sprintf(
 			`virt-install --name %s --memory %d --vcpus %d --virt-type qemu --import `+
 				`--disk %s --disk %s %s --os-variant %s --sysinfo %s `+
-				`--graphics none --serial pty --console %s --noautoconsole 2>&1`,
+				`--graphics none --serial pty --console %s --noautoconsole %s 2>&1`,
 			shellSingleQuote(config.Name), memoryMB, cpu,
 			shellSingleQuote(fmt.Sprintf("path=%s,format=qcow2,bus=virtio,cache=none", vmDisk)),
 			shellSingleQuote(fmt.Sprintf("path=%s,format=raw,bus=virtio,readonly=on", ciISO)),
 			networkArgs,
 			shellSingleQuote("detect=on,require=off"),
 			shellSingleQuote("type=smbios,system.serial=ds=nocloud"),
-			shellSingleQuote("pty,target_type=serial"))
+			shellSingleQuote("pty,target_type=serial"), bootArgs)
 		output, err = p.sshClient.Execute(tcgCmd)
 		virtRC = err
 		virtType = "qemu"
@@ -473,6 +478,12 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 		p.sshClient.Execute(fmt.Sprintf("rm -f %s %s 2>/dev/null || true", shellSingleQuote(vmDisk), shellSingleQuote(ciISO)))
 		return fmt.Errorf("failed to create VM using virt-type=%s image=%s imageURL=%s: %w (virt-install output: %s)",
 			virtType, system, utils.TruncateString(config.ImageURL, 300), virtRC, utils.TruncateString(output, 500))
+	}
+
+	if !ipv6Plan.IPv6Only {
+		if err := p.ensureLibvirtDNATForwarding(); err != nil {
+			return err
+		}
 	}
 
 	// 设置开机自启
@@ -690,7 +701,7 @@ func qemuCloudInitUserData(vmName, password string) string {
 	userPassword := strings.ReplaceAll(strings.ReplaceAll(password, "\r", ""), "\n", "")
 	return fmt.Sprintf(`#cloud-config
 hostname: %s
-locale: en_US.UTF-8
+locale: C.UTF-8
 disable_root: false
 ssh_pwauth: true
 users:
@@ -698,10 +709,6 @@ users:
   - name: root
     lock_passwd: false
     shell: /bin/bash
-chpasswd:
-  expire: false
-  list:
-    - %s
 write_files:
   - path: /etc/ssh/sshd_config.d/99-qemu.conf
     content: |
@@ -718,7 +725,7 @@ runcmd:
     fi
   - systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
 final_message: "cloud-init done after $UPTIME seconds"
-`, yamlDoubleQuote(qemuSafeFileComponent(vmName)), yamlDoubleQuote("root:"+userPassword), shellSingleQuote(userPassword))
+`, yamlDoubleQuote(qemuSafeFileComponent(vmName)), shellSingleQuote(userPassword))
 }
 
 // getOSVariant 根据系统名返回 virt-install --os-variant 值
@@ -893,4 +900,15 @@ func parseConfigGB(s string) int {
 		gb = 1
 	}
 	return gb
+}
+
+// qemuBIOSBootArgs keeps BIOS guests out of the SMM reset loop observed on
+// Q35/KVM hosts. ARM firmware is left to virt-install and its OS metadata.
+func qemuBIOSBootArgs(architecture string) string {
+	switch strings.ToLower(strings.TrimSpace(architecture)) {
+	case "x86_64", "amd64", "i386", "i486", "i586", "i686":
+		return "--boot uefi=off --features smm=off"
+	default:
+		return ""
+	}
 }
