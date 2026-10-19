@@ -107,7 +107,7 @@ func (p *ProxmoxProvider) createInstallerVM(ctx context.Context, vmid int, confi
 	}
 	net0Config := fmt.Sprintf("e1000,bridge=%s,firewall=0", p.getBridgeName("nat"))
 	createCmd := fmt.Sprintf(
-		"qm create %d --agent 0 --cores %s --sockets 1 --cpu %s --memory %s --net0 %s --ostype %s --name %s %s",
+		"qm create %d --onboot 1 --agent 0 --cores %s --sockets 1 --cpu %s --memory %s --net0 %s --ostype %s --name %s %s",
 		vmid, cpuFormatted, cpuType, memoryFormatted, shellSingleQuote(net0Config), shellSingleQuote(ostype), shellSingleQuote(config.Name), kvmFlag,
 	)
 	if _, err := p.sshClient.Execute(createCmd); err != nil {

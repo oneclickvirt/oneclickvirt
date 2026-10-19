@@ -305,6 +305,7 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 		"agent":   agentParam,
 		"scsihw":  "virtio-scsi-single",
 		"serial0": "socket",
+		"onboot":  "1",
 		"cores":   cpuFormatted,
 		"sockets": "1",
 		"cpu":     cpuType,

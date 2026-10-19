@@ -209,12 +209,12 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 		// 双网络接口模式（IPv6）
 		if useRateLimit {
 			createCmd = fmt.Sprintf(
-				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --net1 %s --ostype l26 %s",
+				"qm create %d --onboot 1 --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --net1 %s --ostype l26 %s",
 				vmid, shellSingleQuote(agentParam), shellSingleQuote(cpuFormatted), shellSingleQuote(cpuType), shellSingleQuote(net0ConfigWithRate), shellSingleQuote(fmt.Sprintf("virtio,bridge=%s,firewall=0", net1Bridge)), kvmFlag,
 			)
 		} else {
 			createCmd = fmt.Sprintf(
-				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --net1 %s --ostype l26 %s",
+				"qm create %d --onboot 1 --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --net1 %s --ostype l26 %s",
 				vmid, shellSingleQuote(agentParam), shellSingleQuote(cpuFormatted), shellSingleQuote(cpuType), shellSingleQuote(net0Config), shellSingleQuote(fmt.Sprintf("virtio,bridge=%s,firewall=0", net1Bridge)), kvmFlag,
 			)
 		}
@@ -222,12 +222,12 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 		// 单网络接口模式（纯IPv4或IPv6环境缺失）
 		if useRateLimit {
 			createCmd = fmt.Sprintf(
-				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --ostype l26 %s",
+				"qm create %d --onboot 1 --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --ostype l26 %s",
 				vmid, shellSingleQuote(agentParam), shellSingleQuote(cpuFormatted), shellSingleQuote(cpuType), shellSingleQuote(net0ConfigWithRate), kvmFlag,
 			)
 		} else {
 			createCmd = fmt.Sprintf(
-				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --ostype l26 %s",
+				"qm create %d --onboot 1 --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --ostype l26 %s",
 				vmid, shellSingleQuote(agentParam), shellSingleQuote(cpuFormatted), shellSingleQuote(cpuType), shellSingleQuote(net0Config), kvmFlag,
 			)
 		}
@@ -243,12 +243,12 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 		// 重新构建不带rate的命令
 		if net1Bridge != "" {
 			createCmd = fmt.Sprintf(
-				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --net1 %s --ostype l26 %s",
+				"qm create %d --onboot 1 --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --net1 %s --ostype l26 %s",
 				vmid, shellSingleQuote(agentParam), shellSingleQuote(cpuFormatted), shellSingleQuote(cpuType), shellSingleQuote(net0Config), shellSingleQuote(fmt.Sprintf("virtio,bridge=%s,firewall=0", net1Bridge)), kvmFlag,
 			)
 		} else {
 			createCmd = fmt.Sprintf(
-				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --ostype l26 %s",
+				"qm create %d --onboot 1 --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --ostype l26 %s",
 				vmid, shellSingleQuote(agentParam), shellSingleQuote(cpuFormatted), shellSingleQuote(cpuType), shellSingleQuote(net0Config), kvmFlag,
 			)
 		}
