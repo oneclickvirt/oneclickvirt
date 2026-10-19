@@ -4,7 +4,7 @@ env:
   CI_DB_PASSWORD: ci-db-${{ github.run_id }}-${{ github.run_attempt }}-Aa1!
   CI_ADMIN_PASSWORD: ci-admin-${{ github.run_id }}-${{ github.run_attempt }}-Aa1!
 concurrency:
-  group: integration-tests-${{ github.ref }}-${{ github.event.inputs.environment || 'default' }}-${{ github.event.inputs.modules
+  group: integration-tests-${{ github.ref }}-${{ inputs.test_scope || 'hosted' }}-${{ github.event.inputs.environment || 'default' }}-${{ github.event.inputs.modules
     || 'all' }}
   cancel-in-progress: true
 jobs:
@@ -14,6 +14,10 @@ jobs:
       contents: read
   build-test-agent:
     uses: ./.github/workflows/build-test-agent.yml
+    permissions:
+      contents: read
+  database-compatibility:
+    uses: ./.github/workflows/database-compat.yml
     permissions:
       contents: read
   debian-runtime-readiness:
@@ -53,6 +57,7 @@ jobs:
       GOPROXY: https://proxy.golang.org|direct
   integration-test:
     name: 'Test: ${{ matrix.environment }}'
+    if: inputs.test_scope == 'cloud'
     needs: [build-test-agent, local-regressions]
     env:
       SELECTED_MODULES: ${{ inputs.modules }}
@@ -60,8 +65,21 @@ jobs:
         matrix.environment }}
       PRIVATE_REPO: ${{ github.repository_owner == 'spiritLHLS' }}
       GOPROXY: https://proxy.golang.org|direct
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 300
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-db-${{ github.run_id }}-${{ github.run_attempt }}-Aa1!
+          MYSQL_ROOT_HOST: '%'
+        ports:
+        - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 24
     permissions:
       contents: write
     strategy:
@@ -212,20 +230,19 @@ jobs:
         echo "Server version set to: ${LATEST_TAG}"
       shell: bash
     - name: Setup MySQL
+      env:
+        MYSQL_PWD: ${{ env.CI_DB_PASSWORD }}
       run: |
-        sudo systemctl start mysql
-        sleep 5
-        # Ubuntu's mysql-server uses auth_socket for root; connect via sudo (no -u flag)
-        # Use mysql_native_password with a CI-only generated credential for TCP access.
-        if sudo mysql -e "SELECT 1" 2>/dev/null; then
-          echo "auth_socket OK – configuring root with mysql_native_password"
-          sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${CI_DB_PASSWORD}'; DROP USER IF EXISTS 'root'@'127.0.0.1'; CREATE USER 'root'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY '${CI_DB_PASSWORD}'; GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION; FLUSH PRIVILEGES;"
-        else
-          echo "auth_socket failed – trying with password 'root'"
-          mysql -u root -proot -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${CI_DB_PASSWORD}'; DROP USER IF EXISTS 'root'@'127.0.0.1'; CREATE USER 'root'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY '${CI_DB_PASSWORD}'; GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION; FLUSH PRIVILEGES;"
-        fi
-        # Verify TCP connectivity (what the Go server uses)
-        mysql -u root -p"${CI_DB_PASSWORD}" -h 127.0.0.1 -P 3306 -e "SELECT 1;" && echo "MySQL TCP OK"
+        set -euo pipefail
+        for attempt in $(seq 1 30); do
+          if mysql --protocol=TCP -u root -h 127.0.0.1 -P 3306 -e 'SELECT 1;' >/dev/null 2>&1; then
+            echo 'MySQL service TCP authentication is ready.'
+            exit 0
+          fi
+          sleep 2
+        done
+        echo '::error::MySQL service failed TCP authentication within its readiness budget.'
+        exit 1
     - name: Validate platform and instance types
       id: validate
       run: |
@@ -762,9 +779,53 @@ jobs:
           echo "Selected modules: ${SELECTED_MODULES}"
           echo "Detailed request, response, and service output is restricted to the private repository."
         } >> "$GITHUB_STEP_SUMMARY"
+  scope-summary:
+    name: Verify requested integration scope
+    if: always()
+    needs: [local-regressions, build-test-agent, database-compatibility, debian-runtime-readiness, firewall-regressions, integration-test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+    - name: Require every requested test group to succeed
+      env:
+        TEST_SCOPE: ${{ inputs.test_scope }}
+        NEEDS_JSON: ${{ toJSON(needs) }}
+      run: |
+        python3 - <<'PY'
+        import json, os
+        from pathlib import Path
+        scope = os.environ['TEST_SCOPE']
+        results = json.loads(os.environ['NEEDS_JSON'])
+        required = {'local-regressions', 'build-test-agent', 'database-compatibility', 'debian-runtime-readiness', 'firewall-regressions'}
+        if scope == 'cloud':
+            required.add('integration-test')
+        elif scope != 'hosted':
+            raise SystemExit('Unrecognized integration test scope')
+        lines = [f'## Integration scope: {scope}', '', '| Test group | Result |', '| --- | --- |']
+        lines += [f'| {name} | {value["result"]} |' for name, value in sorted(results.items())]
+        if scope == 'hosted':
+            lines += ['', 'Cloud-node integration was not requested. No cloud node was created and no live-provider module coverage is claimed.']
+            if results['integration-test']['result'] != 'skipped':
+                raise SystemExit('The hosted scope unexpectedly ran a cloud-node job')
+        with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as summary:
+            summary.write('\n'.join(lines) + '\n')
+        failed = sorted(name for name in required if results.get(name, {}).get('result') != 'success')
+        if failed:
+            raise SystemExit('Required test groups did not succeed: ' + ', '.join(failed))
+        PY
 'on':
   workflow_dispatch:
     inputs:
+      test_scope:
+        description: Hosted regression suites, or also provision cloud nodes for live provider tests
+        required: true
+        type: choice
+        options:
+        - hosted
+        - cloud
+        default: hosted
       environment:
         description: Virtualization environment (choose one, or "all" for controlled parallel batches)
         required: true
@@ -820,7 +881,7 @@ jobs:
         description: Skip instance deletion after tests (keep alive)
         required: false
         type: boolean
-        default: true
+        default: false
       execution_rule:
         description: Provider execution rule (auto=API-first+SSH-fallback, api_only=API-only, ssh_only=SSH-only,
           all=test all three sequentially with system reset between each)
