@@ -16,7 +16,7 @@ jobs:
     - name: Install local fixture dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq shellcheck python3-venv
+        sudo apt-get install -y jq shellcheck python3-venv caddy nginx
         python3 -m venv "$RUNNER_TEMP/ocv-local-python"
         "$RUNNER_TEMP/ocv-local-python/bin/pip" install -r scripts/tests/requirements-live.txt
     - name: Validate Bash contracts

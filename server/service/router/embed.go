@@ -44,6 +44,10 @@ func setupStaticRoutes(router *gin.Engine) error {
 			return
 		}
 
+		// An old cached HTML entry can reference chunks removed by an upgrade.
+		// Revalidate frontend responses just like the generated reverse proxies.
+		c.Header("Cache-Control", "no-cache, max-age=0, must-revalidate")
+
 		// 去掉开头的斜杠
 		path = strings.TrimPrefix(path, "/")
 

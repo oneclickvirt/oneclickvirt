@@ -1688,14 +1688,24 @@ ${scheme_prefix}${DOMAIN} {
         header Connection *Upgrade*
         header Upgrade websocket
     }
-    reverse_proxy @websocket 127.0.0.1:8888
+    handle @websocket {
+        reverse_proxy 127.0.0.1:8888
+    }
 
     # Static frontend
     handle {
         root * ${WEB_DIR}
         encode gzip
-        file_server
-        try_files {path} /index.html
+        # Revalidate the entry after upgrades; missing chunks must be real 404s.
+        header Cache-Control "no-cache, max-age=0, must-revalidate"
+        @static path /js/* /assets/* /controller-agent/* *.*
+        handle @static {
+            file_server
+        }
+        handle {
+            try_files {path} /index.html
+            file_server
+        }
     }
 
     log {
@@ -1741,7 +1751,7 @@ server {
 
     client_max_body_size 100m;
 
-    location /api/ {
+    location ^~ /api/ {
         proxy_pass http://127.0.0.1:8888;
         proxy_http_version 1.1;
         proxy_set_header Host \$http_host;
@@ -1753,7 +1763,7 @@ server {
         proxy_set_header X-Forwarded-Port \$server_port;
     }
 
-    location /swagger/ {
+    location ^~ /swagger/ {
         proxy_pass http://127.0.0.1:8888;
         proxy_http_version 1.1;
         proxy_set_header Host \$http_host;
@@ -1762,7 +1772,7 @@ server {
         proxy_set_header X-Forwarded-Port \$server_port;
     }
 
-    location /ws/ {
+    location ^~ /ws/ {
         proxy_pass http://127.0.0.1:8888;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
@@ -1776,9 +1786,18 @@ server {
         proxy_read_timeout 3600s;
     }
 
+    # Keep missing build resources out of the SPA fallback. API prefixes above
+    # use ^~ so routes ending in a filename still reach the backend.
+    location ~ ^/(js|assets|controller-agent)/|\.[^/]+\$ {
+        root ${WEB_DIR};
+        add_header Cache-Control "no-cache, max-age=0, must-revalidate" always;
+        try_files \$uri =404;
+    }
+
     location / {
         root ${WEB_DIR};
         index index.html;
+        add_header Cache-Control "no-cache, max-age=0, must-revalidate" always;
         try_files \$uri \$uri/ /index.html;
     }
 }

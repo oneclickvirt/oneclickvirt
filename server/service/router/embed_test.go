@@ -71,5 +71,13 @@ func TestEmbeddedFrontendMissingAssetsDoNotBecomeHTML(t *testing.T) {
 		if reply.Code != http.StatusOK || !strings.Contains(reply.Header().Get("Content-Type"), "text/html") {
 			t.Errorf("SPA path %s returned %d %q", path, reply.Code, reply.Header().Get("Content-Type"))
 		}
+		if got := reply.Header().Get("Cache-Control"); got != "no-cache, max-age=0, must-revalidate" {
+			t.Errorf("SPA path %s has unsafe entry caching: %q", path, got)
+		}
+	}
+	reply := httptest.NewRecorder()
+	router.ServeHTTP(reply, httptest.NewRequest(http.MethodGet, "/index.html", nil))
+	if reply.Code != http.StatusMovedPermanently || reply.Header().Get("Cache-Control") != "no-cache, max-age=0, must-revalidate" {
+		t.Fatalf("index redirect lost entry revalidation: %d %v", reply.Code, reply.Header())
 	}
 }

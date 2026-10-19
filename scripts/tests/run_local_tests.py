@@ -36,7 +36,7 @@ worker_ssh_auth_test.sh workflow_result_gate_test.sh
 """.split()
 
 LOCAL_PYTHON = """
-ci_agent_assets_test.py live_incus_panel_network_test.py
+ci_agent_assets_test.py frontend_proxy_http_test.py live_incus_panel_network_test.py
 live_install_storage_test.py live_lxc_script_compat_test.py
 live_nested_docker_test.py live_node_shell_test.py live_panel_cleanup_test.py
 live_ssh_auth_test.py live_uninstall_prompts_test.py remote_ssh_io_test.py
