@@ -188,6 +188,9 @@ RUN echo 'user www-data;' > /etc/nginx/nginx.conf && \
     echo '    }' >> /etc/nginx/nginx.conf && \
     echo '}' >> /etc/nginx/nginx.conf
 
+# Share the tested proxy configuration with the no-db and overlay images.
+COPY deploy/all-in-one-nginx.conf /etc/nginx/nginx.conf
+
 # Create base supervisor directory
 RUN mkdir -p /etc/supervisor/conf.d
 

@@ -91,7 +91,7 @@ http {{
 }}
 ''')
         command = [binary, "-p", str(folder), "-c", str(config)]
-    else:
+    elif kind == 'nginx-container':
         config = folder / 'nginx.conf'
         text = (ROOT / 'deploy/all-in-one-nginx.conf').read_text()
         user = 'user root;' if hasattr(os, 'geteuid') and os.geteuid() == 0 else ''
@@ -108,6 +108,30 @@ http {{
     scgi_temp_path {folder}/scgi;
 ''', 1)
         config.write_text('daemon off;\n' + text)
+        command = [binary, '-p', str(folder), '-c', str(config)]
+    else:
+        site = folder / 'compose-site.conf'
+        text = (ROOT / 'deploy/default.conf').read_text()
+        text = text.replace('server api:8888;', f'server 127.0.0.1:{backend_port};')
+        text = text.replace('listen 80;', f'listen 127.0.0.1:{port};')
+        site.write_text(text.replace('root /usr/share/nginx/html;', f'root {web};'))
+        config = folder / 'nginx.conf'
+        user = 'user root;\n' if hasattr(os, 'geteuid') and os.geteuid() == 0 else ''
+        config.write_text(user + f'''daemon off;
+pid {folder}/nginx.pid;
+error_log stderr;
+events {{}}
+http {{
+    access_log off;
+    client_body_temp_path {folder}/client_body;
+    proxy_temp_path {folder}/proxy;
+    fastcgi_temp_path {folder}/fastcgi;
+    uwsgi_temp_path {folder}/uwsgi;
+    scgi_temp_path {folder}/scgi;
+    types {{ text/html html; application/javascript js; }}
+    include {site};
+}}
+''')
         command = [binary, '-p', str(folder), '-c', str(config)]
     with (folder / "server.log").open("w+") as log:
         process = subprocess.Popen(command, stdout=log, stderr=log)
@@ -135,7 +159,7 @@ http {{
                 code, _, body = request(port, path)
                 assert code == 200 and body == b'{"backend":true}', (kind, path, code)
             ws_paths = ['/api/v1/ws/agent', '/api/v1/admin/instances/1/ssh']
-            if kind != 'nginx-container':
+            if kind in ['caddy', 'nginx']:
                 ws_paths.append('/ws/terminal')
             for path in ws_paths:
                 code, _, body = request(port, path, {"Connection": "Upgrade", "Upgrade": "websocket"})
@@ -157,8 +181,8 @@ def main():
     thread.start()
     try:
         with tempfile.TemporaryDirectory(prefix="ocv-proxy-http-") as directory:
-            for kind in ["caddy", "nginx", "nginx-container"]:
-                binary_kind = 'nginx' if kind == 'nginx-container' else kind
+            for kind in ["caddy", "nginx", "nginx-container", "nginx-compose"]:
+                binary_kind = 'nginx' if kind.startswith('nginx') else kind
                 binary = shutil.which(os.environ.get(binary_kind.upper() + "_BIN", binary_kind))
                 if not binary:
                     raise RuntimeError(f"{kind} is required for the real proxy regression")

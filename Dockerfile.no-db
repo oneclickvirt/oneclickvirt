@@ -147,6 +147,9 @@ RUN echo 'user www-data;' > /etc/nginx/nginx.conf && \
     echo '    }' >> /etc/nginx/nginx.conf && \
     echo '}' >> /etc/nginx/nginx.conf
 
+# Share the tested proxy configuration with the full and overlay images.
+COPY deploy/all-in-one-nginx.conf /etc/nginx/nginx.conf
+
 # Runtime configuration and supervisor setup are handled by the entrypoint.
 RUN mkdir -p /etc/supervisor/conf.d
 

@@ -97,6 +97,10 @@ test_dockerfile_preserves_agent_compatibility() {
 }
 
 test_runtime_overlay_is_available() {
+    for dockerfile in "$DOCKERFILE" "$REPO_ROOT/Dockerfile.no-db"; do
+        grep -Fq 'COPY deploy/all-in-one-nginx.conf /etc/nginx/nginx.conf' "$dockerfile" \
+            || fail "full and no-db Docker builds must use the tested shared proxy configuration"
+    done
     grep -Fq 'FROM ${BASE_IMAGE} AS runtime' "${RUNTIME_OVERLAY_DOCKERFILE}" \
         || fail "runtime overlay does not preserve the existing all-in-one base image"
     grep -Fq 'COPY deploy/all-in-one-nginx.conf /etc/nginx/nginx.conf' "${RUNTIME_OVERLAY_DOCKERFILE}" \
