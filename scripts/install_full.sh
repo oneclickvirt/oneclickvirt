@@ -2332,7 +2332,14 @@ install_application() {
         return 1
     fi
     local SERVER_BIN="${SERVER_DIR}/oneclickvirt-server"
-    if ! cp "$server_bin" "$SERVER_BIN" || ! chmod +x "$SERVER_BIN"; then
+    # Replace through a same-directory temporary file.  A running Linux
+    # binary cannot be opened for truncating writes (ETXTBSY), which made a
+    # rerun of the installer fail while the existing service was healthy.
+    # Atomic rename keeps the old inode usable until the service restart and
+    # avoids leaving a partial executable behind if the copy is interrupted.
+    local server_tmp="${SERVER_BIN}.tmp.$$"
+    if ! cp "$server_bin" "$server_tmp" || ! chmod +x "$server_tmp" || ! mv -f "$server_tmp" "$SERVER_BIN"; then
+        rm -f "$server_tmp"
         log_error "Failed to install the server binary at ${SERVER_BIN}." \
             "无法将服务端二进制安装到 ${SERVER_BIN}。"
         rm -rf "$extract_dir"
