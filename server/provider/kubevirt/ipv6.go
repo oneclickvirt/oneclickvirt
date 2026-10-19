@@ -17,6 +17,7 @@ import (
 // instances and makes retries idempotent without mutating a shared CNI object.
 type routedKubeVirtIPv6Plan struct {
 	NetworkType string
+	Container   bool
 	Routed      *provider.RoutedIPv6Config
 	NADName     string
 	MAC         string
@@ -34,7 +35,7 @@ func kubeVirtNetworkType(config provider.InstanceConfig) string {
 }
 
 func resolveKubeVirtIPv6Plan(config provider.InstanceConfig) (routedKubeVirtIPv6Plan, error) {
-	plan := routedKubeVirtIPv6Plan{NetworkType: kubeVirtNetworkType(config), PrimaryMAC: kubeVirtRoutedMAC(config.Name + "-primary")}
+	plan := routedKubeVirtIPv6Plan{NetworkType: kubeVirtNetworkType(config), Container: config.InstanceType == "container", PrimaryMAC: kubeVirtRoutedMAC(config.Name + "-primary")}
 	routed, present, err := provider.ResolveRoutedIPv6(config)
 	if err != nil {
 		return plan, err
@@ -86,7 +87,7 @@ func (p *KubeVirtProvider) preflightKubeVirtIPv6(config provider.InstanceConfig)
 command -v kubectl >/dev/null 2>&1 || { echo 'kubectl is unavailable' >&2; exit 1; }
 kubectl get crd network-attachment-definitions.k8s.cni.cncf.io >/dev/null 2>&1 || { echo 'Multus NetworkAttachmentDefinition CRD is unavailable' >&2; exit 1; }
 kubectl api-resources --api-group=k8s.cni.cncf.io 2>/dev/null | grep -i networkattachmentdefinition >/dev/null || { echo 'Multus API is unavailable' >&2; exit 1; }
-find /opt/cni/bin /usr/lib/cni /usr/libexec/cni -maxdepth 1 -type f -name bridge -perm -111 2>/dev/null | head -1 | grep -q . || { echo 'bridge CNI plugin is unavailable' >&2; exit 1; }
+` + kubeVirtCNIPluginPreflightCommand() + `
 node_name="$(hostname -s)"
 kubectl get node "$node_name" >/dev/null 2>&1 || { echo "local hostname $node_name is not a Kubernetes node" >&2; exit 1; }
 printf 'ONECLICKVIRT_K8S_NODE=%s\n' "$node_name"`
@@ -99,6 +100,30 @@ printf 'ONECLICKVIRT_K8S_NODE=%s\n' "$node_name"`
 		return plan, fmt.Errorf("KubeVirt隧道IPv6环境未返回本机 Kubernetes 节点名")
 	}
 	return plan, nil
+}
+
+// K3s stores executable plugin symlinks outside the conventional CNI paths.
+// Test executability directly so both real binaries and valid symlinks work,
+// and check static IPAM before importing an image or creating a workload.
+func kubeVirtCNIPluginPreflightCommand(directories ...string) string {
+	if len(directories) == 0 {
+		directories = []string{"/opt/cni/bin", "/usr/lib/cni", "/usr/libexec/cni", "/var/lib/rancher/k3s/data/cni", "/var/lib/rancher/k3s/data/current/bin"}
+	}
+	quoted := make([]string, len(directories))
+	for index, directory := range directories {
+		quoted[index] = utils.ShellSingleQuote(directory)
+	}
+	return `for _ocv_cni_plugin in bridge static; do
+  _ocv_cni_found=0
+  for _ocv_cni_directory in ` + strings.Join(quoted, " ") + `; do
+    if [ -x "$_ocv_cni_directory/$_ocv_cni_plugin" ] && [ ! -d "$_ocv_cni_directory/$_ocv_cni_plugin" ]; then
+      _ocv_cni_found=1
+      break
+    fi
+  done
+  [ "$_ocv_cni_found" -eq 1 ] || { printf '%s CNI plugin is unavailable\n' "$_ocv_cni_plugin" >&2; exit 1; }
+done
+`
 }
 
 func kubeVirtNodeNameFromPreflightOutput(output string) string {
@@ -132,8 +157,18 @@ func kubeVirtRoutedNADYAML(plan routedKubeVirtIPv6Plan) (string, error) {
 				"address": plan.Routed.AddressCIDR(),
 				"gateway": plan.Routed.Gateway,
 			}},
-			"routes": []map[string]string{{"dst": "::/0", "gw": plan.Routed.Gateway}},
 		},
+	}
+	// VM routing belongs in cloud-init networkData. Adding a Pod default here
+	// can merge with the primary CNI default into an IPv6 ECMP route, whose
+	// LinkIndex is zero and cannot be read by KubeVirt's nmstate adapter.
+	// Containers use this attachment directly. Give its default a distinct,
+	// preferred metric so it cannot merge with the primary CNI's 1024 default,
+	// while keeping the primary IPv4 default intact.
+	if plan.Container {
+		config["ipam"].(map[string]interface{})["routes"] = []map[string]interface{}{{
+			"dst": "::/0", "gw": plan.Routed.Gateway, "priority": 512,
+		}}
 	}
 	encoded, err := json.Marshal(config)
 	if err != nil {

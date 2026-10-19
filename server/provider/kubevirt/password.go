@@ -67,11 +67,7 @@ func (p *KubeVirtProvider) sshSetPassword(ctx context.Context, instanceID, passw
 		}
 	}
 
-	runCtx := ctx
-	cancel := func() {}
-	if _, ok := ctx.Deadline(); !ok {
-		runCtx, cancel = context.WithTimeout(ctx, kubeVirtPasswordSetTimeout)
-	}
+	runCtx, cancel := context.WithTimeout(ctx, kubeVirtPasswordSetTimeout)
 	defer cancel()
 
 	passwordCandidates := kubeVirtPasswordCandidates(password, currentPassword...)
@@ -84,14 +80,14 @@ func (p *KubeVirtProvider) sshSetPassword(ctx context.Context, instanceID, passw
 			return fmt.Errorf("failed to set password for VM %s before timeout: %w", instanceID, err)
 		}
 
-		if sshPort, err := p.kubeVirtSSHNodePort(ctx, instanceID); err == nil {
-			if err := p.ensureSSHPassAvailable(ctx); err != nil {
+		if sshPort, err := p.kubeVirtSSHNodePort(runCtx, instanceID); err == nil {
+			if err := p.ensureSSHPassAvailable(runCtx); err != nil {
 				lastErr = err
 			} else {
-				for _, host := range p.kubeVirtSSHNodePortHosts(ctx) {
+				for _, host := range p.kubeVirtSSHNodePortHosts(runCtx) {
 					for _, candidate := range passwordCandidates {
-						if err := p.kubeVirtSSHSetPasswordViaNodePort(ctx, host, sshPort, candidate, password); err == nil {
-							if verifyErr := p.kubeVirtSSHCheckPasswordViaNodePort(ctx, host, sshPort, password); verifyErr != nil {
+						if err := p.kubeVirtSSHSetPasswordViaNodePort(runCtx, host, sshPort, candidate, password); err == nil {
+							if verifyErr := p.kubeVirtSSHCheckPasswordViaNodePort(runCtx, host, sshPort, password); verifyErr != nil {
 								lastErr = verifyErr
 								continue
 							}
@@ -108,13 +104,19 @@ func (p *KubeVirtProvider) sshSetPassword(ctx context.Context, instanceID, passw
 			}
 		} else {
 			lastErr = err
-			if err := p.kubeVirtSetPasswordViaVirtctl(ctx, instanceID, password); err == nil {
-				global.APP_LOG.Info("通过virtctl ssh设置密码成功",
-					zap.String("instance", utils.TruncateString(instanceID, 32)),
-					zap.Int("attempt", attempt))
-				return nil
-			} else {
+			if err := p.ensureSSHPassAvailable(runCtx); err != nil {
 				lastErr = err
+			} else {
+				for _, candidate := range passwordCandidates {
+					if err := p.kubeVirtSetPasswordViaVirtctl(runCtx, instanceID, candidate, password); err == nil {
+						global.APP_LOG.Info("通过virtctl端口隧道设置并验证密码成功",
+							zap.String("instance", utils.TruncateString(instanceID, 32)),
+							zap.Int("attempt", attempt))
+						return nil
+					} else {
+						lastErr = err
+					}
+				}
 			}
 		}
 
@@ -368,19 +370,34 @@ func (p *KubeVirtProvider) kubeVirtSSHCheckPasswordViaNodePort(ctx context.Conte
 	return nil
 }
 
-func (p *KubeVirtProvider) kubeVirtSetPasswordViaVirtctl(ctx context.Context, instanceID, password string) error {
+// Use the stable stdio port-forward transport instead of virtctl ssh flags,
+// which changed across releases. OpenSSH handles noninteractive password
+// authentication even when a pure IPv6 VM intentionally has no NodePort.
+func kubeVirtPasswordProxyCommand(instanceID, authPassword, remoteCommand string) string {
+	proxy := fmt.Sprintf("virtctl port-forward --stdio=true -n %s %s 22",
+		shellSingleQuote(Namespace), shellSingleQuote("vmi/"+instanceID))
+	return withKubeVirtKubeconfig(fmt.Sprintf(
+		"SSHPASS=%s sshpass -e ssh -T -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o PreferredAuthentications=password -o PasswordAuthentication=yes -o PubkeyAuthentication=no -o KbdInteractiveAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=2 -o %s %s %s 2>&1",
+		shellSingleQuote(authPassword), shellSingleQuote("ProxyCommand="+proxy), shellSingleQuote("root@kubevirt-guest"), shellSingleQuote(remoteCommand)))
+}
+
+func (p *KubeVirtProvider) kubeVirtSetPasswordViaVirtctl(ctx context.Context, instanceID, authPassword, password string) error {
+	if strings.TrimSpace(authPassword) == "" || strings.TrimSpace(password) == "" {
+		return fmt.Errorf("empty KubeVirt guest password")
+	}
 	remoteCmd := fmt.Sprintf("printf 'root:%%s\\n' %s | chpasswd", shellSingleQuote(password))
-	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf(
-		"printf '%%s\\n' %s | %s",
-		shellSingleQuote(remoteCmd),
-		withKubeVirtKubeconfig(fmt.Sprintf("virtctl ssh --local-ssh=false -n %s %s 2>&1", shellSingleQuote(Namespace), shellSingleQuote("root@"+instanceID)))))
-	if err == nil && !strings.Contains(strings.ToLower(output), "error") {
-		return nil
-	}
+	_, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, kubeVirtPasswordProxyCommand(instanceID, authPassword, remoteCmd))
 	if err != nil {
-		return fmt.Errorf("virtctl ssh password update failed: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 300))
+		return fmt.Errorf("virtctl port-forward SSH password update failed: %w", err)
 	}
-	return fmt.Errorf("virtctl ssh password update failed: %s", utils.TruncateString(strings.TrimSpace(output), 300))
+	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, kubeVirtPasswordProxyCommand(instanceID, password, "printf 'kubevirt-password-ok\\n'"))
+	if err != nil {
+		return fmt.Errorf("virtctl port-forward SSH password verification failed: %w", err)
+	}
+	if !strings.Contains(output, "kubevirt-password-ok") {
+		return fmt.Errorf("virtctl port-forward SSH password verification returned no proof")
+	}
+	return nil
 }
 
 func (p *KubeVirtProvider) ensureSSHPassAvailable(ctx context.Context) error {

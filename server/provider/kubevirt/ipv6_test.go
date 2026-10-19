@@ -1,6 +1,7 @@
 package kubevirt
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -8,6 +9,56 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+func TestRoutedIPv6DoesNotCreateCompetingPodDefaultRoutes(t *testing.T) {
+	for _, instanceType := range []string{"vm", "container"} {
+		t.Run(instanceType, func(t *testing.T) {
+			config := routedKubeVirtConfig("nat_ipv4_ipv6")
+			config.InstanceType = instanceType
+			plan, err := resolveKubeVirtIPv6Plan(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			nad, err := kubeVirtRoutedNADYAML(plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var manifest struct {
+				Spec struct{ Config string }
+			}
+			if err := yaml.Unmarshal([]byte(nad), &manifest); err != nil {
+				t.Fatal(err)
+			}
+			var cni struct {
+				IPAM struct {
+					Routes []map[string]interface{}
+				}
+			}
+			if err := json.Unmarshal([]byte(manifest.Spec.Config), &cni); err != nil {
+				t.Fatal(err)
+			}
+			if instanceType == "container" {
+				if len(cni.IPAM.Routes) != 1 || cni.IPAM.Routes[0]["priority"] != float64(512) || cni.IPAM.Routes[0]["gw"] != "2001:db8::1" {
+					t.Fatal("container must prefer its dedicated IPv6 gateway without ECMP")
+				}
+			} else if len(cni.IPAM.Routes) != 0 {
+				t.Fatal("VM IPAM must not create a competing Pod default")
+			}
+			var selection []struct {
+				DefaultRoute []string `json:"default-route"`
+			}
+			if err := json.Unmarshal([]byte(kubeVirtRoutedNetworkAnnotation(plan)), &selection); err != nil {
+				t.Fatal(err)
+			}
+			if len(selection) != 1 {
+				t.Fatal("expected one routed attachment")
+			}
+			if len(selection[0].DefaultRoute) != 0 {
+				t.Fatal("Multus gateway override can remove the primary IPv4 default")
+			}
+		})
+	}
+}
 
 func routedKubeVirtConfig(networkType string) provider.InstanceConfig {
 	return provider.InstanceConfig{Metadata: map[string]string{

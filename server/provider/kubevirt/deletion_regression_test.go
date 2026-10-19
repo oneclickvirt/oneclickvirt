@@ -22,6 +22,46 @@ func (kubeVirtDeleteExecutor) ExecuteWithTimeout(command string, _ time.Duration
 
 var errKubeVirtDeleteTest = errors.New("connection refused")
 
+type kubeVirtStoppedExecutor struct {
+	utils.ShellExecutor
+	output string
+	err    error
+}
+
+func (e kubeVirtStoppedExecutor) Execute(command string) (string, error) {
+	return e.ExecuteWithTimeout(command, 0)
+}
+
+func (e kubeVirtStoppedExecutor) ExecuteWithTimeout(command string, _ time.Duration) (string, error) {
+	if !strings.Contains(command, "kubectl get vm") || !strings.Contains(command, "status.printableStatus") {
+		return "", errors.New("unexpected state query")
+	}
+	return e.output, e.err
+}
+
+func TestKubeVirtStoppedRetryRequiresAuthoritativeState(t *testing.T) {
+	for _, test := range []struct {
+		name, output string
+		err          error
+		want         bool
+	}{
+		{name: "already stopped", output: "Stopped\n", want: true},
+		{name: "older casing and terminal control", output: "\x1b[32mstopped\x1b[0m\r\n", want: true},
+		{name: "still stopping", output: "Stopping"},
+		{name: "still running", output: "Running"},
+		{name: "absent state", output: ""},
+		{name: "untrusted error text", output: "error: VM is not running"},
+		{name: "failed read", output: "Stopped", err: errKubeVirtDeleteTest},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			p := &KubeVirtProvider{sshClient: utils.NewSafeShellExecutor(kubeVirtStoppedExecutor{output: test.output, err: test.err})}
+			if got := p.kubeVirtVMStopped(context.Background(), "guest"); got != test.want {
+				t.Fatalf("stopped = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 type kubeVirtNADDeleteExecutor struct {
 	utils.ShellExecutor
 	commands    []string

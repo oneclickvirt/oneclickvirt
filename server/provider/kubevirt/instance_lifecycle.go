@@ -78,7 +78,7 @@ func (p *KubeVirtProvider) StopInstance(ctx context.Context, id string) error {
 	}
 
 	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, withKubeVirtKubeconfig(fmt.Sprintf("virtctl stop %s -n %s 2>&1", shellSingleQuote(id), shellSingleQuote(Namespace))))
-	if err != nil {
+	if err != nil && !p.kubeVirtVMStopped(ctx, id) {
 		diagnostics := p.collectVMDiagnostics(ctx, id)
 		global.APP_LOG.Error("KubeVirt虚拟机停止失败",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -227,7 +227,7 @@ func (p *KubeVirtProvider) sshDeleteInstance(ctx context.Context, id string) err
 	global.APP_LOG.Info("开始删除KubeVirt虚拟机", zap.String("id", utils.TruncateString(id, 32)))
 
 	// 1. 停止VM
-	if output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, withKubeVirtKubeconfig(fmt.Sprintf("virtctl stop %s -n %s 2>&1", shellSingleQuote(id), shellSingleQuote(Namespace)))); err != nil && !kubeVirtNotFound(output, err) {
+	if output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, withKubeVirtKubeconfig(fmt.Sprintf("virtctl stop %s -n %s 2>&1", shellSingleQuote(id), shellSingleQuote(Namespace)))); err != nil && !kubeVirtNotFound(output, err) && !p.kubeVirtVMStopped(ctx, id) {
 		return fmt.Errorf("停止KubeVirt虚拟机失败: %w (output: %s)", err, utils.TruncateString(strings.TrimSpace(output), 1000))
 	}
 	if err := sleepWithContext(ctx, 2*time.Second); err != nil {
@@ -303,6 +303,15 @@ func (p *KubeVirtProvider) sshDeleteInstance(ctx context.Context, id string) err
 		return fmt.Errorf("验证KubeVirt虚拟机删除状态失败: %w (output: %s)", err, utils.TruncateString(strings.TrimSpace(output), 1000))
 	}
 	return fmt.Errorf("VM %s still exists after deletion", id)
+}
+
+// A retried stop/delete can reach a VM already stopped by the previous
+// attempt. Read structured state instead of depending on virtctl's changing
+// human-readable "not running" error. API failures must remain failures.
+func (p *KubeVirtProvider) kubeVirtVMStopped(ctx context.Context, id string) bool {
+	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf(
+		"kubectl get vm %s -n %s -o jsonpath='{.status.printableStatus}' 2>/dev/null", shellSingleQuote(id), shellSingleQuote(Namespace)))
+	return err == nil && strings.EqualFold(strings.TrimSpace(utils.StripTerminalCSI(output)), "stopped")
 }
 
 func kubeVirtNotFound(output string, err error) bool {
