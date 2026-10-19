@@ -200,9 +200,12 @@ jobs:
         GOOS=windows GOARCH=arm64 go build -ldflags="$LDFLAGS" -o ../build/server-windows-arm64.exe .
     - name: Prepare embedded frontend
       run: |
+        rm -rf server/service/router/dist
         mkdir -p server/service/router/dist
-        cp -r web/dist/* server/service/router/dist/
-        ls -la server/service/router/dist/
+        cp -R web/dist/. server/service/router/dist/
+    - name: Verify the actual embedded frontend and static responses
+      working-directory: ./server
+      run: go test -tags embed ./service/router
     - name: Build Go server binaries (All-in-one - with embedded frontend)
       working-directory: ./server
       run: |

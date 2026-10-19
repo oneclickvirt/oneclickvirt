@@ -7,12 +7,16 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+	pathpkg "path"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
-//go:embed dist
+// Vite emits shared helpers such as _plugin-vue_export-helper-*.js. The
+// default embed rule omits names beginning with '_' or '.', breaking imports.
+//
+//go:embed all:dist
 var FS embed.FS
 
 // embedEnabled 标记是否启用了前端嵌入
@@ -53,6 +57,14 @@ func setupStaticRoutes(router *gin.Engine) error {
 				return
 			}
 			f.Close()
+		}
+
+		// Missing static resources must remain 404s. Returning HTML for a stale
+		// module URL hides incomplete releases and prevents import recovery.
+		if strings.HasPrefix(path, "js/") || strings.HasPrefix(path, "assets/") ||
+			strings.HasPrefix(path, "controller-agent/") || pathpkg.Ext(path) != "" {
+			c.AbortWithStatus(http.StatusNotFound)
+			return
 		}
 
 		// 文件不存在或是目录，返回 index.html（用于 SPA 路由）
