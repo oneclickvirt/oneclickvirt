@@ -238,16 +238,17 @@ func (p *KubeVirtProvider) prepareK3sContainerImage(ctx context.Context, config 
 	targetRef := fmt.Sprintf("localhost/oneclickvirt/%s:latest", name)
 	dest := path.Join("/var/lib/oneclickvirt/k3s-images", name+".tar.gz")
 	script := fmt.Sprintf(`set -e
+umask 077
 image_dir=%s
 dest=%s
 target_ref=%s
-load_log=/tmp/ocv_k3s_load.log
+load_log="${dest}.import.log"
 mkdir -p "$image_dir"
 rm -f "$load_log"
 if command -v curl >/dev/null 2>&1; then
-  curl -fsSL --retry 3 --retry-delay 2 -o "$dest" %s
+  curl -fsSL --connect-timeout 15 --max-time 300 --retry 2 --retry-delay 2 --retry-max-time 360 -o "$dest" %s
 else
-  wget -q -O "$dest" %s
+  timeout 360 wget -q --timeout=30 --tries=3 -O "$dest" %s
 fi
 if [ ! -s "$dest" ]; then
   echo "downloaded container image is empty: $dest" >&2
@@ -266,25 +267,23 @@ case "$dest" in
     fi
     ;;
 esac
-`+kubeVirtContainerImageLoaderFunction()+`
-if command -v nerdctl >/dev/null 2>&1; then
-  run_loader "nerdctl -n k8s.io load" nerdctl -n k8s.io load -i "$import_src" || run_loader "nerdctl load" nerdctl load -i "$import_src"
-  loaded=$(awk '/Loaded image:/ {print $3}' "$load_log" | tail -n1)
-  if [ -n "$loaded" ]; then nerdctl -n k8s.io tag "$loaded" "$target_ref" >/dev/null 2>&1 || nerdctl tag "$loaded" "$target_ref" >/dev/null 2>&1 || true; fi
-elif command -v k3s >/dev/null 2>&1; then
-  run_loader "k3s ctr images import" k3s ctr -n k8s.io images import "$import_src"
-  loaded=$(awk '/unpacking/ {print $2}' "$load_log" | tail -n1)
-  if [ -n "$loaded" ]; then k3s ctr -n k8s.io images tag "$loaded" "$target_ref" >/dev/null 2>&1 || true; fi
+%s
+if command -v k3s >/dev/null 2>&1; then
+  run_ctr_import "k3s ctr" k3s ctr -n k8s.io
 elif command -v ctr >/dev/null 2>&1; then
-  run_loader "ctr images import" ctr -n k8s.io images import "$import_src"
-  loaded=$(awk '/unpacking/ {print $2}' "$load_log" | tail -n1)
-  if [ -n "$loaded" ]; then ctr -n k8s.io images tag "$loaded" "$target_ref" >/dev/null 2>&1 || true; fi
+  run_ctr_import "ctr" ctr -n k8s.io
+elif command -v nerdctl >/dev/null 2>&1; then
+  run_loader "nerdctl -n k8s.io load" nerdctl -n k8s.io load -i "$import_src"
+  loaded=$(awk '/Loaded image:/ {print $3; exit}' "$load_log")
+  [ -n "$loaded" ] || { echo "nerdctl did not identify an imported image" >&2; exit 1; }
+  run_loader "nerdctl -n k8s.io tag" nerdctl -n k8s.io tag "$loaded" "$target_ref"
+  nerdctl -n k8s.io image inspect "$target_ref" >/dev/null
 else
   echo "container image runtime not found" >&2
   exit 1
 fi
 printf '%%s' "$target_ref"`, shellSingleQuote("/var/lib/oneclickvirt/k3s-images"), shellSingleQuote(dest), shellSingleQuote(targetRef),
-		shellSingleQuote(resolvedURL), shellSingleQuote(resolvedURL))
+		shellSingleQuote(resolvedURL), shellSingleQuote(resolvedURL), kubeVirtContainerImageLoaderFunction())
 	updateProgress(30, "下载并导入K3s容器镜像")
 	output, err := p.sshClient.Execute(script)
 	if err != nil {
@@ -654,5 +653,25 @@ func kubeVirtContainerImageLoaderFunction() string {
   echo "loader failed: $desc (rc=$rc)" >&2
   if [ -s "$load_log" ]; then cat "$load_log" >&2; fi
   return "$rc"
+}
+run_ctr_import() {
+  description="$1"
+  shift
+  # Modern containerd can name the imported OCI index directly. This avoids
+  # relying on progress text (old: unpacking; new: saved).
+  if "$@" images import --help 2>/dev/null | grep -q -- '--index-name'; then
+    run_loader "$description images import" "$@" images import --index-name "$target_ref" "$import_src" || return $?
+  else
+    run_loader "$description images import" "$@" images import "$import_src" || return $?
+    loaded=$(awk '/^[[:space:]]*unpacking[[:space:]]/ {print $2; exit}' "$load_log")
+    [ -n "$loaded" ] || { echo "legacy ctr did not identify an imported image" >&2; return 1; }
+    run_loader "$description images tag" "$@" images tag "$loaded" "$target_ref" || return $?
+  fi
+  # A successful import is insufficient if the name the Pod will use is absent.
+  references=$("$@" images list -q) || return $?
+  printf '%s\n' "$references" | grep -Fqx -- "$target_ref" || {
+    echo "imported image target reference is unavailable" >&2
+    return 1
+  }
 }`
 }
