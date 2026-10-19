@@ -302,7 +302,14 @@ func normalizeK3sImageRef(image string) string {
 		return image
 	}
 	if strings.HasPrefix(image, "spiritlhl-") {
-		return "spiritlhl/" + strings.TrimPrefix(image, "spiritlhl-") + ":latest"
+		system := strings.TrimPrefix(image, "spiritlhl-")
+		switch system {
+		case "ubuntu", "debian", "alpine", "almalinux", "rockylinux", "openeuler":
+			// Maintained SSH-capable images moved to the organization GHCR
+			// manifest; the legacy Docker Hub per-system repositories are gone.
+			return "ghcr.io/oneclickvirt/docker:" + system
+		}
+		return "spiritlhl/" + system + ":latest"
 	}
 	return image + ":latest"
 }

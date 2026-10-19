@@ -7,6 +7,19 @@ import (
 	"testing"
 )
 
+func TestLegacyK3sContainerNamesUseMaintainedImageRepository(t *testing.T) {
+	for _, system := range []string{"ubuntu", "debian", "alpine", "almalinux", "rockylinux", "openeuler"} {
+		if got := normalizeK3sImageRef("spiritlhl-" + system); got != "ghcr.io/oneclickvirt/docker:"+system {
+			t.Fatalf("legacy %s resolves to %s", system, got)
+		}
+	}
+	for _, explicit := range []string{"ghcr.io/oneclickvirt/docker:debian", "registry.example/private/custom:v2", "debian:12"} {
+		if got := normalizeK3sImageRef(explicit); got != explicit {
+			t.Fatalf("explicit image reference changed: %s", got)
+		}
+	}
+}
+
 func TestContainerImageLoaderPropagatesFailureAndSupportsFallback(t *testing.T) {
 	for _, tc := range []struct {
 		name, body string
