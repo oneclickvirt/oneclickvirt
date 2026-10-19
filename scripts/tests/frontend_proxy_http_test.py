@@ -16,6 +16,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class Backend(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path.endswith(('agent', '/ssh', '/terminal')):
+            if self.headers.get('Upgrade', '').lower() != 'websocket' or 'upgrade' not in self.headers.get('Connection', '').lower():
+                self.send_error(400, 'WebSocket upgrade headers were not forwarded')
+                return
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
@@ -65,7 +69,7 @@ configure_caddy
         text = config.read_text().replace("127.0.0.1:8888", f"127.0.0.1:{backend_port}")
         config.write_text("{\n admin off\n auto_https off\n}\n" + text)
         command = [binary, "run", "--config", str(config), "--adapter", "caddyfile"]
-    else:
+    elif kind == "nginx":
         site = folder / "oneclickvirt.conf"
         text = site.read_text().replace("listen 80;", f"listen 127.0.0.1:{port};")
         site.write_text(text.replace("127.0.0.1:8888", f"127.0.0.1:{backend_port}"))
@@ -87,6 +91,24 @@ http {{
 }}
 ''')
         command = [binary, "-p", str(folder), "-c", str(config)]
+    else:
+        config = folder / 'nginx.conf'
+        text = (ROOT / 'deploy/all-in-one-nginx.conf').read_text()
+        user = 'user root;' if hasattr(os, 'geteuid') and os.geteuid() == 0 else ''
+        text = text.replace('user www-data;', user).replace('worker_processes auto;', 'worker_processes 1;')
+        text = text.replace('pid /run/nginx.pid;', f'pid {folder}/nginx.pid;')
+        text = text.replace('include /etc/nginx/mime.types;', 'types { text/html html; application/javascript js; }')
+        text = text.replace('listen 80;', f'listen 127.0.0.1:{port};').replace('root /var/www/html;', f'root {web};')
+        text = text.replace('127.0.0.1:8888', f'127.0.0.1:{backend_port}')
+        text = text.replace('http {', f'''http {{
+    client_body_temp_path {folder}/client_body;
+    proxy_temp_path {folder}/proxy;
+    fastcgi_temp_path {folder}/fastcgi;
+    uwsgi_temp_path {folder}/uwsgi;
+    scgi_temp_path {folder}/scgi;
+''', 1)
+        config.write_text('daemon off;\n' + text)
+        command = [binary, '-p', str(folder), '-c', str(config)]
     with (folder / "server.log").open("w+") as log:
         process = subprocess.Popen(command, stdout=log, stderr=log)
         try:
@@ -112,8 +134,12 @@ http {{
             for path in ["/api/module.json", "/swagger/spec.json"]:
                 code, _, body = request(port, path)
                 assert code == 200 and body == b'{"backend":true}', (kind, path, code)
-            code, _, body = request(port, "/ws/terminal", {"Connection": "Upgrade", "Upgrade": "websocket"})
-            assert code == 200 and body == b'{"backend":true}', (kind, "websocket", code)
+            ws_paths = ['/api/v1/ws/agent', '/api/v1/admin/instances/1/ssh']
+            if kind != 'nginx-container':
+                ws_paths.append('/ws/terminal')
+            for path in ws_paths:
+                code, _, body = request(port, path, {"Connection": "Upgrade", "Upgrade": "websocket"})
+                assert code == 200 and body == b'{"backend":true}', (kind, path, code)
         finally:
             if process.poll() is None:
                 process.terminate()
@@ -131,8 +157,9 @@ def main():
     thread.start()
     try:
         with tempfile.TemporaryDirectory(prefix="ocv-proxy-http-") as directory:
-            for kind in ["caddy", "nginx"]:
-                binary = shutil.which(os.environ.get(kind.upper() + "_BIN", kind))
+            for kind in ["caddy", "nginx", "nginx-container"]:
+                binary_kind = 'nginx' if kind == 'nginx-container' else kind
+                binary = shutil.which(os.environ.get(binary_kind.upper() + "_BIN", binary_kind))
                 if not binary:
                     raise RuntimeError(f"{kind} is required for the real proxy regression")
                 check_proxy(binary, kind, Path(directory), backend.server_port)
