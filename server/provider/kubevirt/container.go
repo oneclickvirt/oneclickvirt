@@ -266,18 +266,7 @@ case "$dest" in
     fi
     ;;
 esac
-run_loader() {
-  desc="$1"
-  shift
-  rm -f "$load_log"
-  if "$@" >"$load_log" 2>&1; then
-    return 0
-  fi
-  rc=$?
-  echo "loader failed: $desc (rc=$rc)" >&2
-  if [ -s "$load_log" ]; then cat "$load_log" >&2; fi
-  return "$rc"
-}
+`+kubeVirtContainerImageLoaderFunction()+`
 if command -v nerdctl >/dev/null 2>&1; then
   run_loader "nerdctl -n k8s.io load" nerdctl -n k8s.io load -i "$import_src" || run_loader "nerdctl load" nerdctl load -i "$import_src"
   loaded=$(awk '/Loaded image:/ {print $3}' "$load_log" | tail -n1)
@@ -642,4 +631,21 @@ func (p *KubeVirtProvider) sshDeleteK3sContainer(ctx context.Context, id string)
 		return fmt.Errorf("验证KubeVirt容器删除状态失败: %w (output: %s)", err, utils.TruncateString(strings.TrimSpace(output), 1000))
 	}
 	return fmt.Errorf("KubeVirt container %s still exists after deletion", id)
+}
+
+// Preserve the failed loader status before the shell if statement resets it.
+func kubeVirtContainerImageLoaderFunction() string {
+	return `run_loader() {
+  desc="$1"
+  shift
+  rm -f "$load_log"
+  if "$@" >"$load_log" 2>&1; then
+    return 0
+  else
+    rc=$?
+  fi
+  echo "loader failed: $desc (rc=$rc)" >&2
+  if [ -s "$load_log" ]; then cat "$load_log" >&2; fi
+  return "$rc"
+}`
 }
