@@ -178,7 +178,6 @@ export default function useApplyPage() {
     if (!canConfigureGpuPassthrough.value) resetGpuState()
     if (configForm.type) await loadFilteredImages()
     if (requestSeq !== providerSelectSeq || selectedProvider.value?.id !== provider.id) return
-    configForm.imageId = ''
     autoSelectFirstAvailableSpecs()
   }
 

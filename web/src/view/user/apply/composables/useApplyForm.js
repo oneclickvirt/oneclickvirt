@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { selectableNetworkTypes, selectProviderNetworkType, NETWORK_TYPE_KEYS } from '@/utils/networkType'
+import { createImageRequestGuard } from '@/utils/applyImageRequest'
 import {
   getUserLimits,
   getFilteredImages,
@@ -69,6 +70,12 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
   })
 
   const availableNetworkTypes = computed(() => selectedProvider.value ? selectableNetworkTypes(selectedProvider.value) : [])
+  const imageRequests = createImageRequestGuard(() => JSON.stringify([selectedProvider.value?.id, configForm.type]))
+  watch(() => [selectedProvider.value?.id, configForm.type], () => {
+    imageRequests.invalidate()
+    availableImages.value = []
+    configForm.imageId = ''
+  }, { flush: 'sync' })
   watch(() => [selectedProvider.value?.id, selectedProvider.value?.networkType, selectedProvider.value?.allowedNetworkTypes], (_current, previous = []) => {
     configForm.networkType = selectProviderNetworkType(selectedProvider.value, configForm.networkType, previous[0])
   }, { immediate: true, deep: true })
@@ -186,21 +193,26 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
   }
 
   const loadFilteredImages = async () => {
+    const isCurrent = imageRequests.begin()
     if (!selectedProvider.value || !configForm.type) {
       availableImages.value = []
       return
     }
+    const providerId = selectedProvider.value.id
+    const instanceType = configForm.type
     try {
-      let capabilities = providerCapabilities.value[selectedProvider.value.id]
+      let capabilities = providerCapabilities.value[providerId]
       if (!capabilities) {
-        await loadProviderCapabilities(selectedProvider.value.id)
-        capabilities = providerCapabilities.value[selectedProvider.value.id]
+        await loadProviderCapabilities(providerId)
+        if (!isCurrent()) return
+        capabilities = providerCapabilities.value[providerId]
       }
       const response = await getFilteredImages({
-        provider_id: selectedProvider.value.id,
-        instance_type: configForm.type,
+        provider_id: providerId,
+        instance_type: instanceType,
         architecture: capabilities?.architecture || 'amd64'
       })
+      if (!isCurrent()) return
       if (response.code === 200) {
         availableImages.value = toArray(response.data)
       } else {
@@ -208,6 +220,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
         console.warn('获取过滤镜像失败:', response.message)
       }
     } catch (error) {
+      if (!isCurrent()) return
       console.error('获取过滤镜像失败:', error)
       availableImages.value = []
       ElMessage.error(errorMessage(error, t('user.apply.loadImagesFailed')))
@@ -234,8 +247,9 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
   const onInstanceTypeChange = async () => {
     if (selectedProvider.value && configForm.type) {
       const providerId = selectedProvider.value.id
+      const instanceType = configForm.type
       await loadProviderCapabilities(providerId)
-      if (!selectedProvider.value || selectedProvider.value.id !== providerId) return
+      if (!selectedProvider.value || selectedProvider.value.id !== providerId || configForm.type !== instanceType) return
       const capabilities = providerCapabilities.value[providerId] || {}
       const supportedTypes = capabilities.supportedTypes || []
       const supportsContainer = supportedTypes.length > 0 ? supportedTypes.includes('container') : selectedProvider.value.containerEnabled
@@ -285,7 +299,6 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
       }
       await loadFilteredImages()
     }
-    configForm.imageId = ''
     autoSelectFirstAvailableSpecs()
   }
 
