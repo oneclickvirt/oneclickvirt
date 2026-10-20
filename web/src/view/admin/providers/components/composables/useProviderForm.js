@@ -7,6 +7,7 @@ import { testSSHConnection as testSSHConnectionAPI, generateAgentSecret as gener
 import { isContainerOnlyProvider, isVMOnlyProvider } from '@/utils/providerTypes'
 import { DEFAULT_LEVEL_LIMITS, normalizeLevelLimits } from '@/utils/levels'
 import { hasAgentMappedNetworking as agentHasMappedNetworking } from '@/utils/networkType'
+import { providerNameValidationError } from '@/utils/providerNameValidation'
 
 const REQUIRED_FIXED_PORT = 22
 
@@ -236,9 +237,13 @@ export function useProviderForm(props, emit) {
   // 表单验证规则
   const rules = {
     name: [
-      { required: true, message: () => t('admin.providers.validation.serverNameRequired'), trigger: 'blur' },
-      { pattern: /^[a-zA-Z0-9]+$/, message: () => t('admin.providers.validation.serverNamePattern'), trigger: 'blur' },
-      { max: 7, message: () => t('admin.providers.validation.serverNameMaxLength'), trigger: 'blur' },
+      { required: true, validator: (rule, value, callback) => {
+        const error = providerNameValidationError(value, {
+          isEditing: props.isEditing,
+          originalName: props.providerData?.name
+        })
+        callback(error ? new Error(t(`admin.providers.validation.${error}`)) : undefined)
+      }, trigger: 'blur' },
       { validator: validateProviderName, trigger: 'blur' }
     ],
     type: [
@@ -619,7 +624,15 @@ export function useProviderForm(props, emit) {
       // 获取基本信息Tab中的表单引用并验证
       const basicFormRef = basicInfoTabRef.value?.formRef
       if (basicFormRef) {
-        await basicFormRef.validate()
+        try {
+          await basicFormRef.validate()
+        } catch (fields) {
+          activeTab.value = 'basic'
+          await nextTick()
+          const firstField = Object.keys(fields || {})[0]
+          if (firstField) basicFormRef.scrollToField?.(firstField)
+          return
+        }
       }
       
       // 验证虚拟化类型

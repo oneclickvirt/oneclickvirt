@@ -13,7 +13,7 @@
       <el-input
         v-model="modelValue.name"
         :placeholder="$t('admin.providers.serverNamePlaceholder')"
-        maxlength="7"
+        :maxlength="nameMaxLength"
         show-word-limit
       />
     </el-form-item>
@@ -284,6 +284,10 @@ const props = defineProps({
   rules: {
     type: Object,
     required: true
+  },
+  nameMaxLength: {
+    type: Number,
+    default: 7
   }
 })
 

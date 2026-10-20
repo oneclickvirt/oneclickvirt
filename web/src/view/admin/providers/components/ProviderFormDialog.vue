@@ -23,6 +23,7 @@
           ref="basicInfoTabRef"
           v-model="formData"
           :rules="rules"
+          :name-max-length="isEditing ? Math.max(7, providerData.name?.length || 0) : 7"
         />
       </el-tab-pane>
 
