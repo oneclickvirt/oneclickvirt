@@ -220,6 +220,9 @@ func (s *ProviderApiService) CreateInstanceByProviderID(ctx context.Context, pro
 		return fmt.Errorf("创建实例失败: %v", err)
 	}
 
+	if err := provider.ConfigureDedicatedIPv4(ctx, prov, config); err != nil {
+		return err
+	}
 	global.APP_LOG.Info("实例创建成功", zap.String("name", config.Name), zap.Uint("providerId", providerID))
 	return nil
 }
@@ -242,6 +245,15 @@ func (s *ProviderApiService) StartInstanceByProviderID(ctx context.Context, prov
 			zap.String("instanceId", instanceID),
 			zap.Error(err))
 		return fmt.Errorf("启动实例失败: %v", err)
+	}
+
+	if err := provider.DedicatedIPv4Lifecycle(ctx, prov, instanceID, false); err != nil {
+		recoveryCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if stopErr := prov.StopInstance(recoveryCtx, instanceID); stopErr != nil {
+			return fmt.Errorf("%w; 网络恢复失败后的停止也失败: %v", err, stopErr)
+		}
+		return err
 	}
 
 	global.APP_LOG.Info("实例启动成功",
@@ -322,6 +334,15 @@ func (s *ProviderApiService) RestartInstanceByProviderID(ctx context.Context, pr
 		return fmt.Errorf("重启实例失败: %v", err)
 	}
 
+	if err := provider.DedicatedIPv4Lifecycle(ctx, prov, instanceID, false); err != nil {
+		recoveryCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if stopErr := prov.StopInstance(recoveryCtx, instanceID); stopErr != nil {
+			return fmt.Errorf("%w; 网络恢复失败后的停止也失败: %v", err, stopErr)
+		}
+		return err
+	}
+
 	global.APP_LOG.Info("实例重启成功",
 		zap.Uint("providerId", providerID),
 		zap.String("instanceId", instanceID))
@@ -347,6 +368,10 @@ func (s *ProviderApiService) DeleteInstanceByProviderID(ctx context.Context, pro
 			zap.String("instanceId", instanceID),
 			zap.Error(err))
 		return fmt.Errorf("删除实例失败: %v", err)
+	}
+
+	if err := provider.DedicatedIPv4Lifecycle(ctx, prov, instanceID, true); err != nil {
+		return err
 	}
 
 	global.APP_LOG.Info("实例删除成功",

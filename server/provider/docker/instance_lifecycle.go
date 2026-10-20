@@ -75,7 +75,22 @@ func isDockerIptablesChainError(output string) bool {
 }
 
 // sshDeleteInstance 删除实例 - 增强版，多重删除策略
-func (d *DockerProvider) sshDeleteInstance(ctx context.Context, id string) error {
+func (d *DockerProvider) sshDeleteInstance(ctx context.Context, id string) (deleteErr error) {
+	cleanupName := id
+	if d.runtime.ProviderType == "docker" {
+		output, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, fmt.Sprintf("%s inspect -f '{{.Name}}' %s 2>/dev/null", d.runtime.CLI, shellSingleQuote(id)))
+		if err == nil && strings.TrimSpace(output) != "" {
+			cleanupName = strings.TrimPrefix(strings.TrimSpace(output), "/")
+		}
+	}
+	defer func() {
+		if deleteErr == nil && d.runtime.ProviderType == "docker" {
+			command := "if test -x " + shellSingleQuote(dockerManualIPv6Helper) + "; then " + shellSingleQuote(dockerManualIPv6Helper) + " --remove " + shellSingleQuote(cleanupName) + "; fi"
+			if output, err := utils.ExecuteShellCommandContext(ctx, d.sshClient, command); err != nil {
+				deleteErr = fmt.Errorf("容器已删除，但路由IPv6回收失败: output=%s: %w", utils.TruncateString(output, 1000), err)
+			}
+		}
+	}()
 	if err := d.rejectInfrastructureContainer(ctx, id); err != nil {
 		return err
 	}
@@ -128,14 +143,6 @@ func (d *DockerProvider) sshDeleteInstance(ctx context.Context, id string) error
 				fmt.Sprintf("%s rm %s", d.runtime.CLI, shellSingleQuote(id)),
 			},
 			description: "强制杀死进程并删除容器",
-		},
-		{
-			name: "system_prune_targeted",
-			commands: []string{
-				fmt.Sprintf("%s rm -f %s", d.runtime.CLI, shellSingleQuote(id)),
-				fmt.Sprintf("%s system prune -f --volumes", d.runtime.CLI),
-			},
-			description: "删除容器并清理系统资源",
 		},
 	}
 

@@ -304,19 +304,6 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		cmd += " " + labelArgs
 	}
 
-	if networkType == "dedicated_ipv4" || networkType == "dedicated_ipv4_ipv6" {
-		if config.Metadata != nil {
-			if staticIPv4, ok := config.Metadata["static_ipv4"]; ok && staticIPv4 != "" {
-				if err := p.ensureIPv4OnHostInterface(staticIPv4); err != nil {
-					global.APP_LOG.Warn("独立IPv4宿主机接口绑定检查失败，继续执行",
-						zap.String("instance", config.Name),
-						zap.String("ipv4", staticIPv4),
-						zap.Error(err))
-				}
-			}
-		}
-	}
-
 	if config.CPU != "" {
 		cmd += fmt.Sprintf(" --cpus=%s", config.CPU)
 	}

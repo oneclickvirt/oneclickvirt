@@ -658,6 +658,10 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		return err
 	}
 
+	if err := provider.ConfigureDedicatedIPv4(ctx, providerInstance, instanceConfig); err != nil {
+		return err
+	}
+
 	global.APP_LOG.Info("Provider创建实例成功", zap.Uint("taskId", task.ID), zap.String("instanceName", instance.Name))
 
 	if strings.TrimSpace(instance.ProviderVMID) == "" {

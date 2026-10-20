@@ -43,6 +43,9 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 	var instance providerModel.Instance
 	if err := global.APP_DB.First(&instance, taskReq.InstanceId).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			if releaseErr := releaseDeletedInstanceIPv4(global.APP_DB.WithContext(ctx), taskReq.InstanceId); releaseErr != nil {
+				return releaseErr
+			}
 			if releaseErr := ipv6PoolService.NewService().ReleaseIPv6(taskReq.InstanceId); releaseErr != nil {
 				return fmt.Errorf("清理已删除实例的IPv6池绑定失败: %w", releaseErr)
 			}
@@ -318,6 +321,11 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 		if err := tx.Delete(&instance).Error; err != nil {
 			return fmt.Errorf("删除实例记录失败: %v", err)
 		}
+		// Release the actual binding, regardless of the node's current default
+		// network mode. Keep deletion and release in the same transaction.
+		if err := releaseDeletedInstanceIPv4(tx, instanceID); err != nil {
+			return err
+		}
 
 		if instanceUserID > 0 {
 			if err := quotaService.RecalculateUserQuotaInTx(tx, instanceUserID); err != nil {
@@ -353,22 +361,6 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 
 	domainSvc.RemoveDomainProxies(instanceDomains)
 
-	// 事务提交成功后，释放IPv4池地址（事务外执行，避免事务回滚时误释放）
-	if provider.NetworkType == "dedicated_ipv4" || provider.NetworkType == "dedicated_ipv4_ipv6" {
-		releaseErr := global.APP_DB.Model(&providerModel.ProviderIPv4Pool{}).
-			Where("instance_id = ?", instanceID).
-			Updates(map[string]interface{}{"is_allocated": false, "instance_id": nil}).Error
-		if releaseErr != nil {
-			global.APP_LOG.Warn("释放IPv4池地址失败（可能未配置池）",
-				zap.Uint("taskId", task.ID),
-				zap.Uint("instanceId", instanceID),
-				zap.Error(releaseErr))
-		} else {
-			global.APP_LOG.Info("释放IPv4池地址成功",
-				zap.Uint("taskId", task.ID),
-				zap.Uint("instanceId", instanceID))
-		}
-	}
 	// Release by binding rather than current provider network mode. An admin may
 	// switch the provider back to IPv4-only before deleting an older IPv6 instance.
 	releaseErr := ipv6PoolService.NewService().ReleaseIPv6(instanceID)

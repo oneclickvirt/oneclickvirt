@@ -608,7 +608,7 @@ fi
 	}
 
 	// 3. 检查容器是否连接到 IPv6 网络，如果是则获取IPv6地址
-	checkIPv6Cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$net}}{{println}}{{end}}'", d.runtime.CLI, shellSingleQuote(instance.Name))
+	checkIPv6Cmd := fmt.Sprintf("%s inspect %s --format %s", d.runtime.CLI, shellSingleQuote(instance.Name), shellSingleQuote(`{{range $net, $config := .NetworkSettings.Networks}}{{$net}}{{println}}{{end}}{{if eq (index .Config.Labels "oneclickvirt.network.ipv6-no-ipv4") "true"}}__OCV_IPV6_ONLY__{{end}}`))
 	networksOutput, err := d.sshClient.Execute(checkIPv6Cmd)
 	if err == nil && strings.Contains(networksOutput, d.runtime.IPv6Network) {
 		// 容器连接到了 IPv6 网络，获取IPv6地址
@@ -623,6 +623,12 @@ fi
 					zap.String("ipv6", ipv6Address))
 			}
 		}
+	}
+	if address := d.dockerInstallerIPv6Allocations()[instance.Name]; address != "" {
+		instance.IPv6Address = address
+	}
+	if strings.Contains(networksOutput, "__OCV_IPV6_ONLY__") {
+		instance.PrivateIP, instance.IP = "", ""
 	}
 }
 
@@ -741,7 +747,18 @@ func (d *DockerProvider) resolveDockerContainerNetwork(networkType, staticIPv6 s
 	if err := rejectNAT66PublicStaticIPv6(staticIPv6, available && d.dockerIPv6NetworkUsesNAT66()); err != nil {
 		return utils.ContainerNetworkSelection{}, err
 	}
-	return utils.ResolveContainerNetwork(networkType, staticIPv6, d.runtime.IPv4Network, d.runtime.IPv6Network, available)
+	selection, err := utils.ResolveContainerNetwork(networkType, staticIPv6, d.runtime.IPv4Network, d.runtime.IPv6Network, available)
+	if err != nil || !selection.IPv6 {
+		return selection, err
+	}
+	selection.IPv6Only = strings.EqualFold(strings.TrimSpace(networkType), "ipv6_only")
+	selection.ManualIPv6 = d.runtime.ProviderType == "docker" && d.dockerIPv6NetworkMode() == dockerIPv6NetworkModeManual
+	if selection.ManualIPv6 {
+		if _, err := d.sshClient.Execute("test -x " + shellSingleQuote(dockerManualIPv6Helper)); err != nil {
+			return utils.ContainerNetworkSelection{}, fmt.Errorf("Docker路由IPv6附加工具不可用: %w", err)
+		}
+	}
+	return selection, nil
 }
 
 // ExecuteSSHCommand 执行SSH命令

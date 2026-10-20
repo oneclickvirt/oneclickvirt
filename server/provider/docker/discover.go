@@ -81,6 +81,7 @@ func (d *DockerProvider) DiscoverInstances(ctx context.Context) ([]provider.Disc
 		return nil, fmt.Errorf("解析JSON失败: %w", err)
 	}
 
+	allocations := d.dockerInstallerIPv6Allocations()
 	var discoveredInstances []provider.DiscoveredInstance
 
 	for _, container := range containers {
@@ -180,6 +181,12 @@ func (d *DockerProvider) DiscoverInstances(ctx context.Context) ([]provider.Disc
 		// 尝试从环境变量或标签中提取OS类型
 		discovered.OSType = d.extractOSType(container.Config.Env, container.Config.Labels)
 
+		if address := allocations[strings.TrimPrefix(container.Name, "/")]; address != "" {
+			discovered.IPv6Address = address
+		}
+		if strings.EqualFold(container.Config.Labels[dockerIPv6OnlyLabel], "true") {
+			discovered.PrivateIP = ""
+		}
 		discoveredInstances = append(discoveredInstances, discovered)
 	}
 

@@ -77,7 +77,7 @@ func (d *DockerProvider) restoreRoutedIPv6AfterStart(name string, contexts ...co
 		return d.failRoutedIPv6Restore(ctx, name, "解析", output, err)
 	}
 	if !present {
-		return nil
+		return d.restoreDockerInstallerIPv6AfterStart(ctx, name)
 	}
 	attachCommand, err := routed.RoutedIPv6VethCommand(d.runtime.CLI, name)
 	if err != nil {

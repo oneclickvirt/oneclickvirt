@@ -13,11 +13,15 @@ import (
 )
 
 type dockerDiscoveryExecutor struct {
-	output  string
-	command string
+	output      string
+	command     string
+	allocations string
 }
 
 func (e *dockerDiscoveryExecutor) Execute(command string) (string, error) {
+	if strings.Contains(command, "/usr/local/bin/docker_ipv6_allocations") {
+		return e.allocations, nil
+	}
 	e.command = command
 	return e.output, nil
 }

@@ -64,6 +64,7 @@ func (d *DockerProvider) sshListInstances(ctx context.Context) ([]provider.Insta
 
 // enrichInstancesWithNetworkInfo 补充获取实例的网络信息（IP地址和网络接口）
 func (d *DockerProvider) enrichInstancesWithNetworkInfo(instances *[]provider.Instance) {
+	allocations := d.dockerInstallerIPv6Allocations()
 	for idx := range *instances {
 		instance := &(*instances)[idx]
 		// 只处理正在运行的实例
@@ -133,7 +134,7 @@ fi
 		}
 
 		// 3. 检查容器是否连接到 IPv6 网络
-		checkIPv6Cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$net}}{{println}}{{end}}'", d.runtime.CLI, shellSingleQuote(instance.Name))
+		checkIPv6Cmd := fmt.Sprintf("%s inspect %s --format %s", d.runtime.CLI, shellSingleQuote(instance.Name), shellSingleQuote(`{{range $net, $config := .NetworkSettings.Networks}}{{$net}}{{println}}{{end}}{{if eq (index .Config.Labels "oneclickvirt.network.ipv6-no-ipv4") "true"}}__OCV_IPV6_ONLY__{{end}}`))
 		networksOutput, err := d.sshClient.Execute(checkIPv6Cmd)
 		if err == nil && strings.Contains(networksOutput, d.runtime.IPv6Network) {
 			// 容器连接到了 IPv6 网络，获取IPv6地址
@@ -148,6 +149,12 @@ fi
 						zap.String("ipv6", ipv6Address))
 				}
 			}
+		}
+		if address := allocations[instance.Name]; address != "" {
+			instance.IPv6Address = address
+		}
+		if strings.Contains(networksOutput, "__OCV_IPV6_ONLY__") {
+			instance.PrivateIP, instance.IP = "", ""
 		}
 	}
 }
@@ -366,6 +373,8 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		return err
 	}
 	cmd = appendDockerNetworkOptions(cmd, networkSelection)
+	cmd += dockerInstallerNetworkLabels(networkSelection)
+	cmd += " --restart=unless-stopped"
 	if networkSelection.RoutedVeth {
 		labelArgs, labelErr := provider.RoutedIPv6RuntimeLabelArgs(networkSelection)
 		if labelErr != nil {
@@ -382,20 +391,6 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			global.APP_LOG.Warn("Provider配置启用IPv6但 IPv6 网络不可用",
 				zap.String("name", utils.TruncateString(config.Name, 32)),
 				zap.String("provider", d.config.Name))
-		}
-	}
-
-	// 对于独立IPv4模式，预先检查并确保该IPv4地址已绑定到宿主机网络接口
-	if networkType == "dedicated_ipv4" || networkType == "dedicated_ipv4_ipv6" {
-		if config.Metadata != nil {
-			if staticIPv4, ok := config.Metadata["static_ipv4"]; ok && staticIPv4 != "" {
-				if err := d.ensureIPv4OnHostInterface(staticIPv4); err != nil {
-					global.APP_LOG.Warn("独立IPv4宿主机接口绑定检查失败，继续执行",
-						zap.String("instance", config.Name),
-						zap.String("ipv4", staticIPv4),
-						zap.Error(err))
-				}
-			}
 		}
 	}
 
@@ -680,13 +675,16 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 }
 
 func appendDockerNetworkOptions(command string, selection utils.ContainerNetworkSelection) string {
+	if selection.IPv6Only {
+		command += " --dns=2606:4700:4700::1111 --dns=2001:4860:4860::8888"
+	}
 	if selection.Network != "" {
 		command += fmt.Sprintf(" --network=%s", shellSingleQuote(selection.Network))
 	}
 	// An IPv6 address belongs to the initial runtime network only when that
 	// network is itself the IPv6 network. Routed dual-stack allocations are
 	// connected after create so Docker keeps NAT IPv4 as the primary network.
-	if selection.StaticIPv6 != "" && !selection.RoutedVeth && (selection.IPv6Network == "" || selection.IPv6Network == selection.Network) {
+	if selection.StaticIPv6 != "" && !selection.RoutedVeth && !selection.ManualIPv6 && (selection.IPv6Network == "" || selection.IPv6Network == selection.Network) {
 		command += fmt.Sprintf(" --ip6=%s", shellSingleQuote(selection.StaticIPv6))
 	}
 	return command
@@ -722,7 +720,7 @@ func (d *DockerProvider) connectDockerAdditionalNetworks(name string, selection 
 			continue
 		}
 		command := fmt.Sprintf("%s network connect", d.runtime.CLI)
-		if network == selection.IPv6Network && selection.StaticIPv6 != "" {
+		if network == selection.IPv6Network && selection.StaticIPv6 != "" && !selection.ManualIPv6 {
 			command += fmt.Sprintf(" --ip6=%s", shellSingleQuote(selection.StaticIPv6))
 		}
 		command += fmt.Sprintf(" %s %s", shellSingleQuote(network), shellSingleQuote(name))
@@ -736,6 +734,14 @@ func (d *DockerProvider) connectDockerAdditionalNetworks(name string, selection 
 		diagnostics := d.collectCreateDiagnostics(name)
 		return fmt.Errorf("附加隧道路由IPv6网络失败，保留容器供排障: %w; output: %s; diagnostics: %s",
 			err, utils.TruncateString(strings.TrimSpace(output), 4000), utils.TruncateString(strings.TrimSpace(diagnostics), 6000))
+	}
+	if selection.ManualIPv6 {
+		if err := d.attachDockerInstallerIPv6(ctx, name, selection.StaticIPv6); err != nil {
+			return err
+		}
+	}
+	if selection.IPv6Only {
+		return d.removeDockerIPv4(ctx, name)
 	}
 	return nil
 }

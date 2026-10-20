@@ -244,7 +244,9 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 	// SSH/API calls here can take minutes and must not hold database locks.
 	var instanceUpdates map[string]interface{}
 	if apiError == nil {
-		instanceUpdates, _ = s.gatherInstanceNetworkInfo(ctx, instance)
+		var node providerModel.Provider
+		instanceUpdates, node = s.gatherInstanceNetworkInfo(ctx, instance)
+		apiError = applyAllocatedPublicIPv4(global.APP_DB.WithContext(ctx), *instance, node, instanceUpdates)
 	}
 	dbService := database.GetDatabaseService()
 	dbCtx, dbCancel := context.WithTimeout(context.Background(), 15*time.Second)

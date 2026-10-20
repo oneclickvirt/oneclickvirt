@@ -50,7 +50,7 @@ func (d *DockerProvider) sshCreateSpecialRuntimeInstance(ctx context.Context, co
 	if err != nil {
 		return true, err
 	}
-	networkFlags := dockerNetworkOptionFlags(networkSelection)
+	networkFlags := dockerNetworkOptionFlags(networkSelection) + dockerInstallerNetworkLabels(networkSelection)
 	if networkSelection.RoutedVeth {
 		labelArgs, labelErr := provider.RoutedIPv6RuntimeLabelArgs(networkSelection)
 		if labelErr != nil {

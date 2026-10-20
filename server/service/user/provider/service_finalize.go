@@ -269,7 +269,9 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 	var instanceUpdates map[string]interface{}
 	if apiError == nil {
 		global.APP_LOG.Debug("Provider创建实例成功，获取实例详细信息", zap.Uint("taskId", task.ID))
-		instanceUpdates, _ = s.gatherInstanceNetworkInfo(finalizeCtx, instance)
+		var node providerModel.Provider
+		instanceUpdates, node = s.gatherInstanceNetworkInfo(finalizeCtx, instance)
+		apiError = applyAllocatedPublicIPv4(global.APP_DB.WithContext(finalizeCtx), *instance, node, instanceUpdates)
 	}
 
 	dbCtx, dbCancel := context.WithTimeout(context.Background(), 15*time.Second)
