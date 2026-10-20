@@ -3,6 +3,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { selectableNetworkTypes, NETWORK_TYPE_KEYS } from '@/utils/networkType'
 import {
   getUserLimits,
   getFilteredImages,
@@ -55,6 +56,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
 
   const configForm = reactive({
     type: 'container',
+    networkType: '',
     imageId: '',
     cpuId: '',
     memoryId: '',
@@ -66,8 +68,16 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
     gpuDeviceIds: ''
   })
 
+  const availableNetworkTypes = computed(() => selectableNetworkTypes(selectedProvider.value || {}))
+  watch(() => [selectedProvider.value?.id, selectedProvider.value?.networkType, selectedProvider.value?.allowedNetworkTypes], () => {
+    if (!availableNetworkTypes.value.includes(configForm.networkType)) {
+      configForm.networkType = availableNetworkTypes.value[0] || ''
+    }
+  }, { immediate: true, deep: true })
+
   const configRules = computed(() => ({
     type: [{ required: true, message: t('user.apply.pleaseSelectInstanceType'), trigger: 'change' }],
+    networkType: [{ required: true, message: t('user.apply.selectNetworkType'), trigger: 'change' }],
     imageId: [{ required: true, message: t('user.apply.pleaseSelectSystemImage'), trigger: 'change' }],
     cpuId: [{ required: true, message: t('user.apply.pleaseSelectCpuSpec'), trigger: 'change' }],
     memoryId: [{ required: true, message: t('user.apply.pleaseSelectMemorySpec'), trigger: 'change' }],
@@ -303,6 +313,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
       ElMessage.error(t('user.apply.instanceTypeNotSupported'))
       return
     }
+    if (!availableNetworkTypes.value.includes(configForm.networkType)) { ElMessage.error(t('user.apply.selectNetworkType')); return }
     if (!configForm.cpuId) { ElMessage.error(t('user.apply.pleaseSelectCpuSpec')); return }
     if (!configForm.memoryId) { ElMessage.error(t('user.apply.pleaseSelectMemorySpec')); return }
     if (!configForm.diskId) { ElMessage.error(t('user.apply.pleaseSelectDiskSpec')); return }
@@ -323,6 +334,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
           <div style="padding: 12px; background: var(--neutral-bg); border-radius: 4px;">
             <p><strong>${t('user.apply.confirmProvider')}:</strong> ${selectedProvider.value.name}</p>
             <p><strong>${t('user.apply.confirmInstanceType')}:</strong> ${configForm.type === 'container' ? t('user.apply.container') : t('user.apply.vm')}</p>
+            <p><strong>${t('user.apply.networkMode')}:</strong> ${t(`user.apply.networkModes.${NETWORK_TYPE_KEYS[configForm.networkType]}`)}</p>
             <p><strong>${t('user.apply.confirmImage')}:</strong> ${selectedImage?.name || '-'}</p>
             <p><strong>${t('user.apply.confirmCpu')}:</strong> ${selectedCpu?.name || '-'}</p>
             <p><strong>${t('user.apply.confirmMemory')}:</strong> ${selectedMemory?.name || '-'}</p>
@@ -348,6 +360,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
 
       const response = await createInstance({
         providerId: selectedProvider.value.id,
+        networkType: configForm.networkType,
         imageId: configForm.imageId,
         cpuId: configForm.cpuId,
         memoryId: configForm.memoryId,
@@ -363,7 +376,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
         if (response.data && response.data.taskId) {
           ElMessage.info(t('user.apply.taskIdInfo', { taskId: response.data.taskId }))
         }
-        setTimeout(() => { router.push('/user/tasks') }, 3000)
+        window.setTimeout(() => { router.push('/user/tasks') }, 3000)
       } else {
         ElMessage.error(response.message || t('user.apply.createInstanceFailed'))
         submitting.value = false
@@ -374,7 +387,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
         console.error('提交申请失败:', error)
         if (error.message && error.message.includes('timeout')) {
           ElMessage.error(t('user.apply.requestTimeout'))
-          setTimeout(() => { router.push('/user/tasks') }, 3000)
+          window.setTimeout(() => { router.push('/user/tasks') }, 3000)
         } else {
           ElMessage.error(errorMessage(error, t('user.apply.submitFailed')))
           submitting.value = false
@@ -409,6 +422,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
     if (formRef.value) formRef.value.resetFields()
     Object.assign(configForm, {
       type: 'container',
+    networkType: '',
       imageId: '',
       cpuId: '',
       memoryId: '',
@@ -418,6 +432,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
       gpuEnabled: false,
       gpuDeviceIds: ''
     })
+    configForm.networkType = availableNetworkTypes.value[0] || ''
     selectedGpuIndices.value = []
     if (selectedProvider.value) await loadFilteredImages()
   }
@@ -483,6 +498,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
     instanceConfig,
     userLimits,
     configForm,
+    availableNetworkTypes,
     formRef,
     configRules,
     availableCpuSpecs,

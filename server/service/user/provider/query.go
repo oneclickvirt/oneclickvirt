@@ -209,6 +209,7 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 				Type:                    provider.Type,
 				Architecture:            provider.Architecture,
 				NetworkType:             provider.NetworkType,
+				AllowedNetworkTypes:     provider.UserNetworkTypes(),
 				ConnectionType:          provider.ConnectionType,
 				Region:                  provider.Region,
 				Country:                 provider.Country,

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -94,6 +95,15 @@ func (s *Service) CreateUserInstance(userID uint, req userModel.CreateInstanceRe
 			zap.String("providerName", provider.Name),
 			zap.Bool("trafficLimited", provider.TrafficLimited))
 		return nil, errors.New("该服务器因流量超限暂时不可用，请选择其他服务器或联系管理员")
+	}
+
+	networkType, err := provider.ResolveUserNetworkType(req.NetworkType)
+	if err != nil {
+		return nil, err
+	}
+	req.NetworkType = networkType
+	if err := validateProviderIPv6Network(provider.Type, req.NetworkType); err != nil {
+		return nil, err
 	}
 
 	var currentUser userModel.User
@@ -306,6 +316,9 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&provider, req.ProviderId).Error; err != nil {
 				return fmt.Errorf("获取节点信息失败: %v", err)
 			}
+			if _, err := provider.ResolveUserNetworkType(req.NetworkType); err != nil {
+				return err
+			}
 			createTimeout = utils.GetCreateTaskTimeoutForImage(provider.Type, systemImage.InstanceType, systemImage.OSType, systemImage.URL)
 
 			providerAvailable := (provider.ConnectionType == "agent" && provider.AgentStatus == "online") ||
@@ -429,8 +442,15 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 		}
 
 		// 2. 创建任务
-		taskData := fmt.Sprintf(`{"providerId":%d,"imageId":%d,"cpuId":"%s","memoryId":"%s","diskId":"%s","bandwidthId":"%s","description":"%s","sessionId":"%s","gpuEnabled":%t,"gpuDeviceIds":"%s"}`,
-			req.ProviderId, req.ImageId, req.CPUId, req.MemoryId, req.DiskId, req.BandwidthId, req.Description, sessionID, req.GpuEnabled, req.GpuDeviceIds)
+		taskData, err := json.Marshal(adminModel.CreateInstanceTaskRequest{
+			ProviderId: req.ProviderId, ImageId: req.ImageId, CPUId: req.CPUId,
+			MemoryId: req.MemoryId, DiskId: req.DiskId, BandwidthId: req.BandwidthId,
+			Description: req.Description, SessionId: sessionID, NetworkType: req.NetworkType,
+			GpuEnabled: req.GpuEnabled, GpuDeviceIds: req.GpuDeviceIds,
+		})
+		if err != nil {
+			return fmt.Errorf("编码创建任务失败: %w", err)
+		}
 
 		// 计算预计执行时长
 		estimatedDuration := 300 // 默认5分钟
@@ -443,7 +463,7 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 			UserID:                userID,
 			ProviderID:            &req.ProviderId,
 			TaskType:              "create",
-			TaskData:              taskData,
+			TaskData:              string(taskData),
 			Status:                "pending",
 			TimeoutDuration:       createTimeout,
 			IsForceStoppable:      true,

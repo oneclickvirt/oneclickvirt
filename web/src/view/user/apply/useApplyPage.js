@@ -8,6 +8,7 @@ import { useApplyProviders } from './composables/useApplyProviders'
 import { useApplyForm } from './composables/useApplyForm'
 import { getProviderHardwareReport } from '@/api/public'
 import { isContainerGPUProvider } from '@/utils/providerTypes'
+import { NETWORK_TYPE_KEYS } from '@/utils/networkType'
 
 export default function useApplyPage() {
   const route = useRoute()
@@ -24,7 +25,7 @@ export default function useApplyPage() {
   const {
     submitting, redeemCodeInput, redeemSubmitting,
     availableImages, instanceConfig, userLimits, configForm, formRef,
-    configRules, availableCpuSpecs, selectedImageInfo,
+    configRules, availableNetworkTypes, availableCpuSpecs, selectedImageInfo,
     availableMemorySpecs, availableDiskSpecs, availableBandwidthSpecs,
     canSelectSpec, formatCpuSpecName, formatImageRequirements,
     loadUserLimits, loadInstanceConfig, loadFilteredImages,
@@ -103,15 +104,7 @@ export default function useApplyPage() {
 
   const formatNetworkType = (networkType) => {
     const normalized = networkType || 'nat_ipv4'
-    const keyMap = {
-      nat_ipv4: 'natIpv4',
-      nat_ipv4_ipv6: 'natIpv4Ipv6',
-      dedicated_ipv4: 'dedicatedIpv4',
-      dedicated_ipv4_ipv6: 'dedicatedIpv4Ipv6',
-      ipv6_only: 'ipv6Only',
-      no_port_mapping: 'noPortMapping'
-    }
-    const key = keyMap[normalized]
+    const key = NETWORK_TYPE_KEYS[normalized]
     if (!key) return normalized
     const labelKey = `user.apply.networkModes.${key}`
     const label = t(labelKey)
@@ -298,7 +291,7 @@ export default function useApplyPage() {
     canCreateInstanceType,
     submitting, redeemCodeInput, redeemSubmitting,
     availableImages, instanceConfig, userLimits, configForm, formRef,
-    configRules, availableCpuSpecs, selectedImageInfo,
+    configRules, availableNetworkTypes, availableCpuSpecs, selectedImageInfo,
     availableMemorySpecs, availableDiskSpecs, availableBandwidthSpecs,
     canSelectSpec, formatCpuSpecName, formatImageRequirements,
     onInstanceTypeChange, submitApplication, submitRedemption, resetForm,

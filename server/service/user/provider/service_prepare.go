@@ -146,7 +146,16 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 		}
 		networkType := provider.NetworkType
 		if directCreate && taskReq.NetworkType != "" {
+			if !providerModel.IsInstanceNetworkType(taskReq.NetworkType) {
+				return fmt.Errorf("无效的网络类型")
+			}
 			networkType = taskReq.NetworkType
+		} else if !directCreate {
+			var err error
+			networkType, err = provider.ResolveUserNetworkType(taskReq.NetworkType)
+			if err != nil {
+				return err
+			}
 		}
 
 		// 创建实例记录
@@ -166,7 +175,7 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 			Username:           "root",
 			Password:           s.generatePassword(),
 			OSType:             osType,
-			NetworkType:        networkType, // 记录Provider的网络类型，用于reset时恢复IPv6配置
+			NetworkType:        networkType, // 保存本实例选择的类型，节点默认值变化不会改写该快照
 			ExpiresAt:          expiredAt,
 			IsManualExpiry:     false,        // 默认非手动设置，跟随节点
 			MaxTraffic:         0,            // 默认为0，表示继承用户等级限制，不单独限制实例

@@ -1,3 +1,20 @@
+export const NETWORK_TYPE_KEYS = {
+  nat_ipv4: 'natIpv4',
+  nat_ipv4_ipv6: 'natIpv4Ipv6',
+  dedicated_ipv4: 'dedicatedIpv4',
+  dedicated_ipv4_ipv6: 'dedicatedIpv4Ipv6',
+  ipv6_only: 'ipv6Only',
+  no_port_mapping: 'noPortMapping'
+}
+
+// Missing policy on an older server means the default only. Never infer that
+// every mode is available merely because the frontend recognizes its name.
+export function selectableNetworkTypes(provider = {}) {
+  const defaultType = provider.networkType || 'nat_ipv4'
+  const configured = Array.isArray(provider.allowedNetworkTypes) ? provider.allowedNetworkTypes : []
+  return [...new Set([defaultType, ...configured])].filter(value => Object.hasOwn(NETWORK_TYPE_KEYS, value))
+}
+
 // Resolve the effective network type for legacy/imported instances whose
 // snapshot may not contain the provider setting yet.
 export function resolveInstanceNetworkType(instance, providers = []) {

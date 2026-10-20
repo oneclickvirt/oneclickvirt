@@ -80,6 +80,7 @@ const buildDefaultForm = () => ({
   portRangeEnd: 65535,
   fixedPorts: [REQUIRED_FIXED_PORT],
   networkType: 'nat_ipv4',
+  allowedNetworkTypes: [],
   ipv6AddressFilePath: '',
   ipv6AddressFileSyncedAt: null,
   ipv6AddressFileSyncError: '',
@@ -257,6 +258,7 @@ export function useProviderForm(loadProviders) {
     addProviderForm.portRangeStart = provider.portRangeStart || 10000
     addProviderForm.portRangeEnd = provider.portRangeEnd || 65535
     addProviderForm.networkType = provider.networkType || 'nat_ipv4'
+    addProviderForm.allowedNetworkTypes = [...(provider.allowedNetworkTypes || [])]
     addProviderForm.ipv6AddressFilePath = provider.ipv6AddressFilePath || ''
     addProviderForm.ipv6AddressFileSyncedAt = provider.ipv6AddressFileSyncedAt || null
     addProviderForm.ipv6AddressFileSyncError = provider.ipv6AddressFileSyncError || ''
@@ -444,6 +446,7 @@ export function useProviderForm(loadProviders) {
         portRangeStart: formData.portRangeStart || 10000,
         portRangeEnd: formData.portRangeEnd || 65535,
         fixedPorts,
+        allowedNetworkTypes: [...(formData.allowedNetworkTypes || [])],
         networkType: isAgentMode
           ? (agentCanUseMappedNetworking ? (formData.networkType || 'nat_ipv4') : 'no_port_mapping')
           : (formData.networkType || 'nat_ipv4'),

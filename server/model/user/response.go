@@ -243,37 +243,38 @@ type ResetPasswordResponse struct {
 
 // AvailableProviderResponse 可用服务器响应
 type AvailableProviderResponse struct {
-	ID                      uint    `json:"id"`
-	Name                    string  `json:"name"`
-	Description             string  `json:"description"`
-	Type                    string  `json:"type"`           // 虚拟化/Provider类型
-	Architecture            string  `json:"architecture"`   // CPU架构：amd64, arm64, s390x等
-	NetworkType             string  `json:"networkType"`    // 节点网络模式
-	ConnectionType          string  `json:"connectionType"` // 连接类型：ssh/agent
-	Region                  string  `json:"region"`
-	Country                 string  `json:"country"`
-	CountryCode             string  `json:"countryCode"`
-	City                    string  `json:"city"`
-	Status                  string  `json:"status"`
-	CPU                     int     `json:"cpu"`
-	Memory                  int     `json:"memory"`                  // 总内存(MB)
-	PhysicalMemory          int     `json:"physicalMemory"`          // 物理内存(MB)
-	SwapMemory              int     `json:"swapMemory"`              // Swap内存(MB)
-	Disk                    int     `json:"disk"`                    // 总硬盘空间(MB)
-	AvailableContainerSlots int     `json:"availableContainerSlots"` // 可用容器槽位数，-1表示不限制
-	AvailableVMSlots        int     `json:"availableVMSlots"`        // 可用虚拟机槽位数，-1表示不限制
-	MaxContainerInstances   int     `json:"maxContainerInstances"`   // 最大容器数量，0表示不限制
-	MaxVMInstances          int     `json:"maxVMInstances"`          // 最大虚拟机数量，0表示不限制
-	CPUUsage                float64 `json:"cpuUsage"`
-	MemoryUsage             float64 `json:"memoryUsage"`
-	ContainerEnabled        bool    `json:"containerEnabled"`
-	VmEnabled               bool    `json:"vmEnabled"`
-	RedeemCodeOnly          bool    `json:"redeemCodeOnly"`       // 是否仅支持兑换码兑换
-	GpuEnabled              bool    `json:"gpuEnabled"`           // 是否启用GPU直通
-	GroupID                 uint    `json:"groupId"`              // 分组ID
-	GroupName               string  `json:"groupName"`            // 分组名称
-	GroupDescription        string  `json:"groupDescription"`     // 分组描述(Markdown源码)
-	GroupDescriptionHtml    string  `json:"groupDescriptionHtml"` // 分组描述安全HTML
+	ID                      uint     `json:"id"`
+	Name                    string   `json:"name"`
+	Description             string   `json:"description"`
+	Type                    string   `json:"type"`         // 虚拟化/Provider类型
+	Architecture            string   `json:"architecture"` // CPU架构：amd64, arm64, s390x等
+	AllowedNetworkTypes     []string `json:"allowedNetworkTypes"`
+	NetworkType             string   `json:"networkType"`    // 节点网络模式
+	ConnectionType          string   `json:"connectionType"` // 连接类型：ssh/agent
+	Region                  string   `json:"region"`
+	Country                 string   `json:"country"`
+	CountryCode             string   `json:"countryCode"`
+	City                    string   `json:"city"`
+	Status                  string   `json:"status"`
+	CPU                     int      `json:"cpu"`
+	Memory                  int      `json:"memory"`                  // 总内存(MB)
+	PhysicalMemory          int      `json:"physicalMemory"`          // 物理内存(MB)
+	SwapMemory              int      `json:"swapMemory"`              // Swap内存(MB)
+	Disk                    int      `json:"disk"`                    // 总硬盘空间(MB)
+	AvailableContainerSlots int      `json:"availableContainerSlots"` // 可用容器槽位数，-1表示不限制
+	AvailableVMSlots        int      `json:"availableVMSlots"`        // 可用虚拟机槽位数，-1表示不限制
+	MaxContainerInstances   int      `json:"maxContainerInstances"`   // 最大容器数量，0表示不限制
+	MaxVMInstances          int      `json:"maxVMInstances"`          // 最大虚拟机数量，0表示不限制
+	CPUUsage                float64  `json:"cpuUsage"`
+	MemoryUsage             float64  `json:"memoryUsage"`
+	ContainerEnabled        bool     `json:"containerEnabled"`
+	VmEnabled               bool     `json:"vmEnabled"`
+	RedeemCodeOnly          bool     `json:"redeemCodeOnly"`       // 是否仅支持兑换码兑换
+	GpuEnabled              bool     `json:"gpuEnabled"`           // 是否启用GPU直通
+	GroupID                 uint     `json:"groupId"`              // 分组ID
+	GroupName               string   `json:"groupName"`            // 分组名称
+	GroupDescription        string   `json:"groupDescription"`     // 分组描述(Markdown源码)
+	GroupDescriptionHtml    string   `json:"groupDescriptionHtml"` // 分组描述安全HTML
 }
 
 // SystemImageResponse 系统镜像响应

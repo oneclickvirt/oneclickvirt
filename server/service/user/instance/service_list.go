@@ -175,15 +175,16 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 		// 因为该模式下的端口转发是通过控制端内网穿透实现的，节点本身没有对外的公网IP
 		publicIP := instance.PublicIP
 		if providerInfo, ok := providerMap[instance.ProviderID]; ok {
-			if providerInfo.ConnectionType == "agent" && providerInfo.NetworkType == "no_port_mapping" {
-				publicIP = ""
-			}
 			// 仅为空的旧实例继承节点默认值；显式 NAT 模式必须保留。
 			if modifiedInstance.NetworkType == "" {
 				if providerInfo.NetworkType != "" {
 					modifiedInstance.NetworkType = providerInfo.NetworkType
 				}
 			}
+		}
+
+		if modifiedInstance.NetworkType == "ipv6_only" || (providerMap[instance.ProviderID].ConnectionType == "agent" && modifiedInstance.NetworkType == "no_port_mapping") {
+			publicIP = ""
 		}
 
 		detailReady := constant.IsDetailAvailableStatus(instance.Status)

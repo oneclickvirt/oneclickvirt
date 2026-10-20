@@ -223,6 +223,7 @@ type Provider struct {
 	PortRangeEnd             int        `json:"portRangeEnd" gorm:"default:65535"`                    // 端口映射范围结束
 	NextAvailablePort        int        `json:"nextAvailablePort" gorm:"default:10000"`               // 下一个可用端口
 	FixedPorts               []int      `json:"fixedPorts" gorm:"serializer:json;type:text"`          // 固定实例内端口，宿主机端口仍从端口池分配；22 强制保留
+	AllowedNetworkTypes      []string   `json:"allowedNetworkTypes" gorm:"serializer:json;type:text"` // 管理员额外开放的用户可选网络类型
 	NetworkType              string     `json:"networkType" gorm:"default:nat_ipv4;size:32;not null"` // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
 	IPv6AddressFilePath      string     `json:"ipv6AddressFilePath" gorm:"size:512"`                  // 节点侧IPv6地址/CIDR文件；为空时使用主控地址池或自动探测
 	IPv6AddressFileSyncedAt  *time.Time `json:"ipv6AddressFileSyncedAt"`                              // 节点IPv6地址文件最近成功同步时间

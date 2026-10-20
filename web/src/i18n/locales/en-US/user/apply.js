@@ -36,6 +36,7 @@ export default {
   instanceType: "Type",
   selectInstanceType: "Select instance type",
   systemImage: "System Image",
+  selectNetworkType: 'Select a network mode',
   selectSystemImage: "Select system image",
   imageRequirements: "Min: {memory}MB RAM / {disk}GB Disk",
   memorySpec: "Memory",

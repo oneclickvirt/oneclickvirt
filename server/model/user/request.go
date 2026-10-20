@@ -88,6 +88,7 @@ type CreateInstanceRequest struct {
 	DiskId      string `json:"diskId" binding:"required"`      // 磁盘规格ID
 	BandwidthId string `json:"bandwidthId" binding:"required"` // 带宽规格ID
 	Description string `json:"description"`                    // 描述信息
+	NetworkType string `json:"networkType" binding:"omitempty,oneof=nat_ipv4 nat_ipv4_ipv6 dedicated_ipv4 dedicated_ipv4_ipv6 ipv6_only no_port_mapping"`
 	// GPU直通配置（LXD/Incus 原生支持，Docker/Podman/Containerd/Orbstack 尽力通过运行参数附加）
 	GpuEnabled   bool   `json:"gpuEnabled"`   // 是否启用GPU直通
 	GpuDeviceIds string `json:"gpuDeviceIds"` // GPU设备ID列表（逗号分隔），为空则附加所有GPU

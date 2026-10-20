@@ -111,9 +111,13 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 		detail.ProviderStatus = provider.Status
 		detail.TrafficQuotaVisible = provider.TrafficQuotaVisible // 从Provider读取流量额度显示设置
 
+		if detail.NetworkType == "" {
+			detail.NetworkType = provider.NetworkType
+		}
+
 		// agent录入模式+无端口映射模式：不显示公网IP
 		// 因为该模式下的端口转发是通过控制端内网穿透实现的，节点本身没有对外的公网IP
-		if provider.ConnectionType == "agent" && provider.NetworkType == "no_port_mapping" {
+		if detail.NetworkType == "ipv6_only" || (provider.ConnectionType == "agent" && detail.NetworkType == "no_port_mapping") {
 			detail.PublicIP = ""
 		} else if detail.PublicIP == "" {
 			// 只有当实例没有公网IP且不是agent+no_port_mapping时，才使用Provider的endpoint作为fallback
@@ -122,10 +126,6 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 
 		detail.PortRangeStart = provider.PortRangeStart // 端口范围起始
 		detail.PortRangeEnd = provider.PortRangeEnd     // 端口范围结束
-		// 优先使用Provider的网络类型（权威来源），兼容旧实例未设置NetworkType的情况
-		if provider.NetworkType != "" {
-			detail.NetworkType = provider.NetworkType
-		}
 	}
 
 	providerTrafficLimited := hasProvider && provider.TrafficLimited

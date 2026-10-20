@@ -110,6 +110,7 @@ export function useProviderForm(props, emit) {
     portRangeEnd: 65535,
     fixedPorts: [REQUIRED_FIXED_PORT],
     networkType: 'nat_ipv4',
+    allowedNetworkTypes: [],
     ipv6AddressFilePath: '',
     ipv6AddressFileSyncedAt: null,
     ipv6AddressFileSyncError: '',

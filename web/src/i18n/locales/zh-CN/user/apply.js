@@ -36,6 +36,7 @@ export default {
   instanceType: "实例类型",
   selectInstanceType: "选择实例类型",
   systemImage: "系统镜像",
+  selectNetworkType: '请选择网络类型',
   selectSystemImage: "选择系统镜像",
   imageRequirements: "最低要求: {memory}MB内存 / {disk}GB硬盘",
   memorySpec: "内存",

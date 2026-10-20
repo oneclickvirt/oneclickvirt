@@ -256,6 +256,23 @@
         :rules="configRules"
         label-width="120px"
       >
+        <el-form-item
+          :label="t('user.apply.networkMode')"
+          prop="networkType"
+        >
+          <el-select
+            v-model="configForm.networkType"
+            :placeholder="t('user.apply.selectNetworkType')"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="mode in availableNetworkTypes"
+              :key="mode"
+              :value="mode"
+              :label="formatNetworkType(mode)"
+            />
+          </el-select>
+        </el-form-item>
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item
@@ -591,7 +608,7 @@ const {
   canCreateInstanceType,
   submitting, redeemCodeInput, redeemSubmitting,
   availableImages, instanceConfig, userLimits, configForm, formRef,
-  configRules, availableCpuSpecs, selectedImageInfo,
+  configRules, availableNetworkTypes, availableCpuSpecs, selectedImageInfo,
   availableMemorySpecs, availableDiskSpecs, availableBandwidthSpecs,
   canSelectSpec, formatCpuSpecName, formatImageRequirements,
   onInstanceTypeChange, submitApplication, submitRedemption, resetForm,

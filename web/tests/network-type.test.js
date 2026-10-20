@@ -71,3 +71,11 @@ test('other routed IPv6 backends retain controller pool allocation', () => {
   }
   assert.equal(usesControllerIPv6Pool('incus', 'nat_ipv4'), false)
 })
+
+test('network choices need explicit authorization and keep default-only legacy nodes', async () => {
+  const { selectableNetworkTypes } = await import('../src/utils/networkType.js')
+  assert.deepEqual(selectableNetworkTypes({ networkType: 'nat_ipv4' }), ['nat_ipv4'])
+  assert.deepEqual(selectableNetworkTypes({ networkType: 'nat_ipv4', allowedNetworkTypes: ['dedicated_ipv4_ipv6', 'ipv6_only', 'nat_ipv4', 'unknown'] }), ['nat_ipv4', 'dedicated_ipv4_ipv6', 'ipv6_only'])
+  assert.deepEqual(selectableNetworkTypes({ networkType: 'nat_ipv4', allowedNetworkTypes: [] }), ['nat_ipv4'])
+  assert.deepEqual(selectableNetworkTypes({ networkType: 'ipv6_only', allowedNetworkTypes: 'dedicated_ipv4_ipv6' }), ['ipv6_only'])
+})

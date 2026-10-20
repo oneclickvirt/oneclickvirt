@@ -180,6 +180,32 @@
         {{ $t('admin.providers.networkTypeTip') }}
       </el-text>
     </div>
+    <el-form-item
+      :label="$t('admin.providers.allowedNetworkTypes')"
+      prop="allowedNetworkTypes"
+    >
+      <el-select
+        v-model="modelValue.allowedNetworkTypes"
+        multiple
+        clearable
+        style="width: 100%"
+        :placeholder="$t('admin.providers.allowedNetworkTypesDefault')"
+      >
+        <el-option
+          v-for="option in userNetworkOptions"
+          :key="option.value"
+          :value="option.value"
+          :label="option.label"
+          :disabled="option.disabled"
+        />
+      </el-select>
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.allowedNetworkTypesTip') }}
+      </el-text>
+    </el-form-item>
     <el-alert
       v-if="hasIPv6Network && !supportsStaticIPv6"
       :title="$t('admin.providers.ipv6Pool.networkTypeUnsupported')"
@@ -587,7 +613,7 @@ import IPv6PoolPanel from './IPv6PoolPanel.vue'
 import IPv6TunnelPanel from './IPv6TunnelPanel.vue'
 import { supportsIPv6OnlyProvider, supportsStaticIPv6Provider } from '@/utils/ipv6Capabilities'
 import { CONTAINER_ONLY_PROVIDER_TYPES, VM_ONLY_PROVIDER_TYPES } from '@/utils/providerTypes'
-import { usesManagedIPv6NAT } from '@/utils/networkType'
+import { usesManagedIPv6NAT, NETWORK_TYPE_KEYS } from '@/utils/networkType'
 import { normalizePortMappingMethods } from '@/utils/portMappingMethod'
 
 const props = defineProps({
@@ -603,6 +629,12 @@ const REQUIRED_FIXED_PORT = 22
 const commonFixedPorts = [22, 80, 443, 8080, 8443, 3306, 5432, 6379, 27017]
 const supportsStaticIPv6 = computed(() => supportsStaticIPv6Provider(props.modelValue.type))
 const supportsIPv6Only = computed(() => supportsIPv6OnlyProvider(props.modelValue.type))
+const userNetworkOptions = computed(() => Object.keys(NETWORK_TYPE_KEYS).map(value => ({
+  value,
+  label: t(`user.apply.networkModes.${NETWORK_TYPE_KEYS[value]}`),
+  disabled: (['nat_ipv4_ipv6', 'dedicated_ipv4_ipv6', 'ipv6_only'].includes(value) && !supportsStaticIPv6.value) ||
+    (value === 'ipv6_only' && !supportsIPv6Only.value)
+})))
 const hasIPv6Network = computed(() => ['nat_ipv4_ipv6', 'dedicated_ipv4_ipv6', 'ipv6_only'].includes(props.modelValue.networkType))
 const managedIPv6NAT = computed(() => usesManagedIPv6NAT(
   props.modelValue.type,

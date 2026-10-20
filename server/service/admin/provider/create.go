@@ -280,6 +280,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		PortRangeEnd:        req.PortRangeEnd,
 		FixedPorts:          req.FixedPorts,
 		NetworkType:         req.NetworkType,
+		AllowedNetworkTypes: req.AllowedNetworkTypes,
 		IPv6AddressFilePath: normalizedIPv6FilePath,
 		// 带宽配置
 		DefaultInboundBandwidth:  req.DefaultInboundBandwidth,
@@ -431,6 +432,11 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 	if provider.NetworkType == "" {
 		provider.NetworkType = "nat_ipv4"
 	}
+	allowedNetworkTypes, err := providerModel.NormalizeAllowedNetworkTypes(provider.AllowedNetworkTypes)
+	if err != nil {
+		return nil, err
+	}
+	provider.AllowedNetworkTypes = allowedNetworkTypes
 	fixedPorts, err := resources.NormalizeProviderFixedPorts(provider.FixedPorts, provider.DefaultPortCount)
 	if err != nil {
 		return nil, err

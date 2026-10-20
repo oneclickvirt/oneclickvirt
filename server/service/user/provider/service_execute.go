@@ -93,6 +93,11 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		global.APP_LOG.Error("Provider不可用", zap.Uint("taskId", task.ID), zap.Uint("providerId", instance.ProviderID), zap.Error(err))
 		return err
 	}
+	if !directCreate && taskReq.NetworkType != "" {
+		if _, err := dbProvider.ResolveUserNetworkType(taskReq.NetworkType); err != nil {
+			return err
+		}
+	}
 	if taskReq.GpuEnabled && !dbProvider.GpuEnabled {
 		return fmt.Errorf("请先在节点设置中启用GPU直通")
 	}

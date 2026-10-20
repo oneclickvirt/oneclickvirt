@@ -365,6 +365,13 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	} else if len(provider.FixedPorts) == 0 {
 		provider.FixedPorts = []int{22}
 	}
+	if req.AllowedNetworkTypes != nil {
+		allowed, err := providerModel.NormalizeAllowedNetworkTypes(req.AllowedNetworkTypes)
+		if err != nil {
+			return err
+		}
+		provider.AllowedNetworkTypes = allowed
+	}
 	if req.NetworkType != "" {
 		provider.NetworkType = req.NetworkType
 	}
