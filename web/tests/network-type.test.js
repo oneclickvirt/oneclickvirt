@@ -79,3 +79,14 @@ test('network choices need explicit authorization and keep default-only legacy n
   assert.deepEqual(selectableNetworkTypes({ networkType: 'nat_ipv4', allowedNetworkTypes: [] }), ['nat_ipv4'])
   assert.deepEqual(selectableNetworkTypes({ networkType: 'ipv6_only', allowedNetworkTypes: 'dedicated_ipv4_ipv6' }), ['ipv6_only'])
 })
+
+test('selecting or changing a node adopts its saved default, refreshes preserve an explicit choice', async () => {
+  const { selectProviderNetworkType } = await import('../src/utils/networkType.js')
+  const node = { id: 1, networkType: 'dedicated_ipv4_ipv6', allowedNetworkTypes: ['nat_ipv4', 'ipv6_only'] }
+  assert.equal(selectProviderNetworkType(null, 'nat_ipv4', undefined), '')
+  assert.equal(selectProviderNetworkType(node, 'nat_ipv4', undefined), 'dedicated_ipv4_ipv6')
+  assert.equal(selectProviderNetworkType(node, 'nat_ipv4', 2), 'dedicated_ipv4_ipv6')
+  assert.equal(selectProviderNetworkType(node, 'nat_ipv4', 1), 'nat_ipv4')
+  assert.equal(selectProviderNetworkType(node, 'ipv6_only', '1'), 'ipv6_only')
+  assert.equal(selectProviderNetworkType({ ...node, allowedNetworkTypes: [] }, 'nat_ipv4', 1), 'dedicated_ipv4_ipv6')
+})

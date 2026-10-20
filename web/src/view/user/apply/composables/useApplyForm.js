@@ -3,7 +3,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { selectableNetworkTypes, NETWORK_TYPE_KEYS } from '@/utils/networkType'
+import { selectableNetworkTypes, selectProviderNetworkType, NETWORK_TYPE_KEYS } from '@/utils/networkType'
 import {
   getUserLimits,
   getFilteredImages,
@@ -68,11 +68,9 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
     gpuDeviceIds: ''
   })
 
-  const availableNetworkTypes = computed(() => selectableNetworkTypes(selectedProvider.value || {}))
-  watch(() => [selectedProvider.value?.id, selectedProvider.value?.networkType, selectedProvider.value?.allowedNetworkTypes], () => {
-    if (!availableNetworkTypes.value.includes(configForm.networkType)) {
-      configForm.networkType = availableNetworkTypes.value[0] || ''
-    }
+  const availableNetworkTypes = computed(() => selectedProvider.value ? selectableNetworkTypes(selectedProvider.value) : [])
+  watch(() => [selectedProvider.value?.id, selectedProvider.value?.networkType, selectedProvider.value?.allowedNetworkTypes], (_current, previous = []) => {
+    configForm.networkType = selectProviderNetworkType(selectedProvider.value, configForm.networkType, previous[0])
   }, { immediate: true, deep: true })
 
   const configRules = computed(() => ({
@@ -422,7 +420,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
     if (formRef.value) formRef.value.resetFields()
     Object.assign(configForm, {
       type: 'container',
-    networkType: '',
+      networkType: '',
       imageId: '',
       cpuId: '',
       memoryId: '',

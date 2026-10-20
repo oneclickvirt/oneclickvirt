@@ -15,6 +15,15 @@ export function selectableNetworkTypes(provider = {}) {
   return [...new Set([defaultType, ...configured])].filter(value => Object.hasOwn(NETWORK_TYPE_KEYS, value))
 }
 
+export function selectProviderNetworkType(provider, currentType, previousProviderId) {
+  if (!provider?.id) return ''
+  const choices = selectableNetworkTypes(provider)
+  if (String(provider.id) !== String(previousProviderId) || !choices.includes(currentType)) {
+    return choices[0] || ''
+  }
+  return currentType
+}
+
 // Resolve the effective network type for legacy/imported instances whose
 // snapshot may not contain the provider setting yet.
 export function resolveInstanceNetworkType(instance, providers = []) {
