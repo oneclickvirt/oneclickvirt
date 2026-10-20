@@ -1,6 +1,7 @@
 package ipv6pool
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	providerModel "oneclickvirt/model/provider"
+	"oneclickvirt/provider"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -99,15 +101,34 @@ func (s *Service) DeleteAddress(providerID, entryID uint) error {
 // an existing binding for idempotent task retries and reuses released children
 // before advancing a range cursor.
 func (s *Service) AllocateIPv6Address(providerID, instanceID uint) (string, error) {
+	return s.AllocateIPv6AddressContext(context.Background(), providerID, instanceID)
+}
+
+func (s *Service) AllocateIPv6AddressContext(ctx context.Context, providerID, instanceID uint) (string, error) {
 	db := s.database()
 	if db == nil {
 		return "", fmt.Errorf("数据库连接不可用")
 	}
+	var nativeCount int64
+	if err := db.Model(&providerModel.ProviderIPv6Pool{}).Where("provider_id = ? AND tunnel_id IS NULL AND source <> ? AND deleted_at IS NULL", providerID, SourceTunnel).Count(&nativeCount).Error; err != nil {
+		return "", err
+	}
+	var network *provider.NativeIPv6PoolNetwork
+	if nativeCount > 0 {
+		var err error
+		network, err = s.GetNativePoolNetwork(ctx, providerID)
+		if err != nil {
+			return "", fmt.Errorf("检测IPv6实例网络失败: %w", err)
+		}
+	}
 	for {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		var allocated string
 		advancedCursor := false
 		exhausted := false
-		err := db.Transaction(func(tx *gorm.DB) error {
+		err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			// This short provider-row lock serializes allocation with pool sync and
 			// makes same-instance retries deterministic without holding any remote I/O.
 			var lockedProvider providerModel.Provider
@@ -120,6 +141,9 @@ func (s *Service) AllocateIPv6Address(providerID, instanceID uint) (string, erro
 			existingResult := tx.Where("provider_id = ? AND instance_id = ? AND is_allocated = ? AND is_reserved = ? AND deleted_at IS NULL", providerID, instanceID, true, false).
 				Order("id ASC").First(&existing)
 			if existingResult.Error == nil {
+				if err := validateNativePoolEntry(network, existing); err != nil {
+					return err
+				}
 				allocated = existing.Address
 				return nil
 			}
@@ -133,6 +157,9 @@ func (s *Service) AllocateIPv6Address(providerID, instanceID uint) (string, erro
 			query := tx.Where("provider_id = ? AND is_allocated = ? AND is_reserved = ? AND is_range = ? AND pending_retire = ? AND deleted_at IS NULL", providerID, false, false, false, false).
 				Order("id ASC").First(&entry)
 			if query.Error == nil {
+				if err := validateNativePoolEntry(network, entry); err != nil {
+					return err
+				}
 				update := tx.Model(&providerModel.ProviderIPv6Pool{}).
 					Where("id = ? AND is_allocated = ? AND is_reserved = ? AND pending_retire = ?", entry.ID, false, false, false).
 					Updates(map[string]interface{}{"is_allocated": true, "instance_id": instanceID})
@@ -160,6 +187,9 @@ func (s *Service) AllocateIPv6Address(providerID, instanceID uint) (string, erro
 				return fmt.Errorf("查询IPv6地址范围失败: %w", rangeResult.Error)
 			}
 
+			if err := validateNativePoolEntry(network, source); err != nil {
+				return err
+			}
 			candidates, nextWindow, err := ipv6RangeCandidateWindow(source, rangeScanWindowSize)
 			if err != nil {
 				return err
@@ -178,6 +208,10 @@ func (s *Service) AllocateIPv6Address(providerID, instanceID uint) (string, erro
 			candidate := ""
 			candidateIndex := -1
 			for index, address := range candidates {
+				entry := providerModel.ProviderIPv6Pool{Address: address, TunnelID: source.TunnelID, Source: source.Source}
+				if validateNativePoolEntry(network, entry) != nil {
+					continue
+				}
 				if _, exists := used[address]; !exists {
 					candidate = address
 					candidateIndex = index

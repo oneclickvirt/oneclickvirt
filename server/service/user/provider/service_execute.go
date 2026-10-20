@@ -115,6 +115,8 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 	// instance so resets and finalization can use the same effective network.
 	// Keep the provider default only when the instance has no explicit value.
 	localProviderNetworkType := effectiveInstanceNetworkType(instance.NetworkType, dbProvider.NetworkType)
+	localProviderIPv4PortMappingMethod, localProviderIPv6PortMappingMethod = utils.NormalizeProviderPortMappingMethods(
+		localProviderType, localProviderNetworkType, localProviderIPv4PortMappingMethod, localProviderIPv6PortMappingMethod)
 	if err := validateProviderIPv6Network(localProviderType, localProviderNetworkType); err != nil {
 		return err
 	}
@@ -505,7 +507,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		allocatedIPv6 := ""
 		var allocErr error
 		if hasConfiguredPool {
-			allocatedIPv6, allocErr = poolService.AllocateIPv6Address(localProviderID, instance.ID)
+			allocatedIPv6, allocErr = poolService.AllocateIPv6AddressContext(ctx, localProviderID, instance.ID)
 		}
 		if allocErr == nil && allocatedIPv6 != "" {
 			instanceConfig.Metadata["static_ipv6"] = allocatedIPv6

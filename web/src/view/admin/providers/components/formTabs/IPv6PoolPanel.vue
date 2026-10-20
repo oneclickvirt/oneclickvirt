@@ -31,6 +31,32 @@
       style="margin-bottom: 16px;"
     />
     <template v-else>
+      <el-form-item
+        v-if="modelValue.type === 'proxmox'"
+        :label="$t('admin.providers.ipv6Pool.guestNetwork')"
+      >
+        <div class="ipv6-file-config">
+          <el-button
+            :loading="ipv6NetworkLoading"
+            @click="detectIPv6Network"
+          >
+            {{ $t('admin.providers.ipv6Pool.detectNetwork') }}
+          </el-button>
+          <el-text
+            size="small"
+            type="info"
+          >
+            {{ $t('admin.providers.ipv6Pool.guestNetworkTip') }}
+          </el-text>
+          <el-alert
+            v-if="ipv6Network"
+            type="info"
+            :closable="false"
+            :title="`${ipv6Network.bridge}: ${ipv6Network.cidr}`"
+            :description="$t('admin.providers.ipv6Pool.guestGateway', { gateway: ipv6Network.gateway })"
+          />
+        </div>
+      </el-form-item>
       <el-alert
         v-if="!supportsStaticIPv6"
         type="warning"
@@ -321,6 +347,9 @@ const canManageStaticIPv6Pool = computed(() => supportsStaticIPv6.value && !requ
 const syncItemCount = value => Array.isArray(value) ? value.length : '-'
 
 const {
+  ipv6Network,
+  ipv6NetworkLoading,
+  detectIPv6Network,
   ipv6PoolEntries,
   ipv6PoolStats,
   ipv6PoolLoading,

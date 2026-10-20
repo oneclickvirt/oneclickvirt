@@ -6,6 +6,7 @@ import (
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
+	"oneclickvirt/utils"
 	"strconv"
 	"strings"
 	"time"
@@ -105,13 +106,7 @@ func (s *ProviderApiService) GetProviderStatusByID(providerIDStr string) (map[st
 		return nil, fmt.Errorf("Provider不存在")
 	}
 
-	// Docker/Podman/Containerd/Orbstack 类型固定使用 native 端口映射方式
-	ipv4Method := dbProvider.IPv4PortMappingMethod
-	ipv6Method := dbProvider.IPv6PortMappingMethod
-	if dbProvider.Type == "docker" || dbProvider.Type == "podman" || dbProvider.Type == "containerd" || dbProvider.Type == "orbstack" {
-		ipv4Method = "native"
-		ipv6Method = "native"
-	}
+	ipv4Method, ipv6Method := utils.NormalizeProviderPortMappingMethods(dbProvider.Type, dbProvider.NetworkType, dbProvider.IPv4PortMappingMethod, dbProvider.IPv6PortMappingMethod)
 
 	// 检查Provider是否已连接（不尝试新连接）
 	providerService := GetProviderService()
@@ -183,13 +178,7 @@ func (s *ProviderApiService) GetProviderCapabilitiesByID(providerIDStr string) (
 		return nil, fmt.Errorf("Provider不存在")
 	}
 
-	// Docker/Podman/Containerd/Orbstack 类型固定使用 native 端口映射方式
-	ipv4Method := dbProvider.IPv4PortMappingMethod
-	ipv6Method := dbProvider.IPv6PortMappingMethod
-	if dbProvider.Type == "docker" || dbProvider.Type == "podman" || dbProvider.Type == "containerd" || dbProvider.Type == "orbstack" {
-		ipv4Method = "native"
-		ipv6Method = "native"
-	}
+	ipv4Method, ipv6Method := utils.NormalizeProviderPortMappingMethods(dbProvider.Type, dbProvider.NetworkType, dbProvider.IPv4PortMappingMethod, dbProvider.IPv6PortMappingMethod)
 
 	// 检查Provider是否已连接（不尝试新连接）
 	providerService := GetProviderService()

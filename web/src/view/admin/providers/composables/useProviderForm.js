@@ -8,6 +8,7 @@ import { useI18n } from 'vue-i18n'
 import { DEFAULT_LEVEL_LIMITS, normalizeLevelLimits, formatLevelLimitsForBackend as formatLevels, getLevelTagType } from '@/utils/levels'
 import { isContainerOnlyProvider, isVMOnlyProvider } from '@/utils/providerTypes'
 import { hasAgentMappedNetworking } from '@/utils/networkType'
+import { normalizePortMappingMethods } from '@/utils/portMappingMethod'
 
 // 解析等级限制配置（后端 kebab-case → 前端 camelCase）
 export const parseLevelLimits = (levelLimitsStr) => {
@@ -370,6 +371,8 @@ export function useProviderForm(loadProviders) {
       addProviderForm.storagePool = provider.storagePool || 'local'
     }
 
+    Object.assign(addProviderForm, normalizePortMappingMethods(addProviderForm.type, addProviderForm.networkType, addProviderForm.ipv4PortMappingMethod, addProviderForm.ipv6PortMappingMethod))
+
     isEditing.value = true
     showAddDialog.value = true
   }
@@ -534,6 +537,8 @@ export function useProviderForm(loadProviders) {
         serverData.ipv4PortMappingMethod = formData.ipv4PortMappingMethod || 'device_proxy'
         serverData.ipv6PortMappingMethod = formData.ipv6PortMappingMethod || 'device_proxy'
       }
+
+      Object.assign(serverData, normalizePortMappingMethods(formData.type, formData.networkType, serverData.ipv4PortMappingMethod, serverData.ipv6PortMappingMethod))
 
       // 无端口映射能力的 agent 模式：清除端口映射方法
       if (isAgentMode && !agentCanUseMappedNetworking) {

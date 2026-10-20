@@ -467,19 +467,8 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 	if req.TrafficCollectInterval > 300 {
 		return nil, fmt.Errorf("流量采集间隔不能超过300秒（5分钟），当前值: %d秒", req.TrafficCollectInterval)
 	}
-	// 端口映射方式默认值
-	// Docker/Podman/Containerd/Orbstack 类型固定使用 native
-	if provider.Type == "docker" || provider.Type == "podman" || provider.Type == "containerd" || provider.Type == "orbstack" {
-		provider.IPv4PortMappingMethod = "native"
-		provider.IPv6PortMappingMethod = "native"
-	} else {
-		if provider.IPv4PortMappingMethod == "" {
-			provider.IPv4PortMappingMethod = "device_proxy" // 默认device_proxy
-		}
-		if provider.IPv6PortMappingMethod == "" {
-			provider.IPv6PortMappingMethod = "device_proxy" // 默认device_proxy
-		}
-	}
+	provider.IPv4PortMappingMethod, provider.IPv6PortMappingMethod = utils.NormalizeProviderPortMappingMethods(
+		provider.Type, provider.NetworkType, provider.IPv4PortMappingMethod, provider.IPv6PortMappingMethod)
 	// SSH超时默认值
 	if provider.SSHConnectTimeout <= 0 {
 		provider.SSHConnectTimeout = 30 // 默认30秒连接超时

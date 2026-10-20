@@ -11,6 +11,7 @@ import (
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
+	"oneclickvirt/provider"
 	runtimeProvider "oneclickvirt/service/provider"
 	"oneclickvirt/utils"
 
@@ -34,8 +35,9 @@ const (
 type nodeFileReader func(context.Context, uint, string) (string, error)
 
 type Service struct {
-	readNodeFile nodeFileReader
-	db           *gorm.DB
+	readNodeFile    nodeFileReader
+	readPoolNetwork func(context.Context, uint) (*provider.NativeIPv6PoolNetwork, error)
+	db              *gorm.DB
 }
 
 // database returns the connection owned by this service. Keeping the fallback
@@ -154,6 +156,10 @@ func (s *Service) GetIPv6Pool(providerID uint, page, pageSize int) ([]providerMo
 
 // SetIPv6Pool appends controller-managed addresses without expanding CIDRs.
 func (s *Service) SetIPv6Pool(providerID uint, text string) (added, invalid []string, err error) {
+	return s.SetIPv6PoolContext(context.Background(), providerID, text)
+}
+
+func (s *Service) SetIPv6PoolContext(ctx context.Context, providerID uint, text string) (added, invalid []string, err error) {
 	parsed, invalid, err := parseIPv6PoolText(providerID, text, SourceManual)
 	if err != nil {
 		return nil, invalid, err
@@ -163,7 +169,14 @@ func (s *Service) SetIPv6Pool(providerID uint, text string) (added, invalid []st
 	if db == nil {
 		return nil, invalid, fmt.Errorf("数据库连接不可用")
 	}
-	err = db.Transaction(func(tx *gorm.DB) error {
+	network, err := s.GetNativePoolNetwork(ctx, providerID)
+	if err != nil {
+		return nil, invalid, fmt.Errorf("检测IPv6实例网络失败: %w", err)
+	}
+	if err := validateNativePoolEntries(network, parsed); err != nil {
+		return nil, invalid, err
+	}
+	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var lockedProvider providerModel.Provider
 		if err := tx.Select("id", "type").Where("id = ?", providerID).
 			Clauses(clause.Locking{Strength: "UPDATE"}).First(&lockedProvider).Error; err != nil {
@@ -291,6 +304,14 @@ func (s *Service) SyncProviderFile(ctx context.Context, providerID uint, pathOve
 	parsed, invalid, err := parseIPv6PoolTextWithOptions(providerID, output, SourceNodeFile, true)
 	result.InvalidLines = invalid
 	result.ParsedCount = len(parsed)
+	if err != nil {
+		s.recordSyncError(providerID, err)
+		return result, err
+	}
+	network, err := s.GetNativePoolNetwork(ctx, providerID)
+	if err == nil {
+		err = validateNativePoolEntries(network, parsed)
+	}
 	if err != nil {
 		s.recordSyncError(providerID, err)
 		return result, err

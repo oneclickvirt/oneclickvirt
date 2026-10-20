@@ -127,9 +127,9 @@ func parseProxmoxDirectIPv6State(output string) (*proxmoxDirectIPv6State, error)
 	return &proxmoxDirectIPv6State{Network: network, Gateway: gateway, Mode: fields[2], Bridge: bridge, Transport: transport}, nil
 }
 
-func (p *ProxmoxProvider) getProxmoxDirectIPv6State() (*proxmoxDirectIPv6State, error) {
+func (p *ProxmoxProvider) getProxmoxDirectIPv6State(ctx context.Context) (*proxmoxDirectIPv6State, error) {
 	// Fetch the six small files together, without one SSH/Agent call per field.
-	output, err := p.sshClient.Execute(`printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(cat /usr/local/bin/pve_direct_ipv6_prefix 2>/dev/null)" "$(cat /usr/local/bin/pve_direct_ipv6_gateway 2>/dev/null)" "$(cat /usr/local/bin/pve_direct_ipv6_mode 2>/dev/null)" "$(cat /usr/local/bin/pve_direct_ipv6_upstream_gateway 2>/dev/null)" "$(cat /usr/local/bin/pve_direct_ipv6_bridge 2>/dev/null)" "$(cat /usr/local/bin/pve_direct_ipv6_transport 2>/dev/null)"`)
+	output, err := p.sshClient.ExecuteContext(ctx, `printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(cat /usr/local/bin/pve_direct_ipv6_prefix 2>/dev/null)" "$(cat /usr/local/bin/pve_direct_ipv6_gateway 2>/dev/null)" "$(cat /usr/local/bin/pve_direct_ipv6_mode 2>/dev/null)" "$(cat /usr/local/bin/pve_direct_ipv6_upstream_gateway 2>/dev/null)" "$(cat /usr/local/bin/pve_direct_ipv6_bridge 2>/dev/null)" "$(cat /usr/local/bin/pve_direct_ipv6_transport 2>/dev/null)"`)
 	if err != nil {
 		return nil, fmt.Errorf("读取PVE直连IPv6配置失败: %w", err)
 	}
@@ -680,7 +680,7 @@ func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
 	// 检查是否存在额外的IPv6地址
 	appendedFile := "/usr/local/bin/pve_appended_content.txt"
 	checkCmd := fmt.Sprintf("[ -s '%s' ]", appendedFile)
-	_, err := p.sshClient.Execute(checkCmd)
+	_, err := p.sshClient.ExecuteContext(ctx, checkCmd)
 	info.HasAppendedAddresses = (err == nil)
 
 	// Prefer iproute2's machine-readable address metadata over persisted
@@ -688,12 +688,12 @@ func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
 	// a /38, /56, /120, or a host-only /128), and human-readable ip output is
 	// affected by locale and terminal colour settings.  The selected network is
 	// kept paired with the interface that owns the address.
-	addressJSON, addressErr := p.sshClient.Execute("LC_ALL=C NO_COLOR=1 ip -j -6 addr show scope global")
-	routeJSON, routeErr := p.sshClient.Execute("LC_ALL=C NO_COLOR=1 ip -j -6 route show default")
+	addressJSON, addressErr := p.sshClient.ExecuteContext(ctx, "LC_ALL=C NO_COLOR=1 ip -j -6 addr show scope global")
+	routeJSON, routeErr := p.sshClient.ExecuteContext(ctx, "LC_ALL=C NO_COLOR=1 ip -j -6 route show default")
 	var state *proxmoxDirectIPv6State
 	if !info.HasAppendedAddresses {
 		var stateErr error
-		state, stateErr = p.getProxmoxDirectIPv6State()
+		state, stateErr = p.getProxmoxDirectIPv6State(ctx)
 		if stateErr != nil {
 			return nil, stateErr
 		}
@@ -750,8 +750,8 @@ func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
 
 	if !jsonNetworkFound {
 		// 获取主机IPv6地址
-		if _, err := p.sshClient.Execute("[ -f /usr/local/bin/pve_check_ipv6 ]"); err == nil {
-			output, err := p.sshClient.Execute("cat /usr/local/bin/pve_check_ipv6")
+		if _, err := p.sshClient.ExecuteContext(ctx, "[ -f /usr/local/bin/pve_check_ipv6 ]"); err == nil {
+			output, err := p.sshClient.ExecuteContext(ctx, "cat /usr/local/bin/pve_check_ipv6")
 			if err == nil {
 				if !jsonNetworkFound {
 					info.HostIPv6Address = cleanIPv6Value(output)
@@ -768,8 +768,8 @@ func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
 		}
 
 		// 获取IPv6前缀长度
-		if _, err := p.sshClient.Execute("[ -f /usr/local/bin/pve_ipv6_prefixlen ]"); err == nil {
-			output, err := p.sshClient.Execute("cat /usr/local/bin/pve_ipv6_prefixlen")
+		if _, err := p.sshClient.ExecuteContext(ctx, "[ -f /usr/local/bin/pve_ipv6_prefixlen ]"); err == nil {
+			output, err := p.sshClient.ExecuteContext(ctx, "cat /usr/local/bin/pve_ipv6_prefixlen")
 			if err == nil {
 				parsed, parseErr := utils.ParseFirstIPv6PrefixLengthOutput(output)
 				if parseErr == nil && !jsonNetworkFound {
@@ -787,8 +787,8 @@ func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
 
 	// 获取IPv6网关
 	if info.DirectBridge == "" {
-		if _, err := p.sshClient.Execute("[ -f /usr/local/bin/pve_ipv6_gateway ]"); err == nil {
-			output, err := p.sshClient.Execute("cat /usr/local/bin/pve_ipv6_gateway")
+		if _, err := p.sshClient.ExecuteContext(ctx, "[ -f /usr/local/bin/pve_ipv6_gateway ]"); err == nil {
+			output, err := p.sshClient.ExecuteContext(ctx, "cat /usr/local/bin/pve_ipv6_gateway")
 			if err == nil {
 				info.IPv6Gateway = cleanIPv6Value(output)
 			}
@@ -796,6 +796,9 @@ func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
 
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return info, nil
 }
 

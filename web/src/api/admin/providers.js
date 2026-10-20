@@ -303,6 +303,12 @@ export const getProviderIPv6Pool = (providerId, params) => {
   })
 }
 
+export const getProviderIPv6PoolNetwork = (providerId) => request({
+  url: `/v1/admin/providers/${providerId}/ipv6-pool/network`,
+  method: 'get',
+  timeout: 40000
+})
+
 export const setProviderIPv6Pool = (providerId, data) => {
   return request({
     url: `/v1/admin/providers/${providerId}/ipv6-pool`,

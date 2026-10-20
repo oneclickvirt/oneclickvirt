@@ -9,6 +9,7 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
 	"oneclickvirt/service/userquota"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -208,6 +209,9 @@ func (p *ProxmoxProvider) parseNetworkConfigFromInstanceConfig(config provider.I
 				zap.String("final_ipv6_port_method", networkConfig.IPv6PortMappingMethod))
 		}
 	}
+
+	networkConfig.IPv4PortMappingMethod, networkConfig.IPv6PortMappingMethod = utils.NormalizeProviderPortMappingMethods(
+		"proxmox", networkConfig.NetworkType, networkConfig.IPv4PortMappingMethod, networkConfig.IPv6PortMappingMethod)
 
 	// 输出最终的网络配置结果
 	hasIPv6 := networkConfig.NetworkType == "nat_ipv4_ipv6" || networkConfig.NetworkType == "dedicated_ipv4_ipv6" || networkConfig.NetworkType == "ipv6_only"

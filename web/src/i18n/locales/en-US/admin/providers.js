@@ -685,6 +685,10 @@ export default {
     loadFailed: "Failed to load pool"
   },
   ipv6Pool: {
+    guestNetwork: 'Guest IPv6 subnet',
+    detectNetwork: 'Detect saved node guest subnet',
+    guestNetworkTip: 'Pools must fit the guest bridge prefix, which can be smaller than the host uplink prefix. Save bridge changes before detecting.',
+    guestGateway: 'Gateway: {gateway}. CIDR allocation skips the gateway, host addresses and subnet address.',
     managedNatTitle: "Incus/LXD Managed IPv6 NAT",
     managedNatTip: "The current Device Proxy/Iptables mode does not consume the IPv6 pool or node address file. The controller detects the host public IPv6, keeps guests on the Incus/LXD bridge ULA, and maps each allocated host port on both IPv4 and IPv6. To give every guest a dedicated public IPv6, choose Native on the mapping tab and configure an IPv6 pool.",
     management: "IPv6 Address Pool / Node Address File",

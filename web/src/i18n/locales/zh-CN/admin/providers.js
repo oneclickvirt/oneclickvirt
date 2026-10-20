@@ -685,6 +685,10 @@ export default {
     loadFailed: "加载地址池失败"
   },
   ipv6Pool: {
+    guestNetwork: '实例IPv6网段',
+    detectNetwork: '检测已保存节点的实例网段',
+    guestNetworkTip: '地址池必须属于实例网桥的可用前缀，不能直接填写更大的宿主上联网段。修改网桥后请先保存节点再检测。',
+    guestGateway: '网关：{gateway}。CIDR分配会自动跳过网关、宿主地址和网络地址。',
     managedNatTitle: "Incus/LXD 托管 NAT IPv6",
     managedNatTip: "当前 Device Proxy/Iptables 模式不消费IPv6地址池或节点地址文件。系统自动检测宿主机公网IPv6，实例使用Incus/LXD网桥ULA地址，并把分配的宿主端口同时映射到IPv4和IPv6。若需每个实例拥有独立公网IPv6，请在端口映射页选择 Native 并配置IPv6地址池。",
     management: "IPv6地址池 / 节点地址文件",

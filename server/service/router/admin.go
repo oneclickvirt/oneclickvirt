@@ -170,6 +170,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.DELETE("/providers/:id/ipv4-pool/:entry_id", admin.DeleteProviderIPv4PoolEntry)
 		// IPv6地址池管理（支持离散地址和任意前缀范围）
 		NormalAdminGroup.GET("/providers/:id/ipv6-pool", admin.GetProviderIPv6Pool)
+		NormalAdminGroup.GET("/providers/:id/ipv6-pool/network", admin.GetProviderIPv6PoolNetwork)
 		NormalAdminGroup.POST("/providers/:id/ipv6-pool", admin.SetProviderIPv6Pool)
 		NormalAdminGroup.POST("/providers/:id/ipv6-pool/sync", admin.SyncProviderIPv6Pool)
 		NormalAdminGroup.DELETE("/providers/:id/ipv6-pool", admin.ClearProviderIPv6Pool)

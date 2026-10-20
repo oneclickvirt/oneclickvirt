@@ -61,6 +61,25 @@ func GetProviderIPv6Pool(c *gin.Context) {
 	common.ResponseSuccess(c, gin.H{"list": entries, "total": total, "page": page, "pageSize": pageSize, "stats": ipv6PoolStatsResponse(stats)}, "获取成功")
 }
 
+// GetProviderIPv6PoolNetwork probes the saved node configuration on demand.
+func GetProviderIPv6PoolNetwork(c *gin.Context) {
+	providerID, err := parseProviderID(c)
+	if err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
+	if err := ensureProviderOwner(c, providerID); err != nil {
+		common.ResponseWithError(c, err)
+		return
+	}
+	network, err := ipv6pool.NewService().GetNativePoolNetwork(c.Request.Context(), providerID)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
+		return
+	}
+	common.ResponseSuccess(c, network, "检测成功")
+}
+
 // SetProviderIPv6Pool 向服务商IPv6地址池追加地址或网段
 // @Summary 设置IPv6地址池
 // @Description 向指定服务商的IPv6地址池中追加离散地址或CIDR网段
@@ -87,7 +106,7 @@ func SetProviderIPv6Pool(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请求参数错误: "+err.Error()))
 		return
 	}
-	added, invalid, err := ipv6pool.NewService().SetIPv6Pool(providerID, req.Addresses)
+	added, invalid, err := ipv6pool.NewService().SetIPv6PoolContext(c.Request.Context(), providerID, req.Addresses)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
 		return

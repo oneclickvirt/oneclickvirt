@@ -5,6 +5,7 @@ import {
   clearProviderIPv6Pool,
   deleteProviderIPv6PoolEntry,
   getProviderIPv6Pool,
+  getProviderIPv6PoolNetwork,
   setProviderIPv6Pool,
   syncProviderIPv6Pool,
   updateProvider
@@ -21,6 +22,8 @@ export function useIPv6Pool(props, onProviderUpdated = () => {}) {
   const ipv6FileSaving = ref(false)
   const ipv6FileSyncing = ref(false)
   const ipv6SyncResult = ref(null)
+  const ipv6Network = ref(null)
+  const ipv6NetworkLoading = ref(false)
 
   const ipv6LastSyncedAt = computed(() => {
     const value = ipv6SyncResult.value?.syncedAt || props.modelValue.ipv6AddressFileSyncedAt
@@ -60,10 +63,23 @@ export function useIPv6Pool(props, onProviderUpdated = () => {}) {
       else ElMessage.success(t('admin.providers.ipv6Pool.addSuccess'))
       newIPv6Addresses.value = ''
       await loadIPv6Pool()
-    } catch {
-      ElMessage.error(t('admin.providers.ipv6Pool.addFailed'))
+    } catch (error) {
+      ElMessage.error(apiErrorMessage(error))
     } finally {
       ipv6PoolSaving.value = false
+    }
+  }
+
+  async function detectIPv6Network() {
+    ipv6NetworkLoading.value = true
+    ipv6Network.value = null
+    try {
+      const res = await getProviderIPv6PoolNetwork(props.modelValue.id)
+      ipv6Network.value = res.data
+    } catch (error) {
+      ElMessage.error(apiErrorMessage(error))
+    } finally {
+      ipv6NetworkLoading.value = false
     }
   }
 
@@ -145,11 +161,14 @@ export function useIPv6Pool(props, onProviderUpdated = () => {}) {
 
   watch(() => [props.modelValue.id, props.modelValue.type, props.modelValue.networkType, props.modelValue.ipv6PortMappingMethod],
     ([id, providerType, networkType, ipv6PortMappingMethod], previous = []) => {
-      if (id !== previous[0]) ipv6SyncResult.value = null
+      if (id !== previous[0]) { ipv6SyncResult.value = null; ipv6Network.value = null }
       if (id && usesControllerIPv6Pool(providerType, networkType, ipv6PortMappingMethod)) loadIPv6Pool()
     }, { immediate: true })
 
   return {
+    ipv6Network,
+    ipv6NetworkLoading,
+    detectIPv6Network,
     ipv6PoolEntries,
     ipv6PoolStats,
     ipv6PoolLoading,

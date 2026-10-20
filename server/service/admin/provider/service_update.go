@@ -506,19 +506,14 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 			zap.Any("newExpiresAt", provider.ExpiresAt))
 	}
 
-	// 端口映射方式更新
-	// Docker/Podman/Containerd/Orbstack 类型固定使用 native，忽略前端传入的値
-	if provider.Type == "docker" || provider.Type == "podman" || provider.Type == "containerd" || provider.Type == "orbstack" {
-		provider.IPv4PortMappingMethod = "native"
-		provider.IPv6PortMappingMethod = "native"
-	} else {
-		if req.IPv4PortMappingMethod != "" {
-			provider.IPv4PortMappingMethod = req.IPv4PortMappingMethod
-		}
-		if req.IPv6PortMappingMethod != "" {
-			provider.IPv6PortMappingMethod = req.IPv6PortMappingMethod
-		}
+	if req.IPv4PortMappingMethod != "" {
+		provider.IPv4PortMappingMethod = req.IPv4PortMappingMethod
 	}
+	if req.IPv6PortMappingMethod != "" {
+		provider.IPv6PortMappingMethod = req.IPv6PortMappingMethod
+	}
+	provider.IPv4PortMappingMethod, provider.IPv6PortMappingMethod = utils.NormalizeProviderPortMappingMethods(
+		provider.Type, provider.NetworkType, provider.IPv4PortMappingMethod, provider.IPv6PortMappingMethod)
 	// SSH超时配置更新
 	if req.SSHConnectTimeout > 0 {
 		provider.SSHConnectTimeout = req.SSHConnectTimeout

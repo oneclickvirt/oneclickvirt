@@ -185,11 +185,8 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest, ownerAdminID ui
 		runningTasksCount := taskCountMap[provider.ID]
 		usedTraffic := trafficUsageMap[provider.ID]
 
-		// Docker/Podman/Containerd/Orbstack 类型固定使用 native 端口映射方式
-		if provider.Type == "docker" || provider.Type == "podman" || provider.Type == "containerd" || provider.Type == "orbstack" {
-			provider.IPv4PortMappingMethod = "native"
-			provider.IPv6PortMappingMethod = "native"
-		}
+		provider.IPv4PortMappingMethod, provider.IPv6PortMappingMethod = utils.NormalizeProviderPortMappingMethods(
+			provider.Type, provider.NetworkType, provider.IPv4PortMappingMethod, provider.IPv6PortMappingMethod)
 
 		// 计算已分配资源（基于实例配置和limit配置）
 		// UsedCPUCores, UsedMemory, UsedDisk 已经在数据库中按照limit配置计算好了

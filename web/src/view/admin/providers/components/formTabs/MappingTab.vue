@@ -588,6 +588,7 @@ import IPv6TunnelPanel from './IPv6TunnelPanel.vue'
 import { supportsIPv6OnlyProvider, supportsStaticIPv6Provider } from '@/utils/ipv6Capabilities'
 import { CONTAINER_ONLY_PROVIDER_TYPES, VM_ONLY_PROVIDER_TYPES } from '@/utils/providerTypes'
 import { usesManagedIPv6NAT } from '@/utils/networkType'
+import { normalizePortMappingMethods } from '@/utils/portMappingMethod'
 
 const props = defineProps({
   modelValue: {
@@ -667,42 +668,14 @@ watch(() => props.modelValue.type, (newType) => {
   }
 })
 
-// 监听网络类型变化，自动调整端口映射方式
-watch(() => [props.modelValue.type, props.modelValue.networkType], ([type, networkType]) => {
-  if (!type || !networkType) return
+// Recheck on method assignment as well as mode changes, including the first
+// render and async editing of an existing provider.
+watch(() => [props.modelValue.type, props.modelValue.networkType,
+  props.modelValue.ipv4PortMappingMethod, props.modelValue.ipv6PortMappingMethod], () => {
+  Object.assign(props.modelValue, normalizePortMappingMethods(props.modelValue.type,
+    props.modelValue.networkType, props.modelValue.ipv4PortMappingMethod, props.modelValue.ipv6PortMappingMethod))
+}, { immediate: true })
 
-  if (type === 'proxmox') {
-    const isNATMode = networkType === 'nat_ipv4' || networkType === 'nat_ipv4_ipv6'
-    const isDedicatedIPv4Mode = networkType === 'dedicated_ipv4' || networkType === 'dedicated_ipv4_ipv6'
-    const hasIPv6 = networkType === 'nat_ipv4_ipv6' || networkType === 'dedicated_ipv4_ipv6' || networkType === 'ipv6_only'
-
-    // IPv4 端口映射方式处理（仅在网络类型支持IPv4时处理）
-    if (networkType !== 'ipv6_only') {
-      if (isNATMode) {
-        // NAT 模式只能使用 iptables
-        props.modelValue.ipv4PortMappingMethod = 'iptables'
-      } else if (isDedicatedIPv4Mode) {
-        // 独立IP模式：如果当前值不是有效选项（native或iptables），则设为native
-        if (props.modelValue.ipv4PortMappingMethod !== 'native' &&
-            props.modelValue.ipv4PortMappingMethod !== 'iptables') {
-          props.modelValue.ipv4PortMappingMethod = 'native'
-        }
-      }
-    }
-
-    // IPv6 端口映射方式处理（仅在网络类型支持IPv6时处理）
-    if (hasIPv6) {
-      // Proxmox IPv6默认使用native，但也支持iptables
-      if (props.modelValue.ipv6PortMappingMethod !== 'native' &&
-          props.modelValue.ipv6PortMappingMethod !== 'iptables') {
-        props.modelValue.ipv6PortMappingMethod = 'native'
-      }
-    }
-  }
-  // LXD/Incus保留当前选择：device_proxy/iptables 为宿主IPv6映射，
-  // native 为直接分配给实例的独立公网IPv6。
-  // Docker不需要额外处理，它们固定是native
-})
 </script>
 
 <style scoped>
