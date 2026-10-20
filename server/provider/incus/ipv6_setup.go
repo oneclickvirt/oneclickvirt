@@ -216,6 +216,12 @@ fi`, instanceArg, instanceArg, instanceArg, instanceArg, instanceArg, parentArg,
 			zap.Error(err))
 	}
 
+	if config.InstanceType == "vm" {
+		if err := i.configureVMRoutedIPv6(ctx, config.ContainerName, containerIPv6); err != nil {
+			return "", err
+		}
+	}
+
 	// 处理IPv6网关配置
 	if config.Gateway == "N" {
 		i.handleIPv6Gateway(ctx, ipv6NetworkName)
@@ -310,8 +316,8 @@ fi`, name, name, name, name, name, bridge, addressArg, name, name, bridge, addre
 		return "", fmt.Errorf("启动隧道路由IPv6实例失败: output=%s: %w", summarizeIPv6ProbeOutput(startOutput), startErr)
 	}
 	if config.InstanceType == "vm" {
-		if waitErr := i.waitForVMNetworkReady(config.ContainerName); waitErr != nil {
-			global.APP_LOG.Warn("等待Incus VM隧道IPv6网络就绪超时", zap.Error(waitErr))
+		if err := i.configureVMRoutedIPv6(ctx, config.ContainerName, routed.Address); err != nil {
+			return "", err
 		}
 	} else if waitErr := i.waitForContainerNetworkReady(config.ContainerName); waitErr != nil {
 		global.APP_LOG.Warn("等待Incus容器隧道IPv6网络就绪超时", zap.Error(waitErr))
@@ -448,6 +454,7 @@ func (i *IncusProvider) configureIPv6Network(ctx context.Context, containerName 
 	// 创建IPv6配置，根据端口映射方式选择IPv6配置方式
 	config := IPv6Config{
 		ContainerName:    containerName,
+		InstanceType:     instanceType,
 		ContainerIPv6:    requestedIPv6,
 		Gateway:          gatewayInfo,
 		UseNetworkDevice: portMappingMethod == "device_proxy", // device_proxy使用网络设备方式
