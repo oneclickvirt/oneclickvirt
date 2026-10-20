@@ -248,6 +248,7 @@ func (i *IncusProvider) DeleteImage(ctx context.Context, id string) error {
 // "debian:12"    → "images:debian/12/cloud"
 // "ubuntu:22.04" → "ubuntu:22.04"
 func resolveIncusRemoteImage(imageName string) string {
+	imageName = provider.NormalizeLinuxImageAlias(imageName)
 	// 已经是远程格式（含 /）则直接返回
 	if strings.Contains(imageName, "/") {
 		return imageName
@@ -299,6 +300,9 @@ func (i *IncusProvider) shouldCleanupCachedImageOnCreateFailure(output string, e
 	}
 	if msg == "" {
 		return false
+	}
+	if provider.RuntimeImageNotFound(msg) {
+		return true
 	}
 	imageIndicators := []string{
 		"failed to find image",

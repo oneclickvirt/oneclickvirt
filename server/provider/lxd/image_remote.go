@@ -367,6 +367,9 @@ func (l *LXDProvider) shouldCleanupCachedImageOnCreateFailure(output string, err
 	if msg == "" {
 		return false
 	}
+	if provider.RuntimeImageNotFound(msg) {
+		return true
+	}
 	imageIndicators := []string{
 		"failed to find image",
 		"image not found",

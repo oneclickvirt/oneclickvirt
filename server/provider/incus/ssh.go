@@ -297,8 +297,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 
 		updateProgress(35, "创建Incus实例...")
 		if err := i.executeCreateCommand(cmd); err != nil {
-			lowerErr := strings.ToLower(err.Error())
-			if strings.Contains(lowerErr, "failed to find image") || strings.Contains(lowerErr, "image not found") || strings.Contains(lowerErr, "no such image") {
+			if provider.RuntimeImageNotFound(err.Error()) {
 				fallbackAlias := config.Image
 				if strings.ContainsAny(fallbackAlias, ":/") || !strings.HasPrefix(fallbackAlias, "oneclickvirt_") {
 					fallbackAlias = i.spiritlhlLocalAlias(config.Image, config.InstanceType)

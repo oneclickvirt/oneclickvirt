@@ -363,6 +363,7 @@ func extractFingerprintFromOutput(output string) string {
 // "centos:7"     → "images:centos/7/cloud"
 // 如果镜像名已经包含 "/"（如 "images:debian/12"），直接返回原值
 func (l *LXDProvider) resolveLxdRemoteImage(imageName string) string {
+	imageName = provider.NormalizeLinuxImageAlias(imageName)
 	// 已经是 LXD 远程格式（含 /）则直接返回
 	if strings.Contains(imageName, "/") {
 		return imageName

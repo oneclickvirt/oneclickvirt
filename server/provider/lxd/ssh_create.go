@@ -163,7 +163,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 		output, err := l.executeCreateCommand(cmd, config.InstanceType)
 		if err != nil {
 			createErrText := strings.ToLower(output + "\n" + err.Error())
-			if strings.Contains(createErrText, "failed to find image") || strings.Contains(createErrText, "image not found") || strings.Contains(createErrText, "no such image") {
+			if provider.RuntimeImageNotFound(createErrText) {
 				fallbackAlias := config.Image
 				if strings.ContainsAny(fallbackAlias, ":/") || !strings.HasPrefix(fallbackAlias, "oneclickvirt_") {
 					fallbackAlias = l.spiritlhlLocalAlias(config.Image, config.InstanceType)
