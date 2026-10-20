@@ -2104,6 +2104,11 @@ definitions:
       allowConcurrentTasks:
         description: 并发控制配置
         type: boolean
+      allowedNetworkTypes:
+        description: 管理员额外开放的用户可选网络类型
+        items:
+          type: string
+        type: array
       apiStatus:
         description: API连接状态：online, offline, unknown
         type: string
@@ -3371,6 +3376,10 @@ definitions:
     type: object
   user.AvailableProviderResponse:
     properties:
+      allowedNetworkTypes:
+        items:
+          type: string
+        type: array
       architecture:
         description: CPU架构：amd64, arm64, s390x等
         type: string
@@ -3568,6 +3577,15 @@ definitions:
         type: integer
       memoryId:
         description: 内存规格ID
+        type: string
+      networkType:
+        enum:
+        - nat_ipv4
+        - nat_ipv4_ipv6
+        - dedicated_ipv4
+        - dedicated_ipv4_ipv6
+        - ipv6_only
+        - no_port_mapping
         type: string
       providerId:
         description: 节点ID

@@ -22662,6 +22662,13 @@ const docTemplate = `{
                     "description": "并发控制配置",
                     "type": "boolean"
                 },
+                "allowedNetworkTypes": {
+                    "description": "管理员额外开放的用户可选网络类型",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "apiStatus": {
                     "description": "API连接状态：online, offline, unknown",
                     "type": "string"
@@ -24386,6 +24393,12 @@ const docTemplate = `{
         "user.AvailableProviderResponse": {
             "type": "object",
             "properties": {
+                "allowedNetworkTypes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "architecture": {
                     "description": "CPU架构：amd64, arm64, s390x等",
                     "type": "string"
@@ -24678,6 +24691,17 @@ const docTemplate = `{
                 "memoryId": {
                     "description": "内存规格ID",
                     "type": "string"
+                },
+                "networkType": {
+                    "type": "string",
+                    "enum": [
+                        "nat_ipv4",
+                        "nat_ipv4_ipv6",
+                        "dedicated_ipv4",
+                        "dedicated_ipv4_ipv6",
+                        "ipv6_only",
+                        "no_port_mapping"
+                    ]
                 },
                 "providerId": {
                     "description": "节点ID",
