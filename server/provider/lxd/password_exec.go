@@ -46,7 +46,10 @@ func (l *LXDProvider) ensureLXDInstanceRunningForExec(ctx context.Context, insta
 			}
 
 			if strings.EqualFold(lastStatus, "RUNNING") {
-				readyCmd := fmt.Sprintf("lxc exec %s -- /bin/sh -c %s 2>/dev/null", shellSingleQuote(instanceName), shellSingleQuote("echo LXD_EXEC_READY"))
+				// The controller SSH executor requests a PTY for compatibility with
+				// older shells. Explicitly disable the nested PTY here; otherwise
+				// lxc exec switches to interactive mode and waits forever for stdin.
+				readyCmd := fmt.Sprintf("lxc exec -T %s -- /bin/sh -c %s </dev/null 2>/dev/null", shellSingleQuote(instanceName), shellSingleQuote("echo LXD_EXEC_READY"))
 				readyOutput, readyErr := utils.ExecuteShellCommandContext(ctx, l.sshClient, readyCmd)
 				if readyErr == nil && strings.Contains(readyOutput, "LXD_EXEC_READY") {
 					return nil
@@ -117,7 +120,7 @@ func buildLXDPasswordCommandCandidates(instanceName, password, preferShell strin
 	innerCmd := buildLXDPasswordInnerCommand(password)
 	commands := make([]string, 0, len(shells)+2)
 	for _, shell := range shells {
-		commands = append(commands, fmt.Sprintf("lxc exec %s -- %s -c %s", shellSingleQuote(instanceName), shellSingleQuote(shell), shellSingleQuote(innerCmd)))
+		commands = append(commands, fmt.Sprintf("lxc exec -T %s -- %s -c %s </dev/null", shellSingleQuote(instanceName), shellSingleQuote(shell), shellSingleQuote(innerCmd)))
 	}
 
 	// Keep the historical host-pipe method as a compatibility fallback for

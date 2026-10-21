@@ -241,8 +241,8 @@ func TestLXDCheckIPv6DoesNotFallBackToExternalAddress(t *testing.T) {
 
 func TestLXDRoutedIPv6ChecksManagedBridgeAndProtectsExistingEth1(t *testing.T) {
 	executor := &recordingLXDIPv6Executor{
-		errors:  []error{nil, nil, nil, errors.New("existing device is unrelated")},
-		outputs: []string{"", "", "", "existing eth1"},
+		errors:  []error{nil, nil, nil, errors.New("graceful stop failed"), nil, nil, errors.New("existing device is unrelated")},
+		outputs: []string{"", "", "RUNNING", "", "RUNNING", "", "existing eth1"},
 	}
 	lxdProvider := &LXDProvider{sshClient: utils.NewSafeShellExecutor(executor)}
 	_, err := lxdProvider.setupRoutedNetworkDeviceIPv6(context.Background(), IPv6Config{
@@ -252,8 +252,8 @@ func TestLXDRoutedIPv6ChecksManagedBridgeAndProtectsExistingEth1(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "existing device is unrelated") {
 		t.Fatalf("setupRoutedNetworkDeviceIPv6() error = %v", err)
 	}
-	if len(executor.commands) != 4 {
-		t.Fatalf("commands = %#v, want sysctl, host check, stop, and guarded device command", executor.commands)
+	if len(executor.commands) != 7 {
+		t.Fatalf("commands = %#v, want host check, sysctl, state-aware stop, force fallback, and guarded device command", executor.commands)
 	}
 	for _, fragment := range []string{"net.ipv6.conf.all.proxy_ndp=1", "net.ipv6.conf.oneclickvirt6.proxy_ndp=1", "net.ipv6.conf.he-ipv6.proxy_ndp=1"} {
 		if !strings.Contains(executor.commands[1], fragment) {
@@ -266,22 +266,22 @@ func TestLXDRoutedIPv6ChecksManagedBridgeAndProtectsExistingEth1(t *testing.T) {
 		}
 	}
 	for _, fragment := range []string{"existing_type=", "refusing to replace existing eth1", "ipv6.gateway auto", "ipv6.gateway=auto"} {
-		if !strings.Contains(executor.commands[3], fragment) {
-			t.Fatalf("device command missing %q: %s", fragment, executor.commands[3])
+		if !strings.Contains(executor.commands[6], fragment) {
+			t.Fatalf("device command missing %q: %s", fragment, executor.commands[6])
 		}
 	}
-	if strings.Contains(executor.commands[3], "ipv6.gateway true") || strings.Contains(executor.commands[3], "ipv6.gateway=true") {
-		t.Fatalf("device command uses invalid boolean IPv6 gateway: %s", executor.commands[3])
+	if strings.Contains(executor.commands[6], "ipv6.gateway true") || strings.Contains(executor.commands[6], "ipv6.gateway=true") {
+		t.Fatalf("device command uses invalid boolean IPv6 gateway: %s", executor.commands[6])
 	}
-	if strings.Contains(executor.commands[3], "eth1 nictype routed") || strings.Contains(executor.commands[3], "eth1 parent 'oneclickvirt6'") {
-		t.Fatalf("device command overwrites an existing eth1: %s", executor.commands[3])
+	if strings.Contains(executor.commands[6], "eth1 nictype routed") || strings.Contains(executor.commands[6], "eth1 parent 'oneclickvirt6'") {
+		t.Fatalf("device command overwrites an existing eth1: %s", executor.commands[6])
 	}
 }
 
 func TestLXDRoutedIPv6PropagatesStopFailureBeforeDeviceMutation(t *testing.T) {
 	executor := &recordingLXDIPv6Executor{
-		outputs: []string{"", "", "stop failed", "RUNNING"},
-		errors:  []error{nil, nil, errors.New("stop failed"), nil},
+		outputs: []string{"", "", "RUNNING", "stop failed", "RUNNING", "force failed", "RUNNING"},
+		errors:  []error{nil, nil, nil, errors.New("stop failed"), nil, errors.New("force failed"), nil},
 	}
 	lxdProvider := &LXDProvider{sshClient: utils.NewSafeShellExecutor(executor)}
 	_, err := lxdProvider.setupRoutedNetworkDeviceIPv6(context.Background(), IPv6Config{
@@ -291,8 +291,8 @@ func TestLXDRoutedIPv6PropagatesStopFailureBeforeDeviceMutation(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "停止隧道路由IPv6实例失败") {
 		t.Fatalf("setupRoutedNetworkDeviceIPv6() error = %v, want stop failure", err)
 	}
-	if len(executor.commands) != 4 {
-		t.Fatalf("commands = %#v, want host check, sysctl, stop, and status check", executor.commands)
+	if len(executor.commands) != 7 {
+		t.Fatalf("commands = %#v, want host check, sysctl, state-aware stop, force fallback, and status check", executor.commands)
 	}
 	for _, command := range executor.commands {
 		if strings.Contains(command, "config device") {

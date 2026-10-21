@@ -175,7 +175,9 @@ func TestRefreshNativeHTTPConsoleRequiresLiveEndpoint(t *testing.T) {
 
 func TestRefreshSPICEConsoleTargetCoalescesConcurrentHealthChecks(t *testing.T) {
 	var requests atomic.Int32
-	entered := make(chan struct{})
+	// Buffer the rendezvous signal so a request that reaches the handler
+	// before the test's select cannot be dropped by the non-blocking send.
+	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)

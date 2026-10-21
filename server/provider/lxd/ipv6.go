@@ -59,7 +59,7 @@ func (l *LXDProvider) enableIPv6(instanceName string) error {
 	}
 
 	// 3. 在容器内启用IPv6
-	enableIPv6Cmd := fmt.Sprintf("lxc exec %s -- bash -c 'echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6'", shellSingleQuote(instanceName))
+	enableIPv6Cmd := fmt.Sprintf("lxc exec -T %s -- bash -c 'echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6'", shellSingleQuote(instanceName))
 	_, err = l.sshClient.Execute(enableIPv6Cmd)
 	if err != nil {
 		global.APP_LOG.Warn("在容器内启用IPv6失败",
@@ -69,7 +69,7 @@ func (l *LXDProvider) enableIPv6(instanceName string) error {
 	}
 
 	// 4. 重启网络接口
-	restartNetworkCmd := fmt.Sprintf("lxc exec %s -- bash -c 'ip addr flush dev eth0 && dhclient -6 eth0'", shellSingleQuote(instanceName))
+	restartNetworkCmd := fmt.Sprintf("lxc exec -T %s -- bash -c 'ip addr flush dev eth0 && dhclient -6 eth0'", shellSingleQuote(instanceName))
 	_, err = l.sshClient.Execute(restartNetworkCmd)
 	if err != nil {
 		global.APP_LOG.Warn("重启网络接口失败",
@@ -107,7 +107,7 @@ func (l *LXDProvider) disableIPv6(instanceName string) error {
 	}
 
 	// 3. 在容器内禁用IPv6
-	disableIPv6Cmd := fmt.Sprintf("lxc exec %s -- bash -c 'echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6'", shellSingleQuote(instanceName))
+	disableIPv6Cmd := fmt.Sprintf("lxc exec -T %s -- bash -c 'echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6'", shellSingleQuote(instanceName))
 	_, err = l.sshClient.Execute(disableIPv6Cmd)
 	if err != nil {
 		global.APP_LOG.Warn("在容器内禁用IPv6失败",

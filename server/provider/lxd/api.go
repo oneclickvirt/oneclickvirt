@@ -623,6 +623,8 @@ func (l *LXDProvider) apiCreateInstanceWithProgress(ctx context.Context, config 
 		instanceConfig["type"] = "container"
 	}
 
+	instanceConfigConfig["boot.autostart"] = "true"
+
 	// 资源配置
 	if config.CPU != "" {
 		instanceConfigConfig["limits.cpu"] = config.CPU

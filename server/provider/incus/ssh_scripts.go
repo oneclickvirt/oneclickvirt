@@ -32,10 +32,18 @@ func (i *IncusProvider) configureInstanceSystem(ctx context.Context, config prov
 	global.APP_LOG.Debug("开始配置LXD实例系统",
 		zap.String("instance", config.Name),
 		zap.String("type", config.InstanceType))
-	if config.InstanceType != "vm" {
-		_ = i.setInstanceConfig(ctx, config.Name, "boot.autostart", "true")
-		_ = i.setInstanceConfig(ctx, config.Name, "boot.autostart.priority", "50")
-		_ = i.setInstanceConfig(ctx, config.Name, "boot.autostart.delay", "10")
+	// Both instance types must recover when their runtime node reboots.
+	// A failed autostart write is a failed connection/lifecycle contract.
+	if err := i.setInstanceConfig(ctx, config.Name, "boot.autostart", "true"); err != nil {
+		return fmt.Errorf("设置实例自动启动失败: %w", err)
+	}
+	for _, option := range []struct{ key, value string }{
+		{"boot.autostart.priority", "50"},
+		{"boot.autostart.delay", "10"},
+	} {
+		if err := i.setInstanceConfig(ctx, config.Name, option.key, option.value); err != nil {
+			global.APP_LOG.Warn("设置可选自动启动顺序失败", zap.String("key", option.key), zap.Error(err))
+		}
 	}
 	global.APP_LOG.Debug("实例系统配置完成",
 		zap.String("instanceName", config.Name))

@@ -95,7 +95,7 @@ for iface in enp5s0 eth0 ens3; do
 done
 ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | head -1
 `
-	cmd := fmt.Sprintf("lxc exec %s -- sh -c %s", shellSingleQuote(instanceName), shellSingleQuote(script))
+	cmd := fmt.Sprintf("lxc exec -T %s -- sh -c %s", shellSingleQuote(instanceName), shellSingleQuote(script))
 	output, err := l.sshClient.ExecuteWithTimeout(cmd, 45*time.Second)
 	if err != nil {
 		return fmt.Errorf("唤醒虚拟机Guest网络失败: %w", err)
@@ -136,7 +136,7 @@ elif command -v udhcpc >/dev/null 2>&1; then
 fi
 LC_ALL=C NO_COLOR=1 ip -6 -o addr show dev "$iface" scope global 2>/dev/null | head -1
 `
-	cmd := fmt.Sprintf("lxc exec %s -- sh -c %s", shellSingleQuote(instanceName), shellSingleQuote(script))
+	cmd := fmt.Sprintf("lxc exec -T %s -- sh -c %s", shellSingleQuote(instanceName), shellSingleQuote(script))
 	output, err := l.sshClient.ExecuteWithTimeout(cmd, 45*time.Second)
 	if err != nil {
 		return fmt.Errorf("唤醒容器DHCPv6失败: %w", err)

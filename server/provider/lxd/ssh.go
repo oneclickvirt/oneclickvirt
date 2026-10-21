@@ -421,12 +421,12 @@ func (l *LXDProvider) collectStartDiagnostics(ctx context.Context, id string) (s
 }
 
 func (l *LXDProvider) sshStopInstance(ctx context.Context, id string) error {
-	output, err := utils.ExecuteShellCommandContext(ctx, l.sshClient, fmt.Sprintf("lxc stop %s", shellSingleQuote(id)))
-	if err != nil {
-		if l.sshInstanceStopped(ctx, id) {
-			return nil
-		}
-		return fmt.Errorf("failed to stop instance: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
+	// Reuse the bounded state-aware stop path for every SSH lifecycle caller.
+	// QEMU-backed LXD VMs can ignore a plain `lxc stop` for several minutes;
+	// the helper confirms state, bounds the graceful request, and falls back to
+	// a force stop before allowing network mutation or reporting success.
+	if err := l.stopInstanceForConfig(ctx, id); err != nil {
+		return fmt.Errorf("failed to stop instance: %w", err)
 	}
 
 	global.APP_LOG.Info("通过SSH成功停止LXD实例", zap.String("id", utils.TruncateString(id, 50)))
@@ -434,8 +434,39 @@ func (l *LXDProvider) sshStopInstance(ctx context.Context, id string) error {
 }
 
 func (l *LXDProvider) sshRestartInstance(ctx context.Context, id string) error {
-	output, err := utils.ExecuteShellCommandContext(ctx, l.sshClient, fmt.Sprintf("lxc restart %s", shellSingleQuote(id)))
+	command := fmt.Sprintf("timeout -k 5 150 lxc restart %s --timeout=120", shellSingleQuote(id))
+	output, err := utils.ExecuteShellCommandTimeoutContext(ctx, l.sshClient, command, 160*time.Second)
 	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		// Recover only the known failure of the start half after QEMU teardown.
+		// A permission/storage failure can leave the original VM running and
+		// must never be mistaken for a successful restart.
+		if strings.Contains(strings.ToLower(output), "cannot be started as in error status") {
+			for attempt := 1; attempt <= 3; attempt++ {
+				state, stateErr := utils.ExecuteShellCommandTimeoutContext(ctx, l.sshClient, lxdInstanceStatusCommand(id), 15*time.Second)
+				if stateErr != nil {
+					break
+				}
+				switch strings.ToLower(strings.TrimSpace(state)) {
+				case "running":
+					return nil
+				case "stopped":
+					startOutput, startErr := utils.ExecuteShellCommandTimeoutContext(ctx, l.sshClient, fmt.Sprintf("timeout -k 5 40 lxc start %s", shellSingleQuote(id)), 50*time.Second)
+					if startErr == nil {
+						global.APP_LOG.Info("LXD实例重启回退启动成功", zap.String("id", id), zap.Int("attempt", attempt))
+						return nil
+					}
+					output += "\nrestart-recovery: " + strings.TrimSpace(startOutput)
+				}
+				if attempt < 3 {
+					if sleepErr := utils.SleepContext(ctx, time.Duration(attempt*3)*time.Second); sleepErr != nil {
+						return sleepErr
+					}
+				}
+			}
+		}
 		return fmt.Errorf("failed to restart instance: %w; output: %s", err, utils.TruncateString(strings.TrimSpace(output), 8000))
 	}
 

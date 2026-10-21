@@ -59,3 +59,74 @@ func TestIPv6ForwardingSysctlCommandSetsRouterAdvertisementsFirst(t *testing.T) 
 		t.Fatal("accepted unsafe interface name")
 	}
 }
+
+func TestIPv6ForwardingPersistsNetworkdAndOrdersRuntimeAutostart(t *testing.T) {
+	root := t.TempDir()
+	for _, directory := range []string{"bin", "run/systemd/system", "proc/sys/net/ipv6/conf/eth0"} {
+		if err := os.MkdirAll(filepath.Join(root, directory), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"accept_ra", "proxy_ndp"} {
+		if err := os.WriteFile(filepath.Join(root, "proc/sys/net/ipv6/conf/eth0", name), []byte("0\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stubs := map[string]string{
+		"networkctl": `case "$1" in
+status) echo '    Network File: /run/systemd/network/10-netplan-eth0.network' ;;
+reload) echo 0 > "$TEST_ROOT/proxy-state" ;;
+*) exit 1 ;;
+esac`,
+		"sysctl": `case "$1" in
+-w) case "$2" in net.ipv6.conf.eth0.proxy_ndp=1) echo 1 > "$TEST_ROOT/proxy-state" ;; esac ;;
+-p) grep -qx 'net.ipv6.conf.eth0.proxy_ndp=1' "$2" || exit 1; echo 1 > "$TEST_ROOT/proxy-state" ;;
+*) exit 1 ;;
+esac`,
+		"systemctl": `case "$1" in
+is-active|daemon-reload|enable) exit 0 ;;
+show) echo loaded ;;
+start) sysctl -p "$TEST_ROOT/etc/sysctl.d/99-oneclickvirt-ipv6.conf" ;;
+*) exit 1 ;;
+esac`,
+	}
+	for name, body := range stubs {
+		if err := os.WriteFile(filepath.Join(root, "bin", name), []byte("#!/bin/sh\nset -eu\n"+body+"\n"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	command, err := IPv6ForwardingSysctlCommand([]string{"eth0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, prefix := range []string{"/etc/", "/proc/", "/run/"} {
+		command = strings.ReplaceAll(command, prefix, root+prefix)
+	}
+	cmd := exec.Command("sh", "-c", command)
+	cmd.Env = append(os.Environ(), "PATH="+filepath.Join(root, "bin")+":"+os.Getenv("PATH"), "TEST_ROOT="+root)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("rendered setup failed: %v: %s", err, output)
+	}
+	if strings.Contains(command, "systemctl restart") {
+		t.Fatal("updating network readiness must not restart dependent runtime daemons")
+	}
+	checks := map[string][]string{
+		"etc/systemd/network/10-netplan-eth0.network.d/99-oneclickvirt-ipv6.conf": {"[Network]\nIPv6ProxyNDP=yes\n"},
+		"etc/systemd/system/oneclickvirt-ipv6-routing.service":                    {"After=network-online.target", "Before=incus.service", "ExecStart="},
+		"etc/systemd/system/snap.lxd.daemon.service.d/99-oneclickvirt-ipv6.conf":  {"Requires=oneclickvirt-ipv6-routing.service", "After=oneclickvirt-ipv6-routing.service"},
+		"etc/systemd/system/incus.service.d/99-oneclickvirt-ipv6.conf":            {"Requires=oneclickvirt-ipv6-routing.service"},
+		"etc/sysctl.d/99-oneclickvirt-ipv6.conf":                                  {"net.ipv6.conf.default.proxy_ndp=1\n"},
+		"proxy-state":                                                             {"1\n"},
+	}
+	for name, fragments := range checks {
+		data, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, fragment := range fragments {
+			if !strings.Contains(string(data), fragment) {
+				t.Errorf("%s missing %q", name, fragment)
+			}
+		}
+	}
+}

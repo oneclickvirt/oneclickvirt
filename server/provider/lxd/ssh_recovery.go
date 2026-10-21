@@ -9,7 +9,7 @@ import (
 
 func (l *LXDProvider) recoverGuestSSHService(instanceName string) (string, error) {
 	command := fmt.Sprintf(
-		"lxc exec %s -- sh -c %s",
+		"lxc exec -T %s -- sh -c %s",
 		shellSingleQuote(instanceName),
 		shellSingleQuote(utils.BuildGuestSSHRecoveryScript()),
 	)

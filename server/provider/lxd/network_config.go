@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
@@ -35,7 +36,12 @@ func (l *LXDProvider) stopInstanceForConfig(ctx context.Context, instanceName st
 	}
 
 	stopCmd := fmt.Sprintf("lxc stop %s --timeout=30", shellSingleQuote(instanceName))
-	output, stopErr := utils.ExecuteShellCommandContext(ctx, l.sshClient, stopCmd)
+	// Some LXD/QEMU combinations ignore the CLI timeout while the guest agent
+	// is unresponsive. Bound the controller-side SSH channel as well so the
+	// force-stop fallback can actually run.
+	stopCtx, stopCancel := context.WithTimeout(ctx, 45*time.Second)
+	output, stopErr := utils.ExecuteShellCommandContext(stopCtx, l.sshClient, stopCmd)
+	stopCancel()
 	if stopErr != nil {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -49,7 +55,9 @@ func (l *LXDProvider) stopInstanceForConfig(ctx context.Context, instanceName st
 			return nil
 		}
 		forceCmd := fmt.Sprintf("lxc stop %s --force --timeout=30", shellSingleQuote(instanceName))
-		forceOutput, forceErr := utils.ExecuteShellCommandContext(ctx, l.sshClient, forceCmd)
+		forceCtx, forceCancel := context.WithTimeout(ctx, 45*time.Second)
+		forceOutput, forceErr := utils.ExecuteShellCommandContext(forceCtx, l.sshClient, forceCmd)
+		forceCancel()
 		if forceErr != nil {
 			statusAfter, statusAfterErr := utils.ExecuteShellCommandContext(ctx, l.sshClient, statusCmd)
 			if statusAfterErr == nil && strings.EqualFold(strings.TrimSpace(statusAfter), "stopped") {

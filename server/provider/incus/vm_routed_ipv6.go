@@ -60,6 +60,35 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target
 UNIT
+# A manually configured NIC is unmanaged to networkd. In an IPv6-only VM
+# with the original IPv4 NIC removed, wait-online otherwise waits until its
+# timeout and delays SSH. Give the routed NIC its own persistent MAC match.
+if command -v networkctl >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet systemd-networkd.service; then
+  mkdir -p /etc/systemd/network
+  network_file="/etc/systemd/network/00-oneclickvirt-routed-$(printf '%s' "$mac" | tr -d ':').network"
+  test ! -L "$network_file"
+  cat > "$network_file.tmp.$$" <<NETWORK
+[Match]
+MACAddress=$mac
+[Link]
+RequiredForOnline=yes
+[Network]
+DHCP=no
+IPv6AcceptRA=no
+LinkLocalAddressing=ipv6
+Address=$address/128
+[Route]
+Destination=::/0
+Gateway=fe80::1
+GatewayOnLink=yes
+Metric=50
+NETWORK
+  chmod 0644 "$network_file.tmp.$$"
+  mv -f "$network_file.tmp.$$" "$network_file"
+  # Minimal cloud images may omit the system D-Bus socket. The current
+  # address is applied below; networkd reads this file on the next boot.
+  networkctl reload >/dev/null 2>&1 || true
+fi
 systemctl daemon-reload
 systemctl enable oneclickvirt-routed-ipv6.service
 systemctl restart oneclickvirt-routed-ipv6.service

@@ -24,15 +24,38 @@ ipt=(iptables)
 if iptables --help 2>&1 | grep -q -- '--wait'; then ipt+=(--wait 5); fi
 
 resolve_guest() {
-    local raw
+    local raw uri domain_xml network_xml
     case "$runtime" in
         docker|podman) raw=$("$runtime" inspect "$instance") || return 1 ;;
         containerd) raw=$(nerdctl inspect "$instance") || return 1 ;;
         incus) raw=$(incus list "$instance" --format json) || return 1 ;;
         lxd) raw=$(lxc list "$instance" --format json) || return 1 ;;
         qemu)
-            raw=$(virsh -c qemu:///system domifaddr "$instance" --source agent 2>/dev/null || true)
-            if ! grep -q ipv4 <<<"$raw"; then raw=$(virsh -c qemu:///system domifaddr "$instance" --source lease); fi
+            uri=qemu:///system
+            if virsh -c lxc:/// dominfo "$instance" >/dev/null 2>&1; then uri=lxc:///; fi
+            [[ $(virsh -c "$uri" domstate "$instance" 2>/dev/null) == running ]] || return 1
+            raw=$(virsh -c "$uri" domifaddr "$instance" --source agent 2>/dev/null || true)
+            if ! grep -q ipv4 <<<"$raw"; then raw=$(virsh -c "$uri" domifaddr "$instance" --source lease 2>/dev/null || true); fi
+            if ! grep -q ipv4 <<<"$raw"; then
+                # Static LXC guests have no DHCP lease. Resolve only the
+                # reservation whose MAC belongs to this running domain.
+                domain_xml=$(virsh -c "$uri" dumpxml "$instance") || return 1
+                network_xml=$(virsh -c qemu:///system net-dumpxml default) || return 1
+                raw=$(python3 - "$instance" "$domain_xml" "$network_xml" <<'PY'
+import sys,xml.etree.ElementTree as E
+name,domain_xml,network_xml=sys.argv[1:]
+domain,network=E.fromstring(domain_xml),E.fromstring(network_xml)
+if domain.findtext('name')!=name: raise SystemExit(1)
+macs={m.get('address','').lower() for iface in domain.findall('./devices/interface')
+      if iface.get('type')=='network' and (iface.find('source') is not None and iface.find('source').get('network')=='default')
+      for m in iface.findall('mac')}
+addresses={h.get('ip') for h in network.findall('./ip/dhcp/host')
+           if h.get('name')==name and h.get('mac','').lower() in macs and h.get('ip')}
+if len(addresses)!=1: raise SystemExit(1)
+print(next(iter(addresses)))
+PY
+                ) || return 1
+            fi
             ;;
     esac
     printf '%s' "$raw" | python3 -c '

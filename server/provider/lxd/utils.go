@@ -120,7 +120,7 @@ func shellSingleQuote(s string) string {
 func buildLXDChpasswdCommand(instanceName, password string) string {
 	credB64 := base64.StdEncoding.EncodeToString([]byte("root:" + password))
 	return fmt.Sprintf(
-		"printf %s | base64 -d | lxc exec %s -- chpasswd",
+		"printf %s | base64 -d | lxc exec -T %s -- chpasswd",
 		shellSingleQuote(credB64),
 		shellSingleQuote(instanceName),
 	)

@@ -430,8 +430,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 	updateProgress(75, "配置实例系统...")
 	// 配置实例系统
 	if err := i.configureInstanceSystem(ctx, config); err != nil {
-		// 系统配置失败不应该阻止实例创建，记录错误即可
-		global.APP_LOG.Warn("配置实例系统失败", zap.Error(err))
+		return fmt.Errorf("配置实例系统失败: %w", err)
 	}
 
 	waitTimeout := incusExecReadyTimeout(config.InstanceType)

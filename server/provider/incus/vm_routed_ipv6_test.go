@@ -35,7 +35,7 @@ func TestVMRoutedIPv6PropagatesGuestFailure(t *testing.T) {
 	if strings.Count(e.commands[0], "</dev/null") != 2 {
 		t.Fatal("automated guest commands must not read the SSH terminal")
 	}
-	for _, f := range []string{"timeout -k 2 5 incus exec", "timeout -k 5 60 incus exec", "volatile.eth1.hwaddr", "/sys/class/net/*", "metric 50", "systemctl restart", "systemctl is-active --quiet", "RemainAfterExit=yes", "DefaultDependencies=no", "After=local-fs.target network.target", "Before=network-online.target shutdown.target"} {
+	for _, f := range []string{"timeout -k 2 5 incus exec", "timeout -k 5 60 incus exec", "volatile.eth1.hwaddr", "/sys/class/net/*", "metric 50", "MACAddress=$mac", "RequiredForOnline=yes", "Address=$address/128", "networkctl reload", "systemctl restart", "systemctl is-active --quiet", "RemainAfterExit=yes", "DefaultDependencies=no", "After=local-fs.target network.target", "Before=network-online.target shutdown.target"} {
 		if !strings.Contains(e.commands[0], f) {
 			t.Fatalf("missing %q", f)
 		}

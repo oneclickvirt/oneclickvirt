@@ -209,7 +209,12 @@ fi`, instanceArg, instanceArg, instanceArg, instanceArg, instanceArg, parentArg,
 			zap.Error(err))
 	}
 
-	if config.InstanceType == "vm" {
+	if strings.TrimSpace(containerIPv6) != "" {
+		// Native/routed public IPv6 is attached as eth1 for both LXD VMs and
+		// containers. Apply the same guest route repair to both: otherwise a
+		// container's eth0 RA default can win source selection and leak the
+		// host IPv6. The helper has a network-hook fallback for images without
+		// systemd and is safe to rerun on task retries.
 		if err := l.configureVMRoutedIPv6(ctx, config.ContainerName, containerIPv6); err != nil {
 			return "", err
 		}

@@ -762,6 +762,8 @@ func (i *IncusProvider) apiCreateInstanceWithProgress(ctx context.Context, confi
 		instanceConfig["type"] = "container"
 	}
 
+	instanceConfigConfig["boot.autostart"] = "true"
+
 	// 资源配置
 	if config.CPU != "" {
 		instanceConfig["config"].(map[string]interface{})["limits.cpu"] = config.CPU

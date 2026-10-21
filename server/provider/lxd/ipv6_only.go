@@ -53,12 +53,12 @@ trap - EXIT HUP INT TERM`
 ready=0
 attempt=0
 while [ "$attempt" -lt 90 ]; do
-  if lxc exec %s -- true >/dev/null 2>&1; then ready=1; break; fi
+	if lxc exec -T %s -- true >/dev/null 2>&1; then ready=1; break; fi
   attempt=$((attempt + 1))
   sleep 2
 done
 [ "$ready" -eq 1 ]
-lxc exec %s -- sh -ceu %s`, name, name, shellSingleQuote(guestScript))
+lxc exec -T %s -- sh -ceu %s`, name, name, shellSingleQuote(guestScript))
 }
 
 func (l *LXDProvider) restoreIPv6OnlyDNS(config provider.InstanceConfig) error {

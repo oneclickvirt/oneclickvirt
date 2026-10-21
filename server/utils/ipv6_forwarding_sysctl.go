@@ -100,6 +100,7 @@ tmp="${conf}.tmp.$$"
   printf 'net.ipv6.conf.all.forwarding=1\n'
   printf 'net.ipv6.conf.default.forwarding=1\n'
   printf 'net.ipv6.conf.all.proxy_ndp=1\n'
+  printf 'net.ipv6.conf.default.proxy_ndp=1\n'
   for iface in %s; do
     if [ -e "/proc/sys/net/ipv6/conf/$iface/proxy_ndp" ]; then
       printf 'net.ipv6.conf.%%s.proxy_ndp=1\n' "$iface"
@@ -116,9 +117,66 @@ done
 sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null
 sysctl -w net.ipv6.conf.default.forwarding=1 >/dev/null
 sysctl -w net.ipv6.conf.all.proxy_ndp=1 >/dev/null
+sysctl -w net.ipv6.conf.default.proxy_ndp=1 >/dev/null
 for iface in %s; do
   if [ -e "/proc/sys/net/ipv6/conf/$iface/proxy_ndp" ]; then
     sysctl -w "net.ipv6.conf.$iface.proxy_ndp=1" >/dev/null
   fi
-done`, strings.Join(validated, " "), strings.Join(validated, " "), strings.Join(validated, " "), strings.Join(validated, " ")), nil
+done
+# networkd restores its configured proxy-NDP value when it configures a link,
+# after systemd-sysctl has already applied the interface-specific setting.
+# Persist the setting in the selected network file's drop-in as well.
+if command -v networkctl >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet systemd-networkd.service; then
+  for iface in %s; do
+    network_file=$(LC_ALL=C SYSTEMD_COLORS=0 networkctl status --no-pager "$iface" 2>/dev/null | sed -n 's/^[[:space:]]*Network File: //p')
+    network_name=${network_file##*/}
+    case "$network_name" in
+      ''|*[!a-zA-Z0-9_.:-]*) continue ;;
+      *.network) ;;
+      *) continue ;;
+    esac
+    directory="/etc/systemd/network/$network_name.d"
+    mkdir -p "$directory"
+    target="$directory/99-oneclickvirt-ipv6.conf"
+    [ ! -L "$target" ]
+    printf '[Network]\nIPv6ProxyNDP=yes\n' > "$target.tmp.$$"
+    chmod 0644 "$target.tmp.$$"
+    mv -f "$target.tmp.$$" "$target"
+  done
+  networkctl reload
+fi
+# Runtime autostart must wait until the final uplink settings are restored.
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  unit=oneclickvirt-ipv6-routing.service
+  mkdir -p /etc/systemd/system
+  sysctl_bin=$(command -v sysctl)
+  cat > "/etc/systemd/system/$unit.tmp.$$" <<EOF
+[Unit]
+Description=OneClickVirt IPv6 forwarding and proxy NDP readiness
+After=network-online.target
+Wants=network-online.target
+Before=incus.service incus-daemon.service lxd.service snap.lxd.daemon.service snap.incus.daemon.service
+
+[Service]
+Type=oneshot
+ExecStart=$sysctl_bin -p /etc/sysctl.d/99-oneclickvirt-ipv6.conf
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  chmod 0644 "/etc/systemd/system/$unit.tmp.$$"
+  mv -f "/etc/systemd/system/$unit.tmp.$$" "/etc/systemd/system/$unit"
+  for daemon in incus.service incus-daemon.service lxd.service snap.lxd.daemon.service snap.incus.daemon.service; do
+    if [ "$(systemctl show "$daemon" -p LoadState --value 2>/dev/null)" = loaded ]; then
+      directory="/etc/systemd/system/$daemon.d"
+      mkdir -p "$directory"
+      printf '[Unit]\nRequires=%%s\nAfter=%%s\n' "$unit" "$unit" > "$directory/99-oneclickvirt-ipv6.conf"
+    fi
+  done
+  systemctl daemon-reload
+  systemctl enable "$unit" >/dev/null
+  sysctl -p "$conf" >/dev/null
+  systemctl start "$unit"
+fi`, strings.Join(validated, " "), strings.Join(validated, " "), strings.Join(validated, " "), strings.Join(validated, " "), strings.Join(validated, " ")), nil
 }

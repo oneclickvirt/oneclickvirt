@@ -151,10 +151,8 @@ func (p *QEMUProvider) sshCreateLXCContainer(ctx context.Context, config provide
 		}
 		p.ipMu.Unlock()
 	}
-	if ipv6Plan.Routed != nil {
-		if err := p.configureLXCIPv6Rootfs(rootfs, *ipv6Plan.Routed, routedMAC); err != nil {
-			return err
-		}
+	if err := p.configureLXCRootfs(rootfs, ipv6Plan, containerIP, containerMAC, routedMAC); err != nil {
+		return err
 	}
 
 	updateProgress(55, "配置端口转发")
@@ -241,13 +239,6 @@ func (p *QEMUProvider) sshCreateLXCContainer(ctx context.Context, config provide
 	if output, err := p.sshClient.Execute(fmt.Sprintf("virsh -c lxc:/// start %s 2>&1", shellSingleQuote(config.Name))); err != nil {
 		p.sshDeleteLXCContainer(context.Background(), config.Name)
 		return fmt.Errorf("failed to start LXC container: %s, %w", utils.TruncateString(output, 500), err)
-	}
-	if ipv6Plan.Routed != nil {
-		enterCommand := fmt.Sprintf("virsh -c lxc:/// lxc-enter-namespace %s -- /usr/local/sbin/oneclickvirt-routed-ipv6 2>&1", shellSingleQuote(config.Name))
-		if output, enterErr := p.sshClient.Execute(enterCommand); enterErr != nil {
-			p.sshDeleteLXCContainer(context.Background(), config.Name)
-			return fmt.Errorf("应用libvirt-lxc隧道IPv6地址失败: %s: %w", utils.TruncateString(strings.TrimSpace(output), 1000), enterErr)
-		}
 	}
 	p.applyLibvirtIOLimits(ctx, "lxc:///", config.Name, "", config)
 	p.sshClient.Execute(fmt.Sprintf("virsh -c lxc:/// autostart %s 2>/dev/null || true", shellSingleQuote(config.Name)))

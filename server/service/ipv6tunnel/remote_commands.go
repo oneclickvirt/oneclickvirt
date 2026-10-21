@@ -108,7 +108,7 @@ unit_backup="${unit_path}.oneclickvirt-backup.$$"
 script_backup="${script_path}.oneclickvirt-backup.$$"
 neighbor_backup="${neighbor_path}.oneclickvirt-backup.$$"
 network_backup="${network_path}.oneclickvirt-backup.$$"
-had_unit=0; had_script=0; had_neighbor=0; had_network=0; was_active=0
+had_unit=0; had_script=0; had_neighbor=0; had_network=0; was_active=0; staged_script=0
 [ -f "$unit_path" ] && { cp -p "$unit_path" "$unit_backup"; had_unit=1; }
 [ -f "$script_path" ] && { cp -p "$script_path" "$script_backup"; had_script=1; }
 [ -f "$neighbor_path" ] && { cp -p "$neighbor_path" "$neighbor_backup"; had_neighbor=1; }
@@ -118,6 +118,12 @@ rollback() {
   rc=$?
   trap - EXIT
   systemctl stop "$unit" >/dev/null 2>&1 || true
+  if [ "$staged_script" -eq 1 ]; then
+    # A failed oneshot ExecStart does not run ExecStop. Remove the staged
+    # interface before restoring files, so a retry still has a clean owner.
+    "$script_path" down >/dev/null 2>&1 || true
+    ip link show dev "$tunnel_interface" >/dev/null 2>&1 && ip link delete "$tunnel_interface" >/dev/null 2>&1 || true
+  fi
   if [ "$had_unit" -eq 1 ]; then mv -f "$unit_backup" "$unit_path"; else rm -f "$unit_path" "$unit_backup"; fi
   if [ "$had_script" -eq 1 ]; then mv -f "$script_backup" "$script_path"; else rm -f "$script_path" "$script_backup"; fi
   if [ "$had_neighbor" -eq 1 ]; then mv -f "$neighbor_backup" "$neighbor_path"; else rm -f "$neighbor_path" "$neighbor_backup"; fi
@@ -139,6 +145,7 @@ chmod 0700 "${neighbor_path}.tmp.$$"
 chmod 0644 "${network_path}.tmp.$$"
 mv -f "${unit_path}.tmp.$$" "$unit_path"
 mv -f "${script_path}.tmp.$$" "$script_path"
+staged_script=1
 mv -f "${neighbor_path}.tmp.$$" "$neighbor_path"
 mv -f "${network_path}.tmp.$$" "$network_path"
 reload_networkd
@@ -298,8 +305,12 @@ host_default_route_interfaces() {
 ensure_routed_policy_route() {
   # Keep a routed guest prefix on its tunnel without replacing the host's
   # native IPv6 default route. The policy rule is installed only after its
-  # dedicated table has a usable on-link default.
+  # dedicated table has a usable on-link default. Destinations inside the
+  # guest prefix must fall through to the main table: routed NICs may have
+  # more-specific /128 routes there. Without this exception, gateway replies
+  # and guest-to-guest traffic loop through the upstream tunnel.
   while LC_ALL=C NO_COLOR=1 ip -6 rule del pref "$POLICY_PRIORITY" from "$ROUTED_CIDR" table "$POLICY_TABLE" >/dev/null 2>&1; do :; done
+  LC_ALL=C NO_COLOR=1 ip -6 route replace throw "$ROUTED_CIDR" table "$POLICY_TABLE"
   LC_ALL=C NO_COLOR=1 ip -6 route replace table "$POLICY_TABLE" default via "$REMOTE6" dev "$IFACE" metric "$ROUTE_METRIC" onlink
   LC_ALL=C NO_COLOR=1 ip -6 rule add pref "$POLICY_PRIORITY" from "$ROUTED_CIDR" table "$POLICY_TABLE"
 }
@@ -308,6 +319,7 @@ cleanup_routed_policy_route() {
   # never leaves guest traffic pinned to a disappeared device.
   while LC_ALL=C NO_COLOR=1 ip -6 rule del pref "$POLICY_PRIORITY" from "$ROUTED_CIDR" table "$POLICY_TABLE" >/dev/null 2>&1; do :; done
   LC_ALL=C NO_COLOR=1 ip -6 route del table "$POLICY_TABLE" default via "$REMOTE6" dev "$IFACE" >/dev/null 2>&1 || true
+  LC_ALL=C NO_COLOR=1 ip -6 route del throw "$ROUTED_CIDR" table "$POLICY_TABLE" >/dev/null 2>&1 || true
 }
 ensure_routed_network() {
   ra_interfaces=$(host_default_route_interfaces)
@@ -329,10 +341,10 @@ ensure_routed_network() {
   {
     for uplink in $ra_interfaces; do
       if [ -e "/proc/sys/net/ipv6/conf/$uplink/accept_ra" ]; then
-        printf 'net.ipv6.conf.%%s.accept_ra=2\\n' "$uplink"
+        printf 'net.ipv6.conf.%%s.accept_ra=2\n' "$uplink"
       fi
     done
-    printf 'net.ipv6.conf.all.forwarding=1\\nnet.ipv6.conf.default.forwarding=1\\nnet.ipv6.conf.all.proxy_ndp=1\\nnet.ipv6.conf.%%s.forwarding=1\\nnet.ipv6.conf.%%s.proxy_ndp=1\\nnet.ipv6.conf.%%s.forwarding=1\\nnet.ipv6.conf.%%s.proxy_ndp=1\\n' "$IFACE" "$IFACE" "$BRIDGE" "$BRIDGE"
+    printf 'net.ipv6.conf.all.forwarding=1\nnet.ipv6.conf.default.forwarding=1\nnet.ipv6.conf.all.proxy_ndp=1\nnet.ipv6.conf.%%s.forwarding=1\nnet.ipv6.conf.%%s.proxy_ndp=1\nnet.ipv6.conf.%%s.forwarding=1\nnet.ipv6.conf.%%s.proxy_ndp=1\n' "$IFACE" "$IFACE" "$BRIDGE" "$BRIDGE"
   } > "$SYSCTL_PATH"
   if command -v sysctl >/dev/null 2>&1; then
     sysctl -p "$SYSCTL_PATH" >/dev/null
@@ -377,6 +389,10 @@ check_routed_forwarding() {
   [ "$(sysctl -n "net.ipv6.conf.$BRIDGE.proxy_ndp" 2>/dev/null || echo 0)" = 1 ] || return 1
 }
 check_routed_policy_route() {
+  LC_ALL=C NO_COLOR=1 ip -6 route show table "$POLICY_TABLE" type throw 2>/dev/null | awk -v cidr="$ROUTED_CIDR" '
+    $1 == "throw" && $2 == cidr { found = 1 }
+    END { exit(found ? 0 : 1) }
+  ' || return 1
   LC_ALL=C NO_COLOR=1 ip -6 rule show 2>/dev/null | awk -v priority="$POLICY_PRIORITY:" -v cidr="$ROUTED_CIDR" -v table="$POLICY_TABLE" '
     $1 != priority { next }
     {
@@ -610,12 +626,15 @@ if [ "$link" -eq 1 ]; then
       if (peer && device) { found = 1; exit }
     }
     END { exit(found ? 0 : 1) }
+  ' && LC_ALL=C NO_COLOR=1 ip -6 route show table %d type throw 2>/dev/null | awk -v cidr=%s '
+    $1 == "throw" && $2 == cidr { found = 1 }
+    END { exit(found ? 0 : 1) }
   '; then
     policy_route=" $(LC_ALL=C NO_COLOR=1 ip -6 route get %s from %s iif %s 2>/dev/null || true) "
     printf '%%s\n' "$policy_route" | grep -F %s >/dev/null 2>&1 && policy=1 || true
   fi
 fi
-`, utils.ShellSingleQuote(fmt.Sprintf("%d:", policyPriority)), utils.ShellSingleQuote(cidr), utils.ShellSingleQuote(fmt.Sprintf("%d", policyTable)), policyTable, utils.ShellSingleQuote(tunnel.RemoteIPv6), iface, utils.ShellSingleQuote(routedPolicyProbeIPv6), utils.ShellSingleQuote(gateway), bridge, utils.ShellSingleQuote(" dev "+tunnel.Interface+" "))
+`, utils.ShellSingleQuote(fmt.Sprintf("%d:", policyPriority)), utils.ShellSingleQuote(cidr), utils.ShellSingleQuote(fmt.Sprintf("%d", policyTable)), policyTable, utils.ShellSingleQuote(tunnel.RemoteIPv6), iface, policyTable, utils.ShellSingleQuote(cidr), utils.ShellSingleQuote(routedPolicyProbeIPv6), utils.ShellSingleQuote(gateway), bridge, utils.ShellSingleQuote(" dev "+tunnel.Interface+" "))
 				} else {
 					builder.WriteString("policy=0\n")
 				}

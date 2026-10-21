@@ -97,6 +97,9 @@ func TestLXDAPICreateResourceContract(t *testing.T) {
 				}
 				body := transport.payload
 				settings := body["config"].(map[string]interface{})
+				if settings["boot.autostart"] != "true" {
+					t.Fatal("instance would remain stopped after node reboot")
+				}
 				if settings["limits.cpu"] != "2" {
 					t.Fatalf("lost CPU limit: %#v", settings)
 				}

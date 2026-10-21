@@ -472,10 +472,18 @@ func (l *LXDProvider) configureInstanceSystem(ctx context.Context, config provid
 	global.APP_LOG.Debug("开始配置LXD实例系统",
 		zap.String("instance", config.Name),
 		zap.String("type", config.InstanceType))
-	if config.InstanceType != "vm" {
-		_ = l.setInstanceConfig(ctx, config.Name, "boot.autostart", "true")
-		_ = l.setInstanceConfig(ctx, config.Name, "boot.autostart.priority", "50")
-		_ = l.setInstanceConfig(ctx, config.Name, "boot.autostart.delay", "10")
+	// Both instance types must recover when their runtime node reboots.
+	// A failed autostart write is a failed connection/lifecycle contract.
+	if err := l.setInstanceConfig(ctx, config.Name, "boot.autostart", "true"); err != nil {
+		return fmt.Errorf("设置实例自动启动失败: %w", err)
+	}
+	for _, option := range []struct{ key, value string }{
+		{"boot.autostart.priority", "50"},
+		{"boot.autostart.delay", "10"},
+	} {
+		if err := l.setInstanceConfig(ctx, config.Name, option.key, option.value); err != nil {
+			global.APP_LOG.Warn("设置可选自动启动顺序失败", zap.String("key", option.key), zap.Error(err))
+		}
 	}
 	global.APP_LOG.Debug("实例系统配置完成",
 		zap.String("instanceName", config.Name))
@@ -548,7 +556,7 @@ func (l *LXDProvider) configureInstanceSSHPassword(ctx context.Context, config p
 	// 根据系统类型选择脚本
 	var scriptName string
 	// 检测系统类型（轻量级命令，直接执行即可）
-	output, err := l.sshClient.Execute(fmt.Sprintf("lxc exec %s -- cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | tr -d '\"'", shellSingleQuote(config.Name)))
+	output, err := l.sshClient.Execute(fmt.Sprintf("lxc exec -T %s -- cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | tr -d '\"'", shellSingleQuote(config.Name)))
 	if err == nil {
 		osType := strings.TrimSpace(strings.ToLower(output))
 		if osType == "alpine" || osType == "openwrt" {
@@ -578,7 +586,7 @@ func (l *LXDProvider) configureInstanceSSHPassword(ctx context.Context, config p
 			// 设置脚本权限并执行 - 使用临时脚本方式以确保 agent 模式下稳定执行
 			sshExecScript := utils.BuildTempScript(utils.TempScriptConfig{
 				PrimaryCmd: fmt.Sprintf(
-					"lxc exec %s -- chmod +x /root/%s && lxc exec %s -- /root/%s %s",
+					"lxc exec -T %s -- chmod +x /root/%s && lxc exec -T %s -- /root/%s %s",
 					shellSingleQuote(config.Name), scriptName, shellSingleQuote(config.Name), scriptName, shellSingleQuote(password),
 				),
 				TimeoutSeconds: 60,
@@ -619,7 +627,7 @@ func (l *LXDProvider) configureInstanceSSHPassword(ctx context.Context, config p
 	}
 
 	// 清理历史记录 - 非阻塞式，如果失败不影响整体流程
-	_, err = l.sshClient.Execute(fmt.Sprintf("lxc exec %s -- bash -c 'history -c 2>/dev/null || true'", shellSingleQuote(config.Name)))
+	_, err = l.sshClient.Execute(fmt.Sprintf("lxc exec -T %s -- bash -c 'history -c 2>/dev/null || true'", shellSingleQuote(config.Name)))
 	if err != nil {
 		global.APP_LOG.Warn("清理历史记录失败",
 			zap.String("instanceName", config.Name),
@@ -691,7 +699,7 @@ func (l *LXDProvider) waitForInstanceExecReady(instanceName string, timeoutSecon
 		}
 
 		// 尝试执行一个简单的命令来检测VM agent是否就绪
-		cmd := fmt.Sprintf("lxc exec %s -- echo 'agent-ready' 2>/dev/null", shellSingleQuote(instanceName))
+		cmd := fmt.Sprintf("lxc exec -T %s -- echo 'agent-ready' 2>/dev/null", shellSingleQuote(instanceName))
 		output, err := l.sshClient.Execute(cmd)
 		if err == nil && strings.Contains(output, "agent-ready") {
 			global.APP_LOG.Debug("实例可执行命令",
