@@ -663,9 +663,10 @@ export default {
     formValidationFailed: "Form validation failed, please check required fields"
   },
   ipv4Pool: {
+    addPartial: "Valid addresses added; {count} lines were skipped. Check their format or range size.",
     management: "IPv4 Address Pool",
     addresses: "Add Addresses",
-    addressesPlaceholder: "One IP or CIDR per line\nExample:\n192.168.1.10\n10.0.0.0/29",
+    addressesPlaceholder: "One IP, CIDR or inclusive start IP - end IP per line\n192.168.1.10\n10.0.0.0/29\n192.168.1.1 - 192.168.1.100\nUp to 4096 addresses per range",
     addBtn: "Add to Pool",
     clearBtn: "Clear Unallocated",
     stats: "Pool Stats",
@@ -729,7 +730,7 @@ export default {
     preservedCount: "Allocated Preserved",
     invalidLines: "Invalid Lines",
     addresses: "Addresses or CIDRs",
-    addressesPlaceholder: "One IPv6 address or CIDR per line\nExample:\n2001:db8::10\n2001:db8:100::/80\nDiscrete addresses and large prefixes are supported",
+    addressesPlaceholder: "One IPv6 address, CIDR or inclusive start IP - end IP per line\n2001:db8::10\n2001:db8:100::/80\n2001:db8::1 - 2001:db8::100\nUp to 4096 addresses per range and 5000 expanded entries; CIDRs still allocate on demand",
     addBtn: "Save Addresses",
     clearBtn: "Clear Unallocated",
     total: "Addresses",

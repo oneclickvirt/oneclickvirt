@@ -37,6 +37,12 @@ export const updateInstance = (id, data) => {
   })
 }
 
+export const updateAdminInstanceAlias = (id, alias) => request({
+  url: `/v1/admin/instances/${id}/alias`,
+  method: 'put',
+  data: { alias }
+})
+
 export const deleteInstance = (id) => {
   return instanceOperationRequest({
     url: `/v1/admin/instances/${id}`,

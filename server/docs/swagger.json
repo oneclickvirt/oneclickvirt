@@ -2548,6 +2548,82 @@
                 }
             }
         },
+        "/admin/instances/{id}/alias": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "管理员仅可修改归属自己节点的实例，超级管理员可修改全部实例。最多128个字符，空字符串清空。只影响面板显示，实例原名、名称搜索和宿主机标识保持不变。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "实例管理"
+                ],
+                "summary": "修改实例备注别名",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "备注别名",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/provider.UpdateInstanceAliasRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "修改成功",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/provider.InstanceAliasResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "用户未登录",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "实例不存在或无权限",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/instances/{id}/egress": {
             "get": {
                 "security": [
@@ -7549,7 +7625,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "向指定服务商的IPv4地址池中追加IP（每行一个IP或CIDR）",
+                "description": "追加IPv4地址，每行支持单IP、CIDR或起始IP - 结束IP（包含首尾，如192.168.1.1 - 192.168.1.100）。每个范围最多4096个地址；CIDR仍仅支持/20及更小网段，自动去重并返回无效行。",
                 "tags": [
                     "服务商管理"
                 ],
@@ -7563,12 +7639,12 @@
                         "required": true
                     },
                     {
-                        "description": "地址列表（每行一个IP/CIDR，可含注释行）",
+                        "description": "地址列表（每行一个IP、CIDR或范围，可含注释行）",
                         "name": "body",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "type": "object"
+                            "$ref": "#/definitions/provider.AddressPoolRequest"
                         }
                     }
                 ],
@@ -7698,7 +7774,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "向指定服务商的IPv6地址池中追加离散地址或CIDR网段",
+                "description": "追加离散IPv6地址、CIDR或包含首尾的起始IP - 结束IP（如2001:db8::1 - 2001:db8::100）。每个显式范围最多4096个地址，输入展开后最多5000项；CIDR仍按需分配，不展开大网段。节点地址文件保持单行单IP或CIDR格式。",
                 "tags": [
                     "服务商管理"
                 ],
@@ -7712,12 +7788,12 @@
                         "required": true
                     },
                     {
-                        "description": "IPv6地址或CIDR列表",
+                        "description": "IPv6地址、CIDR或范围列表",
                         "name": "body",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "type": "object"
+                            "$ref": "#/definitions/provider.AddressPoolRequest"
                         }
                     }
                 ],
@@ -16948,6 +17024,82 @@
                 }
             }
         },
+        "/user/instances/{id}/alias": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "仅实例所属用户可修改，最多128个字符；空字符串清空别名。只影响面板显示，实例原名、名称搜索和宿主机标识保持不变。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户管理"
+                ],
+                "summary": "修改实例备注别名",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "备注别名",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/provider.UpdateInstanceAliasRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "修改成功",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/provider.InstanceAliasResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "用户未登录",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "实例不存在或无权限",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/user/instances/{id}/exec": {
             "get": {
                 "description": "通过WebSocket建立到容器的交互式终端连接(exec)",
@@ -22402,6 +22554,10 @@
         "oneclickvirt_model_provider.Instance": {
             "type": "object",
             "properties": {
+                "alias": {
+                    "description": "面板备注别名；不参与宿主机操作和名称检索",
+                    "type": "string"
+                },
                 "bandwidth": {
                     "description": "网络带宽（Mbps）",
                     "type": "integer"
@@ -23499,6 +23655,19 @@
                 }
             }
         },
+        "provider.AddressPoolRequest": {
+            "type": "object",
+            "required": [
+                "addresses"
+            ],
+            "properties": {
+                "addresses": {
+                    "description": "地址、CIDR或包含首尾的起始IP - 结束IP；每个显式范围最多4096个地址",
+                    "type": "string",
+                    "example": "192.168.1.1 - 192.168.1.100"
+                }
+            }
+        },
         "provider.DiscoveredAccelerator": {
             "type": "object",
             "properties": {
@@ -23810,6 +23979,17 @@
                 }
             }
         },
+        "provider.InstanceAliasResponse": {
+            "type": "object",
+            "properties": {
+                "alias": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                }
+            }
+        },
         "provider.InstanceChange": {
             "type": "object",
             "properties": {
@@ -23884,6 +24064,18 @@
                 },
                 "type": {
                     "type": "string"
+                }
+            }
+        },
+        "provider.UpdateInstanceAliasRequest": {
+            "type": "object",
+            "required": [
+                "alias"
+            ],
+            "properties": {
+                "alias": {
+                    "type": "string",
+                    "example": "数据库服务器"
                 }
             }
         },
@@ -24967,6 +25159,10 @@
         "user.UserInstanceDetailResponse": {
             "type": "object",
             "properties": {
+                "alias": {
+                    "description": "面板备注别名，不改变实例原名",
+                    "type": "string"
+                },
                 "bandwidth": {
                     "type": "integer"
                 },

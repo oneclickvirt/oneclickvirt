@@ -1,5 +1,11 @@
 import request from '@/utils/request'
 
+export const updateUserInstanceAlias = (id, alias) => request({
+  url: `/v1/user/instances/${id}/alias`,
+  method: 'put',
+  data: { alias }
+})
+
 export const getUserInstanceVNCInfo = (instanceId) => request({
   url: `/v1/user/instances/${instanceId}/vnc`,
   method: 'get'

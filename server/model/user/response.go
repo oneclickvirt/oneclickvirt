@@ -166,6 +166,7 @@ type TaskResponse = UserTaskResponse
 type UserInstanceDetailResponse struct {
 	ID              uint       `json:"id"`
 	Name            string     `json:"name"`
+	Alias           string     `json:"alias"` // 面板备注别名，不改变实例原名
 	Type            string     `json:"type"`
 	InstanceType    string     `json:"instance_type"` // 实例类型：container, vm
 	Status          string     `json:"status"`

@@ -59,7 +59,13 @@
         <div class="server-header">
           <div class="server-name-section">
             <h1 class="server-name">
-              {{ instance.name }}
+              <InstanceAlias
+                :instance-id="instance.id || 0"
+                :name="instance.name"
+                :alias="instance.alias"
+                :editable="!shareMode"
+                @updated="$emit('alias-updated', $event)"
+              />
             </h1>
             <div class="server-meta">
               <el-tag
@@ -238,6 +244,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Link } from '@element-plus/icons-vue'
+import InstanceAlias from '@/components/InstanceAlias.vue'
 import { formatDiskSize, formatMemorySize } from '@/utils/unit-formatter'
 import { useInstanceFormatters } from '../composables/useInstanceFormatters'
 
@@ -253,7 +260,7 @@ const props = defineProps({
   shareMode: { type: Boolean, default: false }
 })
 
-defineEmits(['perform-action', 'reset-password', 'open-ssh', 'open-vnc', 'view-task', 'create-share'])
+defineEmits(['perform-action', 'reset-password', 'open-ssh', 'open-vnc', 'view-task', 'create-share', 'alias-updated'])
 
 const {
   getTaskTitle,

@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"oneclickvirt/model/common"
+	"oneclickvirt/model/provider"
 	adminProvider "oneclickvirt/service/admin/provider"
 
 	"github.com/gin-gonic/gin"
@@ -62,11 +63,11 @@ func GetProviderIPv4Pool(c *gin.Context) {
 
 // SetProviderIPv4Pool 向服务商IPv4地址池中追加地址
 // @Summary 设置IPv4地址池
-// @Description 向指定服务商的IPv4地址池中追加IP（每行一个IP或CIDR）
+// @Description 追加IPv4地址，每行支持单IP、CIDR或起始IP - 结束IP（包含首尾，如192.168.1.1 - 192.168.1.100）。每个范围最多4096个地址；CIDR仍仅支持/20及更小网段，自动去重并返回无效行。
 // @Tags 服务商管理
 // @Security BearerAuth
 // @Param id path int true "服务商ID"
-// @Param body body object true "地址列表（每行一个IP/CIDR，可含注释行）"
+// @Param body body provider.AddressPoolRequest true "地址列表（每行一个IP、CIDR或范围，可含注释行）"
 // @Success 200 {object} common.Response "设置成功"
 // @Router /admin/providers/{id}/ipv4-pool [post]
 func SetProviderIPv4Pool(c *gin.Context) {
@@ -80,9 +81,7 @@ func SetProviderIPv4Pool(c *gin.Context) {
 		return
 	}
 
-	var req struct {
-		Addresses string `json:"addresses" binding:"required"`
-	}
+	var req provider.AddressPoolRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请求参数错误: "+err.Error()))
 		return

@@ -27,6 +27,7 @@
       @open-vnc="openConsole('')"
       @view-task="viewTaskDetail"
       @create-share="createShareLink"
+      @alias-updated="instance.alias = $event"
     />
 
     <!-- 标签页内容 -->

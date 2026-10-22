@@ -1,4 +1,11 @@
 export default {
+  editAlias: "修改备注别名",
+  originalName: "实例原名",
+  aliasHint: "备注别名仅用于面板显示，搜索仍使用实例原名。留空可清除别名。",
+  aliasPlaceholder: "例如：网站服务器（最多128个字符）",
+  aliasInvalid: "备注别名最多128个字符，不能包含控制字符",
+  aliasSaved: "备注别名已更新",
+  aliasSaveFailed: "更新备注别名失败",
   title: "我的实例",
   subtitle: "管理您的虚拟机和容器实例",
   loadingInstances: "加载实例数据中...",

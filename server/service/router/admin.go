@@ -44,6 +44,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.POST("/instances", admin.CreateInstance)
 		NormalAdminGroup.POST("/instances/batch-action", admin.AdminBatchInstanceAction)
 		NormalAdminGroup.PUT("/instances/:id", admin.UpdateInstance)
+		NormalAdminGroup.PUT("/instances/:id/alias", admin.UpdateAdminInstanceAlias)
 		NormalAdminGroup.DELETE("/instances/:id", admin.DeleteInstance)
 		NormalAdminGroup.POST("/instances/:id/action", admin.AdminInstanceAction)
 		NormalAdminGroup.PUT("/instances/:id/reset-password", admin.ResetInstancePassword)

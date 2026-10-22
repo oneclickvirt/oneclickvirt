@@ -151,7 +151,14 @@
         >
           <div class="instance-header">
             <div class="instance-info">
-              <h3>{{ instance.name }}</h3>
+              <h3>
+                <InstanceAlias
+                  :instance-id="instance.id"
+                  :name="instance.name"
+                  :alias="instance.alias"
+                  @updated="instance.alias = $event"
+                />
+              </h3>
               <div class="instance-type">
                 <el-tag :type="instance.instance_type === 'vm' ? 'primary' : 'success'">
                   {{ instance.instance_type === 'vm' ? t('user.instances.vm') : t('user.instances.container') }}
@@ -330,6 +337,7 @@ import { TrendCharts, View, Link } from '@element-plus/icons-vue'
 import { formatDiskSize, formatMemorySize } from '@/utils/unit-formatter'
 import InstanceTrafficDetail from '@/components/InstanceTrafficDetail.vue'
 import OsIcon from '@/components/OsIcon.vue'
+import InstanceAlias from '@/components/InstanceAlias.vue'
 import { useUserInstances } from './composables/useUserInstances.js'
 import { useI18n } from 'vue-i18n'
 const { t } = useI18n()

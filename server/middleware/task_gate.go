@@ -48,6 +48,11 @@ func isTaskPoolAdmissionExempt(c *gin.Context) bool {
 	if method == http.MethodPut && strings.HasSuffix(path, "/v1/admin/tasks/pool-status") {
 		return true
 	}
+	// Display aliases are controller metadata and never submit provider tasks.
+	if method == http.MethodPut && (strings.HasSuffix(path, "/v1/admin/instances/:id/alias") ||
+		strings.HasSuffix(path, "/v1/user/instances/:id/alias")) {
+		return true
+	}
 	if method == http.MethodPost {
 		switch {
 		case strings.HasSuffix(path, "/v1/admin/tasks/force-stop"):

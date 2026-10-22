@@ -468,6 +468,7 @@ type Instance struct {
 	// 基本信息
 	// 添加覆盖索引，包含常用查询字段
 	Name         string `json:"name" gorm:"uniqueIndex:idx_instance_name_provider,priority:1;not null;size:128"`                                                         // 实例名称（与provider_id组合唯一）
+	Alias        string `json:"alias" gorm:"size:128;not null;default:'';<-:create"`                                                                                     // 面板备注别名；不参与宿主机操作和名称检索
 	Provider     string `json:"provider" gorm:"not null;size:64;index:idx_provider_name"`                                                                                // Provider名称
 	ProviderID   uint   `json:"providerId" gorm:"uniqueIndex:idx_instance_name_provider,priority:2;index:idx_provider_id;index:idx_provider_status,priority:1;not null"` // 关联的Provider ID（与name组合唯一）
 	Status       string `json:"status" gorm:"size:32;index:idx_status;index:idx_provider_status,priority:2"`                                                             // 实例状态：creating, running, stopped, failed等

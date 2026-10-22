@@ -33,8 +33,10 @@ export function useIPv4Pool(props) {
     if (!newAddresses.value.trim()) return
     saving.value = true
     try {
-      await setProviderIPv4Pool(props.modelValue.id, { addresses: newAddresses.value })
-      ElMessage.success(t('admin.providers.ipv4Pool.addSuccess'))
+      const res = await setProviderIPv4Pool(props.modelValue.id, { addresses: newAddresses.value })
+      const invalid = res.data?.invalidLines || []
+      if (invalid.length) ElMessage.warning(t('admin.providers.ipv4Pool.addPartial', { count: invalid.length }))
+      else ElMessage.success(t('admin.providers.ipv4Pool.addSuccess'))
       newAddresses.value = ''
       await loadPool()
     } catch {

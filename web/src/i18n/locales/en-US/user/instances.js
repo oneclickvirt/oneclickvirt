@@ -1,4 +1,11 @@
 export default {
+  editAlias: "Edit display alias",
+  originalName: "Original name",
+  aliasHint: "The alias is used for panel display. Search still uses the original instance name. Leave blank to clear the alias.",
+  aliasPlaceholder: "For example: Website server (up to 128 characters)",
+  aliasInvalid: "Use up to 128 characters without control characters",
+  aliasSaved: "Display alias updated",
+  aliasSaveFailed: "Failed to update display alias",
   title: "My Instances",
   subtitle: "Manage your virtual machines and container instances",
   loadingInstances: "Loading instances...",

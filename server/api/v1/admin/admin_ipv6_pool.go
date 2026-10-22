@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"oneclickvirt/model/common"
+	"oneclickvirt/model/provider"
 	"oneclickvirt/service/ipv6pool"
 
 	"github.com/gin-gonic/gin"
@@ -82,11 +83,11 @@ func GetProviderIPv6PoolNetwork(c *gin.Context) {
 
 // SetProviderIPv6Pool 向服务商IPv6地址池追加地址或网段
 // @Summary 设置IPv6地址池
-// @Description 向指定服务商的IPv6地址池中追加离散地址或CIDR网段
+// @Description 追加离散IPv6地址、CIDR或包含首尾的起始IP - 结束IP（如2001:db8::1 - 2001:db8::100）。每个显式范围最多4096个地址，输入展开后最多5000项；CIDR仍按需分配，不展开大网段。节点地址文件保持单行单IP或CIDR格式。
 // @Tags 服务商管理
 // @Security BearerAuth
 // @Param id path int true "服务商ID"
-// @Param body body object true "IPv6地址或CIDR列表"
+// @Param body body provider.AddressPoolRequest true "IPv6地址、CIDR或范围列表"
 // @Success 200 {object} common.Response "设置成功"
 // @Router /admin/providers/{id}/ipv6-pool [post]
 func SetProviderIPv6Pool(c *gin.Context) {
@@ -99,9 +100,7 @@ func SetProviderIPv6Pool(c *gin.Context) {
 		common.ResponseWithError(c, err)
 		return
 	}
-	var req struct {
-		Addresses string `json:"addresses" binding:"required"`
-	}
+	var req provider.AddressPoolRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请求参数错误: "+err.Error()))
 		return

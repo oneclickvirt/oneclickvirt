@@ -9,6 +9,7 @@ import (
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -43,7 +44,7 @@ func (s *IPv4PoolService) GetIPv4Pool(providerID uint, page, pageSize int) ([]pr
 }
 
 // SetIPv4Pool 向Provider的IPv4地址池中追加新地址（不删除已有地址）
-// text: 每行一个IP地址或CIDR（IPv4），支持注释行（#开头）
+// text: 每行一个IP地址、CIDR或首IP - 末IP（IPv4），支持注释行（#开头）
 // 仅支持 IPv4 /20 以上（较小）网段，避免意外扩展超大地址块
 func (s *IPv4PoolService) SetIPv4Pool(providerID uint, text string) (added []string, invalidLines []string, err error) {
 	ips, invalids := parseIPsFromText(text)
@@ -203,7 +204,7 @@ func (s *IPv4PoolService) GetPoolStats(providerID uint) (total, allocated, avail
 	return
 }
 
-// parseIPsFromText 从文本中解析IPv4地址（每行一个IP或CIDR）
+// parseIPsFromText 从文本中解析IPv4地址（每行一个IP、CIDR或包含首尾的地址范围）
 func parseIPsFromText(text string) (ips []string, invalidLines []string) {
 	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
 	seenIPs := make(map[string]struct{})
@@ -211,6 +212,20 @@ func parseIPsFromText(text string) (ips []string, invalidLines []string) {
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.Contains(line, "-") {
+			addresses, err := utils.ParseIPRange(line, false)
+			if err != nil {
+				invalidLines = append(invalidLines, fmt.Sprintf("%s (%v)", line, err))
+				continue
+			}
+			for _, address := range addresses {
+				if _, exists := seenIPs[address]; !exists {
+					seenIPs[address] = struct{}{}
+					ips = append(ips, address)
+				}
+			}
 			continue
 		}
 

@@ -76,6 +76,7 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 	detail := &userModel.UserInstanceDetailResponse{
 		ID:                  instance.ID,
 		Name:                instance.Name,
+		Alias:               instance.Alias,
 		Type:                instance.InstanceType,
 		InstanceType:        instance.InstanceType,
 		Status:              instance.Status,

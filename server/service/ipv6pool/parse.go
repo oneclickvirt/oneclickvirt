@@ -3,12 +3,15 @@ package ipv6pool
 import (
 	"fmt"
 	"net"
+	"regexp"
 	"strings"
 	"unicode"
 
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/utils"
 )
+
+var ipv6RangeSeparator = regexp.MustCompile(`\s*-\s*`)
 
 func parseIPv6PoolText(providerID uint, text, source string) ([]providerModel.ProviderIPv6Pool, []string, error) {
 	return parseIPv6PoolTextWithOptions(providerID, text, source, false)
@@ -28,6 +31,7 @@ func parseIPv6PoolTextWithOptions(providerID uint, text, source string, allowEmp
 		}
 		tokens := []string{line}
 		if !strictNodeFile {
+			line = ipv6RangeSeparator.ReplaceAllString(line, "-")
 			tokens = strings.FieldsFunc(line, func(r rune) bool {
 				return unicode.IsSpace(r) || r == ',' || r == ';'
 			})
@@ -37,16 +41,36 @@ func parseIPv6PoolTextWithOptions(providerID uint, text, source string, allowEmp
 			if tokenCount > maxIPv6PoolTokens {
 				return nil, invalid, fmt.Errorf("IPv6地址池输入条目超过%d", maxIPv6PoolTokens)
 			}
-			entry, err := parseIPv6PoolToken(providerID, token, source)
-			if err != nil {
-				invalid = append(invalid, fmt.Sprintf("%s (%v)", token, err))
-				continue
+			values := []string{token}
+			if !strictNodeFile && strings.Contains(token, "-") {
+				var err error
+				values, err = utils.ParseIPRange(token, true)
+				if err != nil {
+					invalid = append(invalid, fmt.Sprintf("%s (%v)", token, err))
+					continue
+				}
+				// Validate the whole range before accepting any of its addresses.
+				if values[0] == "::" {
+					invalid = append(invalid, fmt.Sprintf("%s (IPv6未指定地址不可分配)", token))
+					continue
+				}
+				tokenCount += len(values) - 1
+				if tokenCount > maxIPv6PoolTokens {
+					return nil, invalid, fmt.Errorf("IPv6地址池输入条目超过%d", maxIPv6PoolTokens)
+				}
 			}
-			if _, exists := seen[entry.Address]; exists {
-				continue
+			for _, value := range values {
+				entry, err := parseIPv6PoolToken(providerID, value, source)
+				if err != nil {
+					invalid = append(invalid, fmt.Sprintf("%s (%v)", token, err))
+					continue
+				}
+				if _, exists := seen[entry.Address]; exists {
+					continue
+				}
+				seen[entry.Address] = struct{}{}
+				parsed = append(parsed, entry)
 			}
-			seen[entry.Address] = struct{}{}
-			parsed = append(parsed, entry)
 		}
 	}
 	if strictNodeFile && len(invalid) > 0 {

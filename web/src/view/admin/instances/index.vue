@@ -164,7 +164,17 @@
           min-width="150"
           show-overflow-tooltip
           fixed="left"
-        />
+        >
+          <template #default="{ row }">
+            <InstanceAlias
+              :instance-id="row.id"
+              :name="row.name"
+              :alias="row.alias"
+              admin
+              @updated="row.alias = $event"
+            />
+          </template>
+        </el-table-column>
         <el-table-column
           prop="userName"
           :label="$t('admin.instances.owner')"
@@ -403,7 +413,13 @@
           border
         >
           <el-descriptions-item :label="$t('admin.instances.instanceName')">
-            {{ selectedInstance.name }}
+            <InstanceAlias
+              :instance-id="selectedInstance.id"
+              :name="selectedInstance.name"
+              :alias="selectedInstance.alias"
+              admin
+              @updated="selectedInstance.alias = $event; loadInstances()"
+            />
           </el-descriptions-item>
           <el-descriptions-item :label="$t('admin.instances.uuid')">
             {{ selectedInstance.uuid }}
@@ -774,6 +790,7 @@ import { useInstanceManagement } from './composables/useInstanceManagement'
 import EgressDialog from './components/EgressDialog.vue'
 import InstanceAccessDialog from './components/InstanceAccessDialog.vue'
 import VNCDialog from '@/components/VNCDialog.vue'
+import InstanceAlias from '@/components/InstanceAlias.vue'
 
 const {
   instances, loading, detailDialogVisible, actionDialogVisible, egressDialogVisible, accessDialogVisible, consoleDialogVisible, accessLoading,

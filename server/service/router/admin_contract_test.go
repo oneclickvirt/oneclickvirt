@@ -29,6 +29,7 @@ func TestAdminRouteContract(t *testing.T) {
 	}
 
 	required := []string{
+		"PUT /api/v1/admin/instances/:id/alias",
 		"GET /api/v1/admin/system/check-updates",
 		"GET /api/v1/admin/system/rollback-versions",
 		"POST /api/v1/admin/system/update",
