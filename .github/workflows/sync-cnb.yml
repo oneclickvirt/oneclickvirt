@@ -1,4 +1,4 @@
-name: Sync source to CNB master
+name: Sync public repositories to CNB
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -8,19 +8,21 @@ on:
     branches:
       - main
   workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
 
 permissions:
   contents: read
 
 concurrency:
-  group: sync-cnb-${{ github.ref }}
-  cancel-in-progress: true
+  group: sync-cnb-public-repositories
+  cancel-in-progress: false
 
 jobs:
   sync-source:
-    if: github.ref == 'refs/heads/main'
+    if: github.repository == 'oneclickvirt/oneclickvirt' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
       - name: Checkout source
@@ -43,23 +45,15 @@ jobs:
             exit 1
           fi
 
-      - name: Build history-free public snapshot
+      - name: Test public snapshot synchronization
         run: |
           set -euo pipefail
           bash scripts/tests/cnb_snapshot_test.sh
-          export_commit=$(bash scripts/build_cnb_snapshot.sh HEAD)
-          printf 'CNB_EXPORT_COMMIT=%s\n' "${export_commit}" >> "${GITHUB_ENV}"
+          bash scripts/tests/cnb_sync_test.sh
 
-      - name: Replace CNB public branches
+      - name: Synchronize public source snapshots
         env:
           CNB_PUSH_USERNAME: ${{ secrets.CNB_PUSH_USERNAME }}
           CNB_PUSH_TOKEN: ${{ secrets.CNB_PUSH_TOKEN }}
-          CNB_REPOSITORY_URL: https://cnb.cool/oneclickvirt/oneclickvirt
           GIT_TERMINAL_PROMPT: '0'
-        run: |
-          git remote add cnb "${CNB_REPOSITORY_URL}"
-          # shellcheck disable=SC2016 # Git expands the credential helper at invocation, not in this shell.
-          git -c credential.helper='!f() { test "$1" = get || exit 0; printf "%s\n" "username=${CNB_PUSH_USERNAME}" "password=${CNB_PUSH_TOKEN}"; }; f' \
-            push --force cnb \
-              "${CNB_EXPORT_COMMIT}:refs/heads/main" \
-              "${CNB_EXPORT_COMMIT}:refs/heads/master"
+        run: bash scripts/sync_cnb_repositories.sh
