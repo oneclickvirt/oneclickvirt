@@ -15,7 +15,7 @@ LOCAL_SHELL = """
 action_harness_classification_test.sh action_prerequisite_test.sh
 agent_egress_boot_guard_test.sh agent_env_reinstall_test.sh
 all_in_one_entrypoint_test.sh api_contract_sync_test.sh api_retry_safety_test.sh
-cnb_snapshot_test.sh config_source_consistency_test.sh
+cnb_snapshot_test.sh cnb_sync_test.sh config_source_consistency_test.sh
 containerd_runtime_verifier_test.sh database_config_apply_test.sh
 database_install_safety_test.sh docker_fixture_cleanup_test.sh download_atomic_test.sh
 firewall_runner_prerequisite_test.sh hetzner_password_rebuild_test.sh
