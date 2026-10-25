@@ -75,7 +75,7 @@ main() (
     trap 'rm -rf "$sync_tmp"' EXIT
     # Never infer a source from the current checkout: the maintainer also has a
     # private counterpart, which must never be published to these destinations.
-    for repo in oneclickvirt pve incus docker lxd containerd podman qemu kubevirt; do
+    for repo in oneclickvirt pve incus docker lxd containerd podman qemu kubevirt 6in4 ndpresponder; do
         printf 'Synchronizing oneclickvirt/%s\n' "$repo"
         if ! git -c credential.helper= clone --quiet --depth=1 --single-branch --branch main \
             "https://github.com/oneclickvirt/$repo.git" "$sync_tmp/$repo"; then
