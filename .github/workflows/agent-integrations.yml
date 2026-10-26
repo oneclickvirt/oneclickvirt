@@ -5,12 +5,19 @@ on:
     branches: [main]
     paths: ['integrations/**', '.github/workflows/agent-integrations.yml']
   workflow_dispatch:
+    inputs:
+      target:
+        description: Work to perform
+        type: choice
+        default: all
+        options: [all, distribution, mirrors]
 
 permissions:
   contents: read
 
 jobs:
   distribution:
+    if: inputs.target != 'mirrors'
     strategy:
       fail-fast: false
       matrix:
@@ -36,7 +43,7 @@ jobs:
         run: python integrations/native_smoke.py --probes --only basics pingtest cputest memorytest disktest ecs --output integration-native
 
   provision-mirrors:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.target != 'distribution'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:

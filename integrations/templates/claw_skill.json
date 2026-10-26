@@ -1,0 +1,51 @@
+{
+  "name": "ClawChimera",
+  "id": "clawchimera-ecs",
+  "version": "1.1.0",
+  "description": "融合怪 ECS Skill，使用当前正式 Release 的原生程序；支持系统信息及按需选择的性能、网络检测。",
+  "author": "oneclickvirt",
+  "license": "MIT-0",
+  "homepage": "https://github.com/oneclickvirt/ClawChimera",
+  "upstream": "https://github.com/oneclickvirt/ecs",
+  "entry": "run.sh",
+  "runtime": {
+    "os": [
+      "linux",
+      "darwin",
+      "freebsd"
+    ],
+    "arch": [
+      "amd64",
+      "arm64",
+      "arm",
+      "386",
+      "mips",
+      "mipsle",
+      "s390x",
+      "riscv64"
+    ],
+    "dependencies": [
+      "bash",
+      "python3>=3.9"
+    ],
+    "notes": "读取 GitHub 当前正式 Release，选择真实系统和架构产物并校验 SHA-256。缓存按二进制摘要隔离，启动参数直接透传给 goecs。"
+  },
+  "env": {
+    "ECS_VERSION": {
+      "description": "可选：固定 ECS Release 的完整标签，默认 latest。",
+      "required": false
+    }
+  },
+  "tags": [
+    "vps",
+    "benchmark",
+    "network",
+    "streaming",
+    "china",
+    "ecs",
+    "融合怪",
+    "backtrace",
+    "ipquality",
+    "speedtest"
+  ]
+}

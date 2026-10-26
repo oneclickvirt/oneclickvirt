@@ -24,7 +24,7 @@ def main():
         try:
             with urllib.request.urlopen(probe, timeout=30) as response:
                 metadata = json.load(response)
-            if metadata.get("visibility") != "public":
+            if metadata.get("visibility_level") != "Public":
                 raise ValueError("Destination is not an existing public mirror: " + repo)
             print("Public mirror exists:", repo, flush=True)
             continue

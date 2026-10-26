@@ -61,6 +61,18 @@ async def exercise(profile,output,probe,loopback):
     check=await client.call_tool('list_instances',{})
     result['runtime_error']=check.isError
     result['runtime_count']=len(json.loads(check.content[0].text)) if not check.isError else None
+   if profile.get('releases') and not profile.get('asset_prefix') and probe:
+    check=await client.call_tool('release_assets',{})
+    result['release_error']=check.isError
+    if check.isError:result['release_result']=[c.text for c in check.content if c.type=='text']
+    else:
+     value=json.loads(check.content[0].text)
+     result['release_version']=value['version'];result['release_asset_count']=len(value['assets'])
+     result['release_sample']=value['assets'][:2]
+   if profile.get('network') and probe and sys.platform.startswith('linux'):
+    check=await client.call_tool('network_status',{})
+    result['network_error']=check.isError
+    result['network_result']=[c.text for c in check.content if c.type=='text']
  return result
 
 class Handler(socketserver.BaseRequestHandler):
@@ -84,11 +96,11 @@ async def main():
    except Exception as exc:
     result={'repository':profile['repository'],'failure':str(exc)}
    results.append(result)
-   if result.get('failure') or result.get('probe_error') or result.get('counter_error'):print(json.dumps(result,ensure_ascii=True)[:3000],flush=True)
+   if result.get('failure') or any(result.get(k+'_error') for k in ['probe','counter','release','network']):print(json.dumps(result,ensure_ascii=True)[:3000],flush=True)
    (args.output/'results.json').write_text(json.dumps(results,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-   print(name,'failed' if result.get('failure') or result.get('probe_error') or result.get('runtime_error') or result.get('counter_error') else 'passed',flush=True)
+   print(name,'failed' if result.get('failure') or any(result.get(k+'_error') for k in ['probe','runtime','counter','release','network']) else 'passed',flush=True)
  finally:tcp.shutdown();tcp.server_close()
- bad=[r['repository'] for r in results if r.get('failure') or r.get('probe_error') or r.get('runtime_error') or r.get('counter_error')]
+ bad=[r['repository'] for r in results if r.get('failure') or any(r.get(k+'_error') for k in ['probe','runtime','counter','release','network'])]
  if bad: print('Failures:',bad);raise SystemExit(1)
 
 if __name__=='__main__':asyncio.run(main())

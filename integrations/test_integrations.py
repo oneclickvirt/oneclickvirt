@@ -167,6 +167,13 @@ class IntegrationTests(unittest.TestCase):
   server.serve(adapter,io.StringIO('\n'.join(messages)),out);replies=[json.loads(x) for x in out.getvalue().splitlines()]
   self.assertEqual(len(replies),5);self.assertEqual(replies[0]['error']['code'],-32700)
   self.assertEqual(replies[1]['result']['protocolVersion'],'2024-11-05');self.assertTrue(replies[3]['result']['isError']);self.assertEqual(replies[4]['result'],{})
+ def test_protocol_transports_unicode_with_a_legacy_console_encoding(self):
+  buffer=io.BytesIO();out=io.TextIOWrapper(buffer,encoding='cp1252')
+  message=json.dumps({'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'integration_info','arguments':{}}})
+  server.serve(self.adapter('pve'),io.StringIO(message),out);out.flush()
+  reply=json.loads(buffer.getvalue().decode('ascii'))
+  self.assertFalse(reply['result']['isError'])
+  self.assertIn('purpose_zh',json.loads(reply['result']['content'][0]['text']))
  def test_real_subprocess_timeout_and_stdout_json(self):
   self.assertEqual(server.execute([sys.executable,'-c','print(\'{"real":true}\')']),{'real':True})
   with self.assertRaises(ValueError):server.execute([sys.executable,'-c','import time; time.sleep(5)'],timeout=0.1)
