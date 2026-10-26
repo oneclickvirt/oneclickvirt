@@ -779,7 +779,7 @@
         "args": [
           "-json",
           "-p",
-          "{scratch}",
+          ".",
           "-size",
           "16777216",
           "-duration",
@@ -838,9 +838,16 @@
           "-speed=false",
           "-ping=false",
           "-tgdc=false",
-          "-web=false"
+          "-web=false",
+          "-json",
+          "-",
+          "-dns-mode",
+          "system",
+          "-timeout",
+          "25s",
+          "-privacy=true"
         ],
-        "timeout": 120
+        "timeout": 40
       }
     },
     "help_args": [
@@ -893,9 +900,16 @@
           "-speed=false",
           "-ping=false",
           "-tgdc=false",
-          "-web=false"
+          "-web=false",
+          "-json",
+          "-",
+          "-dns-mode",
+          "system",
+          "-timeout",
+          "25s",
+          "-privacy=true"
         ],
-        "timeout": 120
+        "timeout": 40
       }
     },
     "help_args": [

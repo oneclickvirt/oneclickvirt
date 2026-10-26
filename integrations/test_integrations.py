@@ -155,7 +155,8 @@ class IntegrationTests(unittest.TestCase):
   with patch.dict(os.environ,{'ONECLICKVIRT_MCP_ALLOW_BENCHMARKS':'1'}),patch.object(server,'execute',return_value={'ok':True}) as run:
    adapter.call('run_probe',{'preset':'short'})
    args=run.call_args.args[0];scratch=run.call_args.kwargs['cwd']
-   self.assertIn(scratch,args);self.assertNotIn('{scratch}',args);self.assertFalse(Path(scratch).exists())
+   self.assertEqual((Path(scratch)/args[args.index('-p')+1]).resolve(),Path(scratch).resolve())
+   self.assertNotIn('{scratch}',args);self.assertFalse(Path(scratch).exists())
  def test_release_pins_exact_tag_and_preserves_asset_digest(self):
   adapter=self.adapter('pve_kvm_images');data={'tag_name':'openeuler-22.03','published_at':'today','html_url':'release','assets':[{'name':'image-arm64.qcow2','digest':'sha256:abc','size':123,'browser_download_url':'asset'}]}
   with patch.object(server,'github_json',return_value=data) as fetch:

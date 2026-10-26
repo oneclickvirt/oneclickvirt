@@ -11,6 +11,11 @@ on:
         type: choice
         default: all
         options: [all, distribution, mirrors]
+      runner:
+        description: Distribution runner
+        type: choice
+        default: all
+        options: [all, ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-2025]
 
 permissions:
   contents: read
@@ -21,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-2025]
+        runner: ${{ fromJSON((inputs.runner == 'all' || inputs.runner == '') && '["ubuntu-latest","ubuntu-24.04-arm","macos-latest","windows-2025"]' || format('["{0}"]', inputs.runner)) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     steps:
