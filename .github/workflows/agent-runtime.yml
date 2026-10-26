@@ -2,6 +2,12 @@ name: Agent native runtimes
 
 on:
   workflow_dispatch:
+    inputs:
+      runtime:
+        description: Native runtime to test
+        type: choice
+        default: all
+        options: [all, docker, podman, containerd, incus, lxd, qemu, pve, kubevirt]
 
 permissions:
   contents: read
@@ -11,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runtime: [docker, podman, containerd, incus, lxd, qemu, pve, kubevirt]
+        runtime: ${{ fromJSON(inputs.runtime == 'all' && '["docker","podman","containerd","incus","lxd","qemu","pve","kubevirt"]' || format('["{0}"]', inputs.runtime)) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
