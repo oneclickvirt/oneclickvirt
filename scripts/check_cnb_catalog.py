@@ -77,13 +77,17 @@ def inspect(repo):
     if not (knowledge.get("statistics") or {}).get("count"):
         result["hits"] = []
         return result
-    query = "Skill MCP installation source version" if not repo.endswith(".github.io") else "PVE 容器 安装 CNB"
+    query = ("Skill MCP installation source version" if not repo.endswith(".github.io") else
+             "Proxmox VE 8 容器在 CNB 的 Docker 镜像地址是什么？如何通过 CNB 拉取和安装？")
     hits = api(repo + "/-/knowledge/base/query?" + urllib.parse.urlencode({
         "query": query, "top_k": 5, "score_threshold": 0,
     }))
     if not isinstance(hits, list):
         raise ValueError("Unexpected knowledge query result: " + repo)
     result["query"] = query
+    if repo.endswith(".github.io"):
+        result["pve_cnb_registry_retrieved"] = any(
+            "docker.cnb.cool/oneclickvirt/pve/pve:" in hit.get("chunk", "") for hit in hits)
     result["hits"] = [{"score": hit.get("score"), "metadata": hit.get("metadata"),
                        "chunk_bytes": len(hit.get("chunk", "").encode())} for hit in hits]
     return result
@@ -131,6 +135,7 @@ def main():
                     or knowledge.get("issue_sync_enabled") is not False
                     or not (knowledge.get("statistics") or {}).get("count")
                     or not result.get("hits") or not result["public_scope_verified"]
+                    or result.get("pve_cnb_registry_retrieved") is False
                     or result.get("artifact_default_preserved") is False):
                 failed.append(repo)
         report = {"checked": len(results), "skills": sorted(skills),

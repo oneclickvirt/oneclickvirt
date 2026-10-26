@@ -40,6 +40,10 @@ def configure(target, repository, profile=None):
         "options": {"include": includes(repository, profile),
                     "issueSyncEnabled": False, "ignoreProcessFailures": False},
     }]}
+    if repository == DOCS:
+        # Keep installation commands close to their registry/version context
+        # when long, multi-topic guide pages are split for retrieval.
+        job["stages"][0]["options"].update(chunkSize=900, chunkOverlap=150)
     push = main.get("push", [])
     if not isinstance(push, list):
         raise ValueError("Refusing to replace an unsupported main.push configuration")
