@@ -1,0 +1,43 @@
+name: Verify CNB Skills and knowledge bases
+
+on:
+  workflow_dispatch:
+    inputs:
+      repositories:
+        description: Space-separated catalog names; empty checks all public integrations
+        required: false
+        type: string
+      observe:
+        description: Report current indexing without requiring completion
+        default: false
+        type: boolean
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check public discovery, document counts and retrieval
+        env:
+          CNB_PUSH_TOKEN: ${{ secrets.CNB_PUSH_TOKEN }}
+          CATALOG_REPOSITORIES: ${{ inputs.repositories }}
+          CATALOG_OBSERVE: ${{ inputs.observe }}
+        run: |
+          python3 - <<'PY'
+          import os, subprocess, sys
+          args = [sys.executable, "scripts/check_cnb_catalog.py", "--wait-seconds", "900"]
+          if os.environ.get("CATALOG_REPOSITORIES", "").strip():
+              args += ["--only", *os.environ["CATALOG_REPOSITORIES"].split()]
+          if os.environ.get("CATALOG_OBSERVE") == "true":
+              args.append("--observe")
+          subprocess.run(args, check=True)
+          PY
