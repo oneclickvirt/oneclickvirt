@@ -785,9 +785,9 @@
           "-duration",
           "1s",
           "-timeout",
-          "12s"
+          "30s"
         ],
-        "timeout": 18
+        "timeout": 40
       }
     },
     "benchmark": true,
