@@ -1,0 +1,1488 @@
+[
+  {
+    "repository": "oneclickvirt/pve",
+    "branch": "main",
+    "skill_name": "oneclickvirt-pve",
+    "purpose": "Operate and troubleshoot pve instances deployed with the OneClickVirt scripts.",
+    "notes": [
+      "Read the platform precheck and installation pages before changing a host.",
+      "Use the existing host runtime and its credentials. Instance IDs and names remain the native runtime identifiers.",
+      "MCP starts read-only. Set ONECLICKVIRT_MCP_ALLOW_WRITE=1 on the intended host to expose start, graceful stop and restart; deletion, reinstall and arbitrary shell commands are not exposed.",
+      "PVE uses pvesh and the cluster-reported node/type; qemu and lxc guests are kept distinct. ARM64 PVE packages are community PXVIRT."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "runtime": "pve",
+    "binary": "pvesh",
+    "platform_guide": "https://www.spiritlhl.net/guide/pve/pve_precheck.html",
+    "mcp": true,
+    "source_files": [
+      "dockerfiles/build-modern.sh",
+      "dockerfiles/build.sh",
+      "dockerfiles/container-certificates.sh",
+      "dockerfiles/container-entrypoint.sh",
+      "dockerfiles/install-container.sh",
+      "extra_scripts/check-dns.sh",
+      "extra_scripts/clear_interface_route_cache.sh",
+      "extra_scripts/configure_macos.sh",
+      "extra_scripts/configure_network.sh",
+      "extra_scripts/install_ifupdown2.sh",
+      "extra_scripts/wireless/default.sh",
+      "extra_scripts/wireless/wireless.sh",
+      "patches/apply_patch.sh",
+      "scripts/build_backend.sh",
+      "scripts/build_nat_network.sh",
+      "scripts/buildct.sh",
+      "scripts/buildct_onlyv6.sh",
+      "scripts/buildvm.sh"
+    ],
+    "purpose_zh": "管理和排查由 OneClickVirt 脚本部署的 Proxmox VE 虚拟机与 LXC 容器。",
+    "notes_zh": [
+      "变更宿主机前，先阅读平台准备和安装页。",
+      "使用本机已有运行环境及凭据；实例名称和 ID 保持原运行环境的标识。",
+      "MCP 默认只读。在目标主机设置 ONECLICKVIRT_MCP_ALLOW_WRITE=1 后才提供启动、正常关机和重启；不提供删除、重装或任意 Shell 执行。",
+      "使用集群返回的节点和实例类型调用 pvesh，区分 qemu 与 lxc。ARM64 PVE 使用社区 PXVIRT 软件包。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/incus",
+    "branch": "main",
+    "skill_name": "oneclickvirt-incus",
+    "purpose": "Operate and troubleshoot incus instances deployed with the OneClickVirt scripts.",
+    "notes": [
+      "Read the platform precheck and installation pages before changing a host.",
+      "Use the existing host runtime and its credentials. Instance IDs and names remain the native runtime identifiers.",
+      "MCP starts read-only. Set ONECLICKVIRT_MCP_ALLOW_WRITE=1 on the intended host to expose start, graceful stop and restart; deletion, reinstall and arbitrary shell commands are not exposed.",
+      "Use the incus local project. Do not substitute lxc commands for incus."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "runtime": "incus",
+    "binary": "incus",
+    "platform_guide": "https://www.spiritlhl.net/guide/incus/incus_precheck.html",
+    "mcp": true,
+    "source_files": [
+      "extra_scripts/coexistence.sh",
+      "extra_scripts/docker-coexistence.sh",
+      "extra_scripts/incus_fixed_restart.sh",
+      "panel_scripts/modify.sh",
+      "panel_scripts/panel_init.sh",
+      "scripts/add-ipv6.sh",
+      "scripts/add_more.sh",
+      "scripts/backend.sh",
+      "scripts/build_ipv6_network.sh",
+      "scripts/build_monitor.sh",
+      "scripts/buildct.sh",
+      "scripts/buildvm.sh",
+      "scripts/check-dns.sh",
+      "scripts/config.sh",
+      "scripts/image_lookup.sh",
+      "scripts/incus_install.sh",
+      "scripts/init.sh",
+      "scripts/instance_ops.sh"
+    ],
+    "purpose_zh": "管理和排查 Incus 实例、节点运行环境及 OneClickVirt 部署。",
+    "notes_zh": [
+      "变更宿主机前，先阅读平台准备和安装页。",
+      "使用本机已有运行环境及凭据；实例名称和 ID 保持原运行环境的标识。",
+      "MCP 默认只读。在目标主机设置 ONECLICKVIRT_MCP_ALLOW_WRITE=1 后才提供启动、正常关机和重启；不提供删除、重装或任意 Shell 执行。",
+      "使用本机 incus 客户端和现有项目，不混用 LXD 的 lxc 命令。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/lxd",
+    "branch": "main",
+    "skill_name": "oneclickvirt-lxd",
+    "purpose": "Operate and troubleshoot lxd instances deployed with the OneClickVirt scripts.",
+    "notes": [
+      "Read the platform precheck and installation pages before changing a host.",
+      "Use the existing host runtime and its credentials. Instance IDs and names remain the native runtime identifiers.",
+      "MCP starts read-only. Set ONECLICKVIRT_MCP_ALLOW_WRITE=1 on the intended host to expose start, graceful stop and restart; deletion, reinstall and arbitrary shell commands are not exposed.",
+      "Use the lxc client for LXD. Do not substitute the incus daemon."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "runtime": "lxd",
+    "binary": "lxc",
+    "platform_guide": "https://www.spiritlhl.net/guide/lxd/lxd_precheck.html",
+    "mcp": true,
+    "source_files": [
+      "panel_scripts/modify.sh",
+      "panel_scripts/panel_init.sh",
+      "scripts/add-ipv6.sh",
+      "scripts/add_more.sh",
+      "scripts/backend.sh",
+      "scripts/build_ipv6_network.sh",
+      "scripts/build_monitor.sh",
+      "scripts/buildct.sh",
+      "scripts/buildvm.sh",
+      "scripts/check-dns.sh",
+      "scripts/config.sh",
+      "scripts/init.sh",
+      "scripts/instance_ownership.sh",
+      "scripts/least.sh",
+      "scripts/lxdinstall.sh",
+      "scripts/lxduninstall.sh",
+      "scripts/monitor.sh",
+      "scripts/pre_check.sh"
+    ],
+    "purpose_zh": "管理和排查 LXD 实例、节点运行环境及 OneClickVirt 部署。",
+    "notes_zh": [
+      "变更宿主机前，先阅读平台准备和安装页。",
+      "使用本机已有运行环境及凭据；实例名称和 ID 保持原运行环境的标识。",
+      "MCP 默认只读。在目标主机设置 ONECLICKVIRT_MCP_ALLOW_WRITE=1 后才提供启动、正常关机和重启；不提供删除、重装或任意 Shell 执行。",
+      "使用 LXD 的 lxc 客户端，不混用 Incus 守护进程。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/docker",
+    "branch": "main",
+    "skill_name": "oneclickvirt-docker",
+    "purpose": "Operate and troubleshoot docker instances deployed with the OneClickVirt scripts.",
+    "notes": [
+      "Read the platform precheck and installation pages before changing a host.",
+      "Use the existing host runtime and its credentials. Instance IDs and names remain the native runtime identifiers.",
+      "MCP starts read-only. Set ONECLICKVIRT_MCP_ALLOW_WRITE=1 on the intended host to expose start, graceful stop and restart; deletion, reinstall and arbitrary shell commands are not exposed.",
+      "The adapter uses the configured Docker context. Inspecting containers never returns Config.Env secrets."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "runtime": "docker",
+    "binary": "docker",
+    "platform_guide": "https://www.spiritlhl.net/guide/docker/docker_precheck.html",
+    "mcp": true,
+    "source_files": [
+      "dockerfiles/entrypoint.sh",
+      "dockerfiles/entrypoint_alpine.sh",
+      "dockeruninstall.sh",
+      "extra_scripts/build_wds_image.sh",
+      "extra_scripts/check-dns.sh",
+      "extra_scripts/disk_test.sh",
+      "extra_scripts/guacamole.sh",
+      "extra_scripts/install_ifupdown.sh",
+      "extra_scripts/mergew.sh",
+      "extra_scripts/nohup-ws-scrcpy.sh",
+      "extra_scripts/splitandupload.sh",
+      "extra_scripts/startup.sh",
+      "scripts/create_android.sh",
+      "scripts/create_docker.sh",
+      "scripts/dockerinstall.sh",
+      "scripts/oneandroid.sh",
+      "scripts/onechromium.sh",
+      "scripts/onedocker.sh"
+    ],
+    "purpose_zh": "管理和排查 OneClickVirt Docker 容器及宿主机环境。",
+    "notes_zh": [
+      "变更宿主机前，先阅读平台准备和安装页。",
+      "使用本机已有运行环境及凭据；实例名称和 ID 保持原运行环境的标识。",
+      "MCP 默认只读。在目标主机设置 ONECLICKVIRT_MCP_ALLOW_WRITE=1 后才提供启动、正常关机和重启；不提供删除、重装或任意 Shell 执行。",
+      "使用当前 Docker context，查询结果不返回容器 Config.Env 中的敏感变量。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/containerd",
+    "branch": "main",
+    "skill_name": "oneclickvirt-containerd",
+    "purpose": "Operate and troubleshoot containerd instances deployed with the OneClickVirt scripts.",
+    "notes": [
+      "Read the platform precheck and installation pages before changing a host.",
+      "Use the existing host runtime and its credentials. Instance IDs and names remain the native runtime identifiers.",
+      "MCP starts read-only. Set ONECLICKVIRT_MCP_ALLOW_WRITE=1 on the intended host to expose start, graceful stop and restart; deletion, reinstall and arbitrary shell commands are not exposed.",
+      "Use nerdctl with its existing namespace/configuration. Docker socket commands are not interchangeable."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "runtime": "containerd",
+    "binary": "nerdctl",
+    "platform_guide": "https://www.spiritlhl.net/guide/containerd/containerd_precheck.html",
+    "mcp": true,
+    "source_files": [
+      "containerdinstall.sh",
+      "containerduninstall.sh",
+      "dockerfiles/entrypoint.sh",
+      "dockerfiles/entrypoint_alpine.sh",
+      "scripts/containerd_manage.sh",
+      "scripts/create_containerd.sh",
+      "scripts/onecontainerd.sh",
+      "scripts/ssh_bash.sh",
+      "scripts/ssh_sh.sh"
+    ],
+    "purpose_zh": "通过 nerdctl 管理和排查 OneClickVirt containerd 容器。",
+    "notes_zh": [
+      "变更宿主机前，先阅读平台准备和安装页。",
+      "使用本机已有运行环境及凭据；实例名称和 ID 保持原运行环境的标识。",
+      "MCP 默认只读。在目标主机设置 ONECLICKVIRT_MCP_ALLOW_WRITE=1 后才提供启动、正常关机和重启；不提供删除、重装或任意 Shell 执行。",
+      "使用 nerdctl 的现有命名空间及配置，不直接照搬 Docker socket 命令。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/podman",
+    "branch": "main",
+    "skill_name": "oneclickvirt-podman",
+    "purpose": "Operate and troubleshoot podman instances deployed with the OneClickVirt scripts.",
+    "notes": [
+      "Read the platform precheck and installation pages before changing a host.",
+      "Use the existing host runtime and its credentials. Instance IDs and names remain the native runtime identifiers.",
+      "MCP starts read-only. Set ONECLICKVIRT_MCP_ALLOW_WRITE=1 on the intended host to expose start, graceful stop and restart; deletion, reinstall and arbitrary shell commands are not exposed.",
+      "Rootless and rootful containers belong to different users; run MCP as the intended owner."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "runtime": "podman",
+    "binary": "podman",
+    "platform_guide": "https://www.spiritlhl.net/guide/podman/podman_precheck.html",
+    "mcp": true,
+    "source_files": [
+      "dockerfiles/entrypoint.sh",
+      "dockerfiles/entrypoint_alpine.sh",
+      "podmaninstall.sh",
+      "podmanuninstall.sh",
+      "scripts/create_podman.sh",
+      "scripts/onepodman.sh",
+      "scripts/ssh_bash.sh",
+      "scripts/ssh_sh.sh"
+    ],
+    "purpose_zh": "管理和排查 OneClickVirt Podman 容器及宿主机环境。",
+    "notes_zh": [
+      "变更宿主机前，先阅读平台准备和安装页。",
+      "使用本机已有运行环境及凭据；实例名称和 ID 保持原运行环境的标识。",
+      "MCP 默认只读。在目标主机设置 ONECLICKVIRT_MCP_ALLOW_WRITE=1 后才提供启动、正常关机和重启；不提供删除、重装或任意 Shell 执行。",
+      "rootless 和 rootful 容器归属不同用户，应以目标容器所属用户运行。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/qemu",
+    "branch": "main",
+    "skill_name": "oneclickvirt-qemu",
+    "purpose": "Operate and troubleshoot qemu instances deployed with the OneClickVirt scripts.",
+    "notes": [
+      "Read the platform precheck and installation pages before changing a host.",
+      "Use the existing host runtime and its credentials. Instance IDs and names remain the native runtime identifiers.",
+      "MCP starts read-only. Set ONECLICKVIRT_MCP_ALLOW_WRITE=1 on the intended host to expose start, graceful stop and restart; deletion, reinstall and arbitrary shell commands are not exposed.",
+      "Use local libvirt; ONECLICKVIRT_LIBVIRT_URI accepts qemu:///system or qemu:///session."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "runtime": "qemu",
+    "binary": "virsh",
+    "platform_guide": "https://www.spiritlhl.net/guide/qemu/qemu_precheck.html",
+    "mcp": true,
+    "source_files": [
+      "qemuinstall.sh",
+      "qemuuninstall.sh",
+      "scripts/create_qemu.sh",
+      "scripts/delete_qemu.sh",
+      "scripts/manage_qemu.sh",
+      "scripts/oneqemu.sh"
+    ],
+    "purpose_zh": "通过本机 libvirt 管理和排查 OneClickVirt QEMU 虚拟机。",
+    "notes_zh": [
+      "变更宿主机前，先阅读平台准备和安装页。",
+      "使用本机已有运行环境及凭据；实例名称和 ID 保持原运行环境的标识。",
+      "MCP 默认只读。在目标主机设置 ONECLICKVIRT_MCP_ALLOW_WRITE=1 后才提供启动、正常关机和重启；不提供删除、重装或任意 Shell 执行。",
+      "ONECLICKVIRT_LIBVIRT_URI 仅接受本机 qemu:///system 或 qemu:///session。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/kubevirt",
+    "branch": "main",
+    "skill_name": "oneclickvirt-kubevirt",
+    "purpose": "Operate and troubleshoot kubevirt instances deployed with the OneClickVirt scripts.",
+    "notes": [
+      "Read the platform precheck and installation pages before changing a host.",
+      "Use the existing host runtime and its credentials. Instance IDs and names remain the native runtime identifiers.",
+      "MCP starts read-only. Set ONECLICKVIRT_MCP_ALLOW_WRITE=1 on the intended host to expose start, graceful stop and restart; deletion, reinstall and arbitrary shell commands are not exposed.",
+      "Use the existing kubeconfig; ONECLICKVIRT_KUBE_NAMESPACE defaults to default. Writes also require virtctl."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "runtime": "kubevirt",
+    "binary": "kubectl",
+    "platform_guide": "https://www.spiritlhl.net/guide/kubevirt/kubevirt_precheck.html",
+    "mcp": true,
+    "source_files": [
+      "kubevirtinstall.sh",
+      "kubevirtuninstall.sh",
+      "scripts/create_vm.sh",
+      "scripts/deletevm.sh",
+      "scripts/firewall.sh",
+      "scripts/install_multus.sh",
+      "scripts/listvms.sh",
+      "scripts/onevm.sh",
+      "scripts/resizevm.sh",
+      "scripts/snapshotvm.sh",
+      "scripts/update-port-rules.sh"
+    ],
+    "purpose_zh": "管理和排查现有 Kubernetes 集群中的 KubeVirt 虚拟机。",
+    "notes_zh": [
+      "变更宿主机前，先阅读平台准备和安装页。",
+      "使用本机已有运行环境及凭据；实例名称和 ID 保持原运行环境的标识。",
+      "MCP 默认只读。在目标主机设置 ONECLICKVIRT_MCP_ALLOW_WRITE=1 后才提供启动、正常关机和重启；不提供删除、重装或任意 Shell 执行。",
+      "使用已有 kubeconfig；ONECLICKVIRT_KUBE_NAMESPACE 默认是 default，启停还需要 virtctl。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/basics",
+    "branch": "main",
+    "skill_name": "oneclickvirt-basics",
+    "purpose": "Collect structured hardware/system information without running CPU, memory or disk benchmarks.",
+    "notes": [
+      "Read probe_help from the installed binary before assuming flags are supported. MCP returns native JSON when the program provides JSON, otherwise native text.",
+      "Keep partial/network errors distinct from confirmed test outcomes. Current release assets and their actual architecture are available through release_assets."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "binary": "basics",
+    "asset_prefix": "basics",
+    "presets": {
+      "system": {
+        "args": [
+          "-json",
+          "-timeout",
+          "10s"
+        ],
+        "timeout": 20
+      }
+    },
+    "benchmark": false,
+    "source_files": [
+      "basics_install.sh",
+      "cmd/main.go",
+      "go.mod"
+    ],
+    "purpose_zh": "读取结构化系统和硬件信息，不运行 CPU、内存或磁盘基准测试。",
+    "notes_zh": [
+      "先用 probe_help 核对已安装程序的实际帮助。程序支持 JSON 时返回原生 JSON，否则返回原生文本。",
+      "区分部分结果、网络失败和确定结论；通过 release_assets 查询当前真实产物及架构。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/backtrace",
+    "branch": "main",
+    "skill_name": "oneclickvirt-backtrace",
+    "purpose": "Query RDAP/BGP metadata for an explicit IP; distinguish lookup data from an actual traceroute.",
+    "notes": [
+      "Read probe_help from the installed binary before assuming flags are supported. MCP returns native JSON when the program provides JSON, otherwise native text.",
+      "Keep partial/network errors distinct from confirmed test outcomes. Current release assets and their actual architecture are available through release_assets.",
+      "The ip-info preset requires a literal target IP. Do not pass a host, proxy, shell expression or a network range."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "binary": "backtrace",
+    "asset_prefix": "backtrace",
+    "presets": {
+      "ip-info": {
+        "args": [
+          "-json",
+          "-timeout",
+          "12s"
+        ],
+        "target": "-ip",
+        "timeout": 20
+      }
+    },
+    "benchmark": false,
+    "source_files": [
+      "backtrace_install.sh",
+      "cmd/main.go",
+      "go.mod"
+    ],
+    "purpose_zh": "查询指定 IP 的 RDAP/BGP 信息，区分数据库查询与真实路由探测。",
+    "notes_zh": [
+      "先用 probe_help 核对已安装程序的实际帮助。程序支持 JSON 时返回原生 JSON，否则返回原生文本。",
+      "区分部分结果、网络失败和确定结论；通过 release_assets 查询当前真实产物及架构。",
+      "ip-info 预设只接受单个真实 IP，不接受域名、代理、Shell 表达式或网段。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/gostun",
+    "branch": "main",
+    "skill_name": "oneclickvirt-gostun",
+    "purpose": "Detect NAT behavior using bounded STUN probes. A UDP/network failure is not proof of a NAT type.",
+    "notes": [
+      "Read probe_help from the installed binary before assuming flags are supported. MCP returns native JSON when the program provides JSON, otherwise native text.",
+      "Keep partial/network errors distinct from confirmed test outcomes. Current release assets and their actual architecture are available through release_assets."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "binary": "gostun",
+    "asset_prefix": "gostun",
+    "presets": {
+      "nat": {
+        "args": [
+          "-json",
+          "-timeout",
+          "2",
+          "-concurrency",
+          "2"
+        ],
+        "timeout": 40
+      }
+    },
+    "benchmark": false,
+    "source_files": [
+      "cmd/main.go",
+      "go.mod",
+      "gostun_install.sh"
+    ],
+    "purpose_zh": "通过有时限的 STUN 探测判断 NAT 行为，保留 UDP 和网络失败结果。",
+    "notes_zh": [
+      "先用 probe_help 核对已安装程序的实际帮助。程序支持 JSON 时返回原生 JSON，否则返回原生文本。",
+      "区分部分结果、网络失败和确定结论；通过 release_assets 查询当前真实产物及架构。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/portchecker",
+    "branch": "main",
+    "skill_name": "oneclickvirt-portchecker",
+    "purpose": "Check mail endpoint connectivity; report per-endpoint errors and blocked ports without claiming mail delivery.",
+    "notes": [
+      "Read probe_help from the installed binary before assuming flags are supported. MCP returns native JSON when the program provides JSON, otherwise native text.",
+      "Keep partial/network errors distinct from confirmed test outcomes. Current release assets and their actual architecture are available through release_assets."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "binary": "pck",
+    "asset_prefix": "portchecker",
+    "presets": {
+      "mail": {
+        "args": [
+          "-json",
+          "-timeout",
+          "8s"
+        ],
+        "timeout": 15
+      }
+    },
+    "benchmark": false,
+    "source_files": [
+      "cmd/main.go",
+      "go.mod",
+      "pck_install.sh"
+    ],
+    "purpose_zh": "检查邮件服务端口连通性，区分端口受限、连接失败与邮件实际投递。",
+    "notes_zh": [
+      "先用 probe_help 核对已安装程序的实际帮助。程序支持 JSON 时返回原生 JSON，否则返回原生文本。",
+      "区分部分结果、网络失败和确定结论；通过 release_assets 查询当前真实产物及架构。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/pingtest",
+    "branch": "main",
+    "skill_name": "oneclickvirt-pingtest",
+    "purpose": "Measure TCP handshake latency for a user-selected endpoint; do not describe it as ICMP latency.",
+    "notes": [
+      "Read probe_help from the installed binary before assuming flags are supported. MCP returns native JSON when the program provides JSON, otherwise native text.",
+      "Keep partial/network errors distinct from confirmed test outcomes. Current release assets and their actual architecture are available through release_assets.",
+      "The tcp preset requires target, such as example.com:443. Test only the user-selected endpoint."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "binary": "pt",
+    "asset_prefix": "pingtest",
+    "presets": {
+      "tcp": {
+        "args": [
+          "-tm",
+          "tcp",
+          "-json",
+          "-attempts",
+          "1",
+          "-timeout",
+          "2s",
+          "-concurrency",
+          "1"
+        ],
+        "target": "-target",
+        "timeout": 10
+      }
+    },
+    "benchmark": false,
+    "source_files": [
+      "cmd/main.go",
+      "go.mod",
+      "pt_install.sh"
+    ],
+    "purpose_zh": "测量指定地址的 TCP 握手延迟，不将其当作 ICMP 延迟。",
+    "notes_zh": [
+      "先用 probe_help 核对已安装程序的实际帮助。程序支持 JSON 时返回原生 JSON，否则返回原生文本。",
+      "区分部分结果、网络失败和确定结论；通过 release_assets 查询当前真实产物及架构。",
+      "tcp 预设必须填写 target，例如 example.com:443；只探测用户指定的目标。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/nt3",
+    "branch": "main",
+    "skill_name": "oneclickvirt-nt3",
+    "purpose": "Query the built-in province/carrier targets with bounded TCP latency probes; detailed routes require separate explicit testing.",
+    "notes": [
+      "Read probe_help from the installed binary before assuming flags are supported. MCP returns native JSON when the program provides JSON, otherwise native text.",
+      "Keep partial/network errors distinct from confirmed test outcomes. Current release assets and their actual architecture are available through release_assets."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "binary": "nt3",
+    "asset_prefix": "nt3",
+    "presets": {
+      "province": {
+        "args": [
+          "-province-registry",
+          "-json",
+          "-province-attempts",
+          "1",
+          "-province-timeout",
+          "500ms",
+          "-province-concurrency",
+          "4"
+        ],
+        "timeout": 45
+      }
+    },
+    "benchmark": false,
+    "source_files": [
+      "cmd/main.go",
+      "go.mod",
+      "nt3_install.sh"
+    ],
+    "purpose_zh": "使用内置省份和运营商目标执行有时限的 TCP 延迟探测。",
+    "notes_zh": [
+      "先用 probe_help 核对已安装程序的实际帮助。程序支持 JSON 时返回原生 JSON，否则返回原生文本。",
+      "区分部分结果、网络失败和确定结论；通过 release_assets 查询当前真实产物及架构。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/speedtest",
+    "branch": "main",
+    "skill_name": "oneclickvirt-speedtest",
+    "purpose": "Select and probe one speed-test registry node. Registry reachability is not upload/download throughput.",
+    "notes": [
+      "Read probe_help from the installed binary before assuming flags are supported. MCP returns native JSON when the program provides JSON, otherwise native text.",
+      "Keep partial/network errors distinct from confirmed test outcomes. Current release assets and their actual architecture are available through release_assets."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "binary": "spt",
+    "asset_prefix": "speedtest",
+    "presets": {
+      "registry": {
+        "args": [
+          "-registry",
+          "-num",
+          "1",
+          "-ip-version",
+          "4",
+          "-dns-mode",
+          "system",
+          "-l",
+          "en"
+        ],
+        "timeout": 120
+      }
+    },
+    "benchmark": false,
+    "source_files": [
+      "cmd/main.go",
+      "dspt.sh",
+      "go.mod",
+      "spt_install.sh"
+    ],
+    "purpose_zh": "选择并探测测速节点，区分节点可达性与实际上传下载吞吐。",
+    "notes_zh": [
+      "先用 probe_help 核对已安装程序的实际帮助。程序支持 JSON 时返回原生 JSON，否则返回原生文本。",
+      "区分部分结果、网络失败和确定结论；通过 release_assets 查询当前真实产物及架构。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/CommonMediaTests",
+    "branch": "main",
+    "skill_name": "oneclickvirt-commonmediatests",
+    "purpose": "Check the module's common streaming providers; preserve provider-specific unknown and failure results.",
+    "notes": [
+      "Read probe_help from the installed binary before assuming flags are supported. MCP returns native JSON when the program provides JSON, otherwise native text.",
+      "Keep partial/network errors distinct from confirmed test outcomes. Current release assets and their actual architecture are available through release_assets."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "binary": "cmt",
+    "asset_prefix": "CommonMediaTests",
+    "presets": {
+      "media": {
+        "args": [
+          "-l",
+          "en"
+        ],
+        "timeout": 60
+      }
+    },
+    "benchmark": false,
+    "source_files": [
+      "cmd/main.go",
+      "cmt_install.sh",
+      "go.mod"
+    ],
+    "purpose_zh": "检测常用流媒体服务的访问状态，保留各平台未知和失败结果。",
+    "notes_zh": [
+      "先用 probe_help 核对已安装程序的实际帮助。程序支持 JSON 时返回原生 JSON，否则返回原生文本。",
+      "区分部分结果、网络失败和确定结论；通过 release_assets 查询当前真实产物及架构。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/UnlockTests",
+    "branch": "main",
+    "skill_name": "oneclickvirt-unlocktests",
+    "purpose": "Run a bounded selected streaming-provider check; reachability and geographic unlock are different results.",
+    "notes": [
+      "Read probe_help from the installed binary before assuming flags are supported. MCP returns native JSON when the program provides JSON, otherwise native text.",
+      "Keep partial/network errors distinct from confirmed test outcomes. Current release assets and their actual architecture are available through release_assets."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "binary": "ut",
+    "asset_prefix": "ut",
+    "presets": {
+      "selected": {
+        "args": [
+          "-json",
+          "-test",
+          "Netflix",
+          "-m",
+          "4",
+          "-conc",
+          "1",
+          "-timeout",
+          "15s"
+        ],
+        "timeout": 25
+      }
+    },
+    "benchmark": false,
+    "source_files": [
+      "cmd/main.go",
+      "go.mod",
+      "ut_install.sh"
+    ],
+    "purpose_zh": "对选定流媒体服务执行有时限的检测，区分可达性与地区解锁。",
+    "notes_zh": [
+      "先用 probe_help 核对已安装程序的实际帮助。程序支持 JSON 时返回原生 JSON，否则返回原生文本。",
+      "区分部分结果、网络失败和确定结论；通过 release_assets 查询当前真实产物及架构。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/cputest",
+    "branch": "main",
+    "skill_name": "oneclickvirt-cputest",
+    "purpose": "Run a one-thread, one-second structured CPU sample on an intended benchmark host.",
+    "notes": [
+      "Read probe_help from the installed binary before assuming flags are supported. MCP returns native JSON when the program provides JSON, otherwise native text.",
+      "Keep partial/network errors distinct from confirmed test outcomes. Current release assets and their actual architecture are available through release_assets.",
+      "Set ONECLICKVIRT_MCP_ALLOW_BENCHMARKS=1 only on an intended test host. This preset consumes local resources; it does not run a full stress test."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "binary": "ct",
+    "asset_prefix": "cputest",
+    "presets": {
+      "short": {
+        "args": [
+          "-json",
+          "-duration",
+          "1s",
+          "-threads",
+          "1"
+        ],
+        "timeout": 10
+      }
+    },
+    "benchmark": true,
+    "source_files": [
+      "cmd/main.go",
+      "ct_install.sh",
+      "dgb.sh",
+      "go.mod"
+    ],
+    "purpose_zh": "在指定测试主机执行单线程、一秒的结构化 CPU 性能采样。",
+    "notes_zh": [
+      "先用 probe_help 核对已安装程序的实际帮助。程序支持 JSON 时返回原生 JSON，否则返回原生文本。",
+      "区分部分结果、网络失败和确定结论；通过 release_assets 查询当前真实产物及架构。",
+      "只在指定测试主机设置 ONECLICKVIRT_MCP_ALLOW_BENCHMARKS=1。这些预设会消耗本机资源，但不执行完整压力测试。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/memorytest",
+    "branch": "main",
+    "skill_name": "oneclickvirt-memorytest",
+    "purpose": "Run a bounded 8 MiB memory sample; avoid inferring DIMM generation from throughput alone.",
+    "notes": [
+      "Read probe_help from the installed binary before assuming flags are supported. MCP returns native JSON when the program provides JSON, otherwise native text.",
+      "Keep partial/network errors distinct from confirmed test outcomes. Current release assets and their actual architecture are available through release_assets.",
+      "Set ONECLICKVIRT_MCP_ALLOW_BENCHMARKS=1 only on an intended test host. This preset consumes local resources; it does not run a full stress test."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "binary": "mt",
+    "asset_prefix": "memorytest",
+    "presets": {
+      "short": {
+        "args": [
+          "-json",
+          "-size",
+          "8388608",
+          "-iterations",
+          "1",
+          "-timeout",
+          "5s"
+        ],
+        "timeout": 10
+      }
+    },
+    "benchmark": true,
+    "source_files": [
+      "cmd/main.go",
+      "go.mod",
+      "mt_install.sh"
+    ],
+    "purpose_zh": "执行有时限的 8 MiB 内存采样，不凭带宽单独推断内存代际。",
+    "notes_zh": [
+      "先用 probe_help 核对已安装程序的实际帮助。程序支持 JSON 时返回原生 JSON，否则返回原生文本。",
+      "区分部分结果、网络失败和确定结论；通过 release_assets 查询当前真实产物及架构。",
+      "只在指定测试主机设置 ONECLICKVIRT_MCP_ALLOW_BENCHMARKS=1。这些预设会消耗本机资源，但不执行完整压力测试。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/disktest",
+    "branch": "main",
+    "skill_name": "oneclickvirt-disktest",
+    "purpose": "Run structured disk IO in a dedicated temporary directory with a 16 MiB test file; never point it at a raw block device.",
+    "notes": [
+      "Read probe_help from the installed binary before assuming flags are supported. MCP returns native JSON when the program provides JSON, otherwise native text.",
+      "Keep partial/network errors distinct from confirmed test outcomes. Current release assets and their actual architecture are available through release_assets.",
+      "Set ONECLICKVIRT_MCP_ALLOW_BENCHMARKS=1 only on an intended test host. This preset consumes local resources; it does not run a full stress test."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "binary": "disktest",
+    "asset_prefix": "disktest",
+    "presets": {
+      "short": {
+        "args": [
+          "-json",
+          "-p",
+          "{scratch}",
+          "-size",
+          "16777216",
+          "-duration",
+          "1s",
+          "-timeout",
+          "12s"
+        ],
+        "timeout": 18
+      }
+    },
+    "benchmark": true,
+    "source_files": [
+      "cmd/main.go",
+      "disktest_install.sh",
+      "go.mod"
+    ],
+    "purpose_zh": "在独立临时目录执行有时限、16 MiB 文件大小的磁盘 IO 测试。",
+    "notes_zh": [
+      "先用 probe_help 核对已安装程序的实际帮助。程序支持 JSON 时返回原生 JSON，否则返回原生文本。",
+      "区分部分结果、网络失败和确定结论；通过 release_assets 查询当前真实产物及架构。",
+      "只在指定测试主机设置 ONECLICKVIRT_MCP_ALLOW_BENCHMARKS=1。这些预设会消耗本机资源，但不执行完整压力测试。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/ecs",
+    "branch": "master",
+    "skill_name": "oneclickvirt-ecs",
+    "purpose": "Collect a bounded VPS Fusion Monster system report, interpret results and select explicit follow-up tests.",
+    "notes": [
+      "Use the maintained Go ECS binary, not the retired Shell edition or GUI executable.",
+      "The system preset disables benchmarks, media/IP checks, network speed tests, logs and public uploads. Additional tests require choosing their resource/traffic scope.",
+      "Resolve the published ECS release once; retain its exact tag and SHA-256. A cached file under a mutable output tag must still be verified."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "release_repository": "oneclickvirt/ecs",
+    "binary": "goecs",
+    "asset_prefix": "goecs",
+    "asset_separator": "_",
+    "presets": {
+      "system": {
+        "args": [
+          "-menu=false",
+          "-upload=false",
+          "-log=false",
+          "-basic=true",
+          "-cpu=false",
+          "-memory=false",
+          "-disk=false",
+          "-ut=false",
+          "-security=false",
+          "-email=false",
+          "-backtrace=false",
+          "-nt3=false",
+          "-speed=false",
+          "-ping=false",
+          "-tgdc=false",
+          "-web=false"
+        ],
+        "timeout": 35
+      }
+    },
+    "help_args": [
+      "-h"
+    ],
+    "source_files": [
+      "go.mod",
+      "goecs.sh",
+      "scripts/embed_geekbench.sh"
+    ],
+    "purpose_zh": "执行有明确范围的 Go 融合怪检测，解读结果并选择后续测试。",
+    "notes_zh": [
+      "使用当前维护的 Go ECS 程序，区分已停止新功能开发的 Shell 版和 GUI 版。",
+      "system 预设关闭性能基准、流媒体、IP 质量、测速、日志和公开上传；扩展测试前明确资源与流量范围。",
+      "同一次安装只解析一次正式版本，并校验标签对应的 SHA-256。即使 output 标签不变，缓存也必须按摘要校验。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/ClawChimera",
+    "branch": "main",
+    "skill_name": "oneclickvirt-clawchimera",
+    "purpose": "Collect a bounded VPS Fusion Monster system report, interpret results and select explicit follow-up tests.",
+    "notes": [
+      "Use the maintained Go ECS binary, not the retired Shell edition or GUI executable.",
+      "The system preset disables benchmarks, media/IP checks, network speed tests, logs and public uploads. Additional tests require choosing their resource/traffic scope.",
+      "Resolve the published ECS release once; retain its exact tag and SHA-256. A cached file under a mutable output tag must still be verified."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "release_repository": "oneclickvirt/ecs",
+    "binary": "goecs",
+    "asset_prefix": "goecs",
+    "asset_separator": "_",
+    "presets": {
+      "system": {
+        "args": [
+          "-menu=false",
+          "-upload=false",
+          "-log=false",
+          "-basic=true",
+          "-cpu=false",
+          "-memory=false",
+          "-disk=false",
+          "-ut=false",
+          "-security=false",
+          "-email=false",
+          "-backtrace=false",
+          "-nt3=false",
+          "-speed=false",
+          "-ping=false",
+          "-tgdc=false",
+          "-web=false"
+        ],
+        "timeout": 35
+      }
+    },
+    "help_args": [
+      "-h"
+    ],
+    "source_files": [
+      "analyze.sh",
+      "pack.sh",
+      "run.sh",
+      "skill.json"
+    ],
+    "purpose_zh": "通过 Skill 或 MCP 调用当前 Go 融合怪产物，解读有明确范围的测试结果。",
+    "notes_zh": [
+      "使用当前维护的 Go ECS 程序，区分已停止新功能开发的 Shell 版和 GUI 版。",
+      "system 预设关闭性能基准、流媒体、IP 质量、测速、日志和公开上传；扩展测试前明确资源与流量范围。",
+      "同一次安装只解析一次正式版本，并校验标签对应的 SHA-256。即使 output 标签不变，缓存也必须按摘要校验。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/6in4",
+    "branch": "main",
+    "skill_name": "oneclickvirt-6in4",
+    "purpose": "Inspect and configure 6in4 IPv6 connectivity on the intended Linux host.",
+    "notes": [
+      "Use network_status for read-only IPv6 addresses and routes; it does not configure tunnels, proxy NDP or advertise new addresses.",
+      "Confirm the real routed prefix, public IPv4, tunnel peer and interface names before applying the existing scripts. Never use documentation example prefixes on a live interface.",
+      "Keep native routes, Docker/CNI tracking and existing responder services intact; do not start duplicate responders."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "mcp": true,
+    "network": true,
+    "source_files": [
+      "6in4-delete.sh",
+      "6in4.sh",
+      "back/6in4.sh",
+      "back/test.sh",
+      "covert.sh"
+    ],
+    "purpose_zh": "查看 Linux IPv6 地址和路由，并按实际网络条件配置 6in4 隧道。",
+    "notes_zh": [
+      "network_status 仅查询 IPv6 地址和路由，不创建隧道、不启用 NDP 代理、不宣告地址。",
+      "执行原有脚本前核对真实路由前缀、公网 IPv4、隧道对端和接口名，不将示例地址直接配置到真实网卡。",
+      "保留现有路由、Docker/CNI 跟踪及 responder 服务，不重复启动同一代理。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/ndpresponder",
+    "branch": "main",
+    "skill_name": "oneclickvirt-ndpresponder",
+    "purpose": "Inspect and configure ndpresponder IPv6 connectivity on the intended Linux host.",
+    "notes": [
+      "Use network_status for read-only IPv6 addresses and routes; it does not configure tunnels, proxy NDP or advertise new addresses.",
+      "Confirm the real routed prefix, public IPv4, tunnel peer and interface names before applying the existing scripts. Never use documentation example prefixes on a live interface.",
+      "Keep native routes, Docker/CNI tracking and existing responder services intact; do not start duplicate responders."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "mcp": true,
+    "network": true,
+    "source_files": [
+      "go.mod",
+      "scripts/publish-cnb.sh"
+    ],
+    "purpose_zh": "查看 Linux IPv6 地址和路由，并排查现有 NDP responder 部署。",
+    "notes_zh": [
+      "network_status 仅查询 IPv6 地址和路由，不创建隧道、不启用 NDP 代理、不宣告地址。",
+      "执行原有脚本前核对真实路由前缀、公网 IPv4、隧道对端和接口名，不将示例地址直接配置到真实网卡。",
+      "保留现有路由、Docker/CNI 跟踪及 responder 服务，不重复启动同一代理。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/kvm_images",
+    "branch": "main",
+    "skill_name": "oneclickvirt-kvm-images",
+    "purpose": "Find and verify current kvm_images operating-system image release assets for a compatible virtualization runtime.",
+    "notes": [
+      "Resolve the requested operating-system tag with release_assets; latest is only the most recent release, not a complete catalogue of distributions.",
+      "Filter asset names using the requested OS and architecture; an empty match means unavailable, never substitute amd64 for ARM64.",
+      "Keep rootfs/LXC, Incus/LXD metadata pairs, QCOW2/KVM and ISO artifacts distinct. Review published checksum/validation metadata before importing; do not execute templates as programs."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "source_files": [],
+    "purpose_zh": "查找并校验 kvm_images 中适用于目标虚拟化环境的系统镜像产物。",
+    "notes_zh": [
+      "用 release_assets 查询所需操作系统的实际标签；latest 仅代表最近一次发布，不代表全部发行版目录。",
+      "按系统及架构过滤真实文件名；结果为空即为不可用，不自动以 amd64 替代 ARM64。",
+      "区分 rootfs/LXC、Incus/LXD 元数据配对、QCOW2/KVM 和 ISO，导入前核对校验及验证信息，不将模板当作程序执行。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/incus_images",
+    "branch": "main",
+    "skill_name": "oneclickvirt-incus-images",
+    "purpose": "Find and verify current incus_images operating-system image release assets for a compatible virtualization runtime.",
+    "notes": [
+      "Resolve the requested operating-system tag with release_assets; latest is only the most recent release, not a complete catalogue of distributions.",
+      "Filter asset names using the requested OS and architecture; an empty match means unavailable, never substitute amd64 for ARM64.",
+      "Keep rootfs/LXC, Incus/LXD metadata pairs, QCOW2/KVM and ISO artifacts distinct. Review published checksum/validation metadata before importing; do not execute templates as programs."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "source_files": [
+      "build_images.sh",
+      "build_kvm_images.sh",
+      "clone_modify_yaml.sh",
+      "test.sh"
+    ],
+    "purpose_zh": "查找并校验 incus_images 中适用于目标虚拟化环境的系统镜像产物。",
+    "notes_zh": [
+      "用 release_assets 查询所需操作系统的实际标签；latest 仅代表最近一次发布，不代表全部发行版目录。",
+      "按系统及架构过滤真实文件名；结果为空即为不可用，不自动以 amd64 替代 ARM64。",
+      "区分 rootfs/LXC、Incus/LXD 元数据配对、QCOW2/KVM 和 ISO，导入前核对校验及验证信息，不将模板当作程序执行。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/pve_kvm_images",
+    "branch": "main",
+    "skill_name": "oneclickvirt-pve-kvm-images",
+    "purpose": "Find and verify current pve_kvm_images operating-system image release assets for a compatible virtualization runtime.",
+    "notes": [
+      "Resolve the requested operating-system tag with release_assets; latest is only the most recent release, not a complete catalogue of distributions.",
+      "Filter asset names using the requested OS and architecture; an empty match means unavailable, never substitute amd64 for ARM64.",
+      "Keep rootfs/LXC, Incus/LXD metadata pairs, QCOW2/KVM and ISO artifacts distinct. Review published checksum/validation metadata before importing; do not execute templates as programs."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "source_files": [
+      "rebuild_qcow2.sh",
+      "test.sh"
+    ],
+    "purpose_zh": "查找并校验 pve_kvm_images 中适用于目标虚拟化环境的系统镜像产物。",
+    "notes_zh": [
+      "用 release_assets 查询所需操作系统的实际标签；latest 仅代表最近一次发布，不代表全部发行版目录。",
+      "按系统及架构过滤真实文件名；结果为空即为不可用，不自动以 amd64 替代 ARM64。",
+      "区分 rootfs/LXC、Incus/LXD 元数据配对、QCOW2/KVM 和 ISO，导入前核对校验及验证信息，不将模板当作程序执行。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/pve_lxc_images",
+    "branch": "main",
+    "skill_name": "oneclickvirt-pve-lxc-images",
+    "purpose": "Find and verify current pve_lxc_images operating-system image release assets for a compatible virtualization runtime.",
+    "notes": [
+      "Resolve the requested operating-system tag with release_assets; latest is only the most recent release, not a complete catalogue of distributions.",
+      "Filter asset names using the requested OS and architecture; an empty match means unavailable, never substitute amd64 for ARM64.",
+      "Keep rootfs/LXC, Incus/LXD metadata pairs, QCOW2/KVM and ISO artifacts distinct. Review published checksum/validation metadata before importing; do not execute templates as programs."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "source_files": [
+      "back/build_from_pveam.sh",
+      "back/build_from_website.sh",
+      "back/fix_net0.sh",
+      "fliter.sh",
+      "ssh_bash.sh",
+      "ssh_sh.sh",
+      "test.sh"
+    ],
+    "purpose_zh": "查找并校验 pve_lxc_images 中适用于目标虚拟化环境的系统镜像产物。",
+    "notes_zh": [
+      "用 release_assets 查询所需操作系统的实际标签；latest 仅代表最近一次发布，不代表全部发行版目录。",
+      "按系统及架构过滤真实文件名；结果为空即为不可用，不自动以 amd64 替代 ARM64。",
+      "区分 rootfs/LXC、Incus/LXD 元数据配对、QCOW2/KVM 和 ISO，导入前核对校验及验证信息，不将模板当作程序执行。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/lxc_arm_images",
+    "branch": "main",
+    "skill_name": "oneclickvirt-lxc-arm-images",
+    "purpose": "Find and verify current lxc_arm_images operating-system image release assets for a compatible virtualization runtime.",
+    "notes": [
+      "Resolve the requested operating-system tag with release_assets; latest is only the most recent release, not a complete catalogue of distributions.",
+      "Filter asset names using the requested OS and architecture; an empty match means unavailable, never substitute amd64 for ARM64.",
+      "Keep rootfs/LXC, Incus/LXD metadata pairs, QCOW2/KVM and ISO artifacts distinct. Review published checksum/validation metadata before importing; do not execute templates as programs."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "source_files": [
+      "back/run.sh",
+      "back/test.sh",
+      "build_and_upload.sh",
+      "build_and_upload_all.sh",
+      "build_images.sh",
+      "clone_modify_yaml.sh",
+      "test.sh"
+    ],
+    "purpose_zh": "查找并校验 lxc_arm_images 中适用于目标虚拟化环境的系统镜像产物。",
+    "notes_zh": [
+      "用 release_assets 查询所需操作系统的实际标签；latest 仅代表最近一次发布，不代表全部发行版目录。",
+      "按系统及架构过滤真实文件名；结果为空即为不可用，不自动以 amd64 替代 ARM64。",
+      "区分 rootfs/LXC、Incus/LXD 元数据配对、QCOW2/KVM 和 ISO，导入前核对校验及验证信息，不将模板当作程序执行。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/lxc_amd64_images",
+    "branch": "main",
+    "skill_name": "oneclickvirt-lxc-amd64-images",
+    "purpose": "Find and verify current lxc_amd64_images operating-system image release assets for a compatible virtualization runtime.",
+    "notes": [
+      "Resolve the requested operating-system tag with release_assets; latest is only the most recent release, not a complete catalogue of distributions.",
+      "Filter asset names using the requested OS and architecture; an empty match means unavailable, never substitute amd64 for ARM64.",
+      "Keep rootfs/LXC, Incus/LXD metadata pairs, QCOW2/KVM and ISO artifacts distinct. Review published checksum/validation metadata before importing; do not execute templates as programs."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "source_files": [
+      "build_images.sh",
+      "clone_modify_yaml.sh",
+      "test.sh"
+    ],
+    "purpose_zh": "查找并校验 lxc_amd64_images 中适用于目标虚拟化环境的系统镜像产物。",
+    "notes_zh": [
+      "用 release_assets 查询所需操作系统的实际标签；latest 仅代表最近一次发布，不代表全部发行版目录。",
+      "按系统及架构过滤真实文件名；结果为空即为不可用，不自动以 amd64 替代 ARM64。",
+      "区分 rootfs/LXC、Incus/LXD 元数据配对、QCOW2/KVM 和 ISO，导入前核对校验及验证信息，不将模板当作程序执行。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/lxd_images",
+    "branch": "main",
+    "skill_name": "oneclickvirt-lxd-images",
+    "purpose": "Find and verify current lxd_images operating-system image release assets for a compatible virtualization runtime.",
+    "notes": [
+      "Resolve the requested operating-system tag with release_assets; latest is only the most recent release, not a complete catalogue of distributions.",
+      "Filter asset names using the requested OS and architecture; an empty match means unavailable, never substitute amd64 for ARM64.",
+      "Keep rootfs/LXC, Incus/LXD metadata pairs, QCOW2/KVM and ISO artifacts distinct. Review published checksum/validation metadata before importing; do not execute templates as programs."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": true,
+    "mcp": true,
+    "source_files": [
+      "build_images.sh",
+      "build_kvm_images.sh",
+      "clone_modify_yaml.sh",
+      "test.sh"
+    ],
+    "purpose_zh": "查找并校验 lxd_images 中适用于目标虚拟化环境的系统镜像产物。",
+    "notes_zh": [
+      "用 release_assets 查询所需操作系统的实际标签；latest 仅代表最近一次发布，不代表全部发行版目录。",
+      "按系统及架构过滤真实文件名；结果为空即为不可用，不自动以 amd64 替代 ARM64。",
+      "区分 rootfs/LXC、Incus/LXD 元数据配对、QCOW2/KVM 和 ISO，导入前核对校验及验证信息，不将模板当作程序执行。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/convoypanel-scripts",
+    "branch": "main",
+    "skill_name": "oneclickvirt-convoypanel-scripts",
+    "purpose": "Deploy and maintain Convoy using this repository's reviewed shell scripts.",
+    "notes": [
+      "Read installconvoy.sh before installation and build_swap.sh before changing swap. Uninstallation changes services and data; inspect uninstallconvoy.sh and preserve required backups."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "mcp": false,
+    "source_files": [
+      "build_swap.sh",
+      "installconvoy.sh",
+      "uninstallconvoy.sh"
+    ],
+    "purpose_zh": "按仓库现有脚本部署和维护 Convoy 面板。",
+    "notes_zh": [
+      "安装前阅读 installconvoy.sh，更改 swap 前阅读 build_swap.sh。卸载会影响服务及数据，应核对 uninstallconvoy.sh 并保留所需备份。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/pterodactyl",
+    "branch": "main",
+    "skill_name": "oneclickvirt-pterodactyl",
+    "purpose": "Deploy Pterodactyl panel/Wings and manage the repository's node import and egg workflows.",
+    "notes": [
+      "Distinguish panel installation, Wings installation and existing-node import. Read scripts/install_pterodactyl.sh, scripts/install_wings.sh or scripts/import_node.sh for the requested operation. Preserve existing database, node credentials and game data."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "mcp": false,
+    "source_files": [
+      "back/rsync_eggs.sh",
+      "eggs/debian/entrypoint.sh",
+      "eggs/debian/ssh.sh",
+      "eggs/debian/start.sh",
+      "eggs/ssh.sh",
+      "eggs/ubuntu/entrypoint.sh",
+      "eggs/ubuntu/ssh.sh",
+      "eggs/ubuntu/start.sh",
+      "scripts/import_node.sh",
+      "scripts/install_pterodactyl.sh",
+      "scripts/install_wings.sh"
+    ],
+    "purpose_zh": "部署 Pterodactyl 面板和 Wings，处理节点导入及 Egg 工作流。",
+    "notes_zh": [
+      "区分面板安装、Wings 安装和导入现有节点，分别核对 scripts/install_pterodactyl.sh、scripts/install_wings.sh、scripts/import_node.sh。保留已有数据库、节点凭据和游戏数据。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/cockpit",
+    "branch": "main",
+    "skill_name": "oneclickvirt-cockpit",
+    "purpose": "Install or remove the Cockpit setup maintained in this repository.",
+    "notes": [
+      "Review scripts/install.sh or scripts/uninstall.sh first. Respect the target distribution and preserve existing Cockpit configuration."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "mcp": false,
+    "source_files": [
+      "scripts/install.sh",
+      "scripts/lib/runtime.sh",
+      "scripts/uninstall.sh"
+    ],
+    "purpose_zh": "按仓库现有脚本安装或移除 Cockpit。",
+    "notes_zh": [
+      "先阅读 scripts/install.sh 或 scripts/uninstall.sh，核对发行版并保留现有配置。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/virtualizor-docker",
+    "branch": "master",
+    "skill_name": "oneclickvirt-virtualizor-docker",
+    "purpose": "Deploy the Virtualizor Docker setup and diagnose its existing Compose services.",
+    "notes": [
+      "Inspect the repository's actual Compose/service definitions and installer options before choosing ports or volumes. Protect panel state and licensing configuration."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "mcp": false,
+    "source_files": [
+      "example-config.sh",
+      "s6/scripts/healthcheck.sh",
+      "s6/scripts/install-virtualizor.sh",
+      "virtualizor.sh"
+    ],
+    "purpose_zh": "部署 Virtualizor Docker 环境并排查已有 Compose 服务。",
+    "notes_zh": [
+      "先检查实际 Compose 服务定义和安装器选项，再选择端口及数据卷。保留面板状态和授权配置。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/securityCheck",
+    "branch": "main",
+    "skill_name": "oneclickvirt-securitycheck",
+    "purpose": "Install and interpret the public IP-quality checker release without accessing its private implementation.",
+    "notes": [
+      "Use public oneclickvirt/securityCheck release artifacts only. Do not fetch or publish the private security repository. Verify the installed binary help; network-provider failures are unknown findings, not proof of reputation."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "mcp": false,
+    "source_files": [
+      "sc_install.sh"
+    ],
+    "purpose_zh": "使用公开 IP 质量检测产物，不访问其私有实现仓库。",
+    "notes_zh": [
+      "仅使用公开 oneclickvirt/securityCheck Release，不拉取或公开私有 security 源码。先核对已安装程序的帮助；上游数据库请求失败应记为未知。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/ecs-gui",
+    "branch": "main",
+    "skill_name": "oneclickvirt-ecs-gui",
+    "purpose": "Build, install and troubleshoot the Fyne ECS desktop/mobile application.",
+    "notes": [
+      "Use the exact platform release assets; Android APK, macOS app, Windows EXE and Linux archive are different products. Keep VERSION and FyneApp.toml aligned when modifying builds. For headless MCP, use the ecs integration."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "mcp": false,
+    "source_files": [
+      "build.sh",
+      "go.mod"
+    ],
+    "purpose_zh": "构建、安装和排查基于 Fyne 的融合怪桌面或移动应用。",
+    "notes_zh": [
+      "区分 Android APK、macOS app、Windows EXE 和 Linux 压缩包。修改构建时同步 VERSION 与 FyneApp.toml；无图形界面 MCP 使用 ecs 集成。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/images_auto_list",
+    "branch": "main",
+    "skill_name": "oneclickvirt-images-auto-list",
+    "purpose": "Generate and verify OneClickVirt's public image seed catalogue.",
+    "notes": [
+      "Inspect auto.sh and its release filtering before changing images.txt. Preserve OS tag and architecture distinctions and retain the existing validation/filter tests."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "mcp": false,
+    "source_files": [
+      "auto.sh"
+    ],
+    "purpose_zh": "生成和校验 OneClickVirt 公开镜像种子目录。",
+    "notes_zh": [
+      "修改 images.txt 前核对 auto.sh 及其 Release 过滤逻辑，保留系统标签和架构区分，并运行现有过滤测试。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/dockerfile-templates",
+    "branch": "main",
+    "skill_name": "oneclickvirt-dockerfile-templates",
+    "purpose": "Build the specific Dockerfile template requested from this repository.",
+    "notes": [
+      "Inspect the selected image directory, Dockerfile and entrypoint. Select a concrete build context and check base-image architecture; do not build every image by default."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "mcp": false,
+    "source_files": [],
+    "purpose_zh": "选择并构建仓库中实际需要的 Dockerfile 模板。",
+    "notes_zh": [
+      "检查选定目录的 Dockerfile 和入口程序，使用明确的构建上下文及基础镜像架构，不默认构建全部镜像。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/macos",
+    "branch": "main",
+    "skill_name": "oneclickvirt-macos",
+    "purpose": "Create the offline macOS ISO artifacts maintained by this repository.",
+    "notes": [
+      "Read the current image-production scripts and platform requirements. Verify the exact macOS version and output checksums; ISO creation is not proof that the guest boots on every host."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "mcp": false,
+    "source_files": [
+      "back/compress_and_cleanup.sh"
+    ],
+    "purpose_zh": "按当前脚本制作离线 macOS ISO 并核对版本及校验值。",
+    "notes_zh": [
+      "核对当前制作脚本、平台要求、macOS 版本及输出校验值。ISO 制作完成不等于已验证所有宿主机都可启动该系统。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/virttest",
+    "branch": "main",
+    "skill_name": "oneclickvirt-virttest",
+    "purpose": "Run and maintain the virtualization installation test harness.",
+    "notes": [
+      "Use action_tests/run_env_test.sh for the selected target environment. Read its environment and privilege requirements, use isolated guests and keep fixture evidence distinct from real installation/guest-boot evidence."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "mcp": false,
+    "source_files": [],
+    "purpose_zh": "运行和维护虚拟化安装脚本的自动化测试环境。",
+    "notes_zh": [
+      "按目标环境使用 action_tests/run_env_test.sh，先阅读权限及环境要求，在隔离客户机测试，并区分模拟数据、真实安装和客户机启动证据。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/defaultset",
+    "branch": "main",
+    "skill_name": "oneclickvirt-defaultset",
+    "purpose": "Integrate the shared Go configuration library used by OneClickVirt benchmark modules.",
+    "notes": [
+      "Read go.mod and the exported Go types before changing consumers. Preserve compatibility with current benchmark modules; this library is not an independently runnable diagnostic."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "mcp": false,
+    "source_files": [
+      "go.mod"
+    ],
+    "purpose_zh": "在 Go 检测模块中使用共享配置库，并保持调用兼容。",
+    "notes_zh": [
+      "先阅读 go.mod 和导出类型，保持当前检测模块的调用兼容。此库不作为独立检测程序运行。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/dd",
+    "branch": "main",
+    "skill_name": "oneclickvirt-dd",
+    "purpose": "Use the Go library that embeds dd dependencies for controlled benchmark workloads.",
+    "notes": [
+      "Read exported APIs and embedded binary selection for the target OS/architecture. Keep the test path in disposable storage; never target a raw block device or production data."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "mcp": false,
+    "source_files": [
+      "go.mod"
+    ],
+    "purpose_zh": "在受控测试中使用内嵌 dd 依赖的 Go 库。",
+    "notes_zh": [
+      "先核对导出 API 及目标系统和架构的嵌入产物选择。只使用可丢弃的测试文件，不指向裸块设备或生产数据。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/fio",
+    "branch": "main",
+    "skill_name": "oneclickvirt-fio",
+    "purpose": "Use the Go library that embeds fio dependencies for controlled disk benchmarks.",
+    "notes": [
+      "Inspect the exported configuration and embedded asset selection. Bound runtime/file size, use disposable files and preserve explicit paths."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "mcp": false,
+    "source_files": [
+      "go.mod"
+    ],
+    "purpose_zh": "在受控磁盘测试中使用内嵌 fio 依赖的 Go 库。",
+    "notes_zh": [
+      "核对导出配置和内嵌文件选择，限制运行时长、文件大小并保留用户指定路径。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/mbw",
+    "branch": "main",
+    "skill_name": "oneclickvirt-mbw",
+    "purpose": "Use the Go library that embeds mbw memory-bandwidth dependencies.",
+    "notes": [
+      "Inspect exported APIs, platform support and memory allocation before running. Bound working-set size on shared hosts."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "mcp": false,
+    "source_files": [
+      "go.mod"
+    ],
+    "purpose_zh": "在有内存用量限制的测试中使用内嵌 mbw 的 Go 库。",
+    "notes_zh": [
+      "先检查导出接口、平台支持及内存分配，在共享主机限制工作集。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/stream",
+    "branch": "main",
+    "skill_name": "oneclickvirt-stream",
+    "purpose": "Use the Go STREAM library for bounded memory-bandwidth testing.",
+    "notes": [
+      "Inspect exported APIs and platform-specific implementations before selecting a workload. Keep results tied to the actual test method, working set and concurrency."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "mcp": false,
+    "source_files": [
+      "go.mod"
+    ],
+    "purpose_zh": "使用 Go STREAM 库执行有明确范围的内存带宽测试。",
+    "notes_zh": [
+      "先检查导出接口和平台实现，报告结果时保留测试方法、工作集和并发数。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/downloadcounter",
+    "branch": "main",
+    "skill_name": "oneclickvirt-downloadcounter",
+    "purpose": "Deploy and troubleshoot the GitHub Release download-counter Cloudflare Worker.",
+    "notes": [
+      "Inspect worker-code.js and its route parameters. Query existing public release counts; do not invent authenticated administration endpoints or deploy account-wide Cloudflare changes."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "mcp": false,
+    "source_files": [],
+    "purpose_zh": "部署和排查 GitHub Release 下载数统计的 Cloudflare Worker。",
+    "notes_zh": [
+      "先检查 worker-code.js 的真实路由参数；查询已有公开 Release 下载数，不虚构管理接口或改动账户范围的 Cloudflare 设置。"
+    ]
+  },
+  {
+    "repository": "oneclickvirt/hitscounter",
+    "branch": "main",
+    "skill_name": "oneclickvirt-hitscounter",
+    "purpose": "Read and troubleshoot existing Cloudflare/D1 visit counters.",
+    "notes": [
+      "counter_monthly reads /api/monthly and never increments the counter. ONECLICKVIRT_COUNTER_URL may set the HTTPS base URL of an existing deployment.",
+      "Counter creation uses /api/create with the existing deployment's authCode; keep that secret out of source, prompts and documentation. MCP exposes monthly statistics only."
+    ],
+    "guide": "https://www.spiritlhl.net/guide/agent_integrations.html",
+    "releases": false,
+    "mcp": true,
+    "counter": true,
+    "source_files": [
+      "API.md"
+    ],
+    "purpose_zh": "读取并排查已有 Cloudflare/D1 访问计数器。",
+    "notes_zh": [
+      "counter_monthly 只读取 /api/monthly，不增加访问计数。可用 ONECLICKVIRT_COUNTER_URL 指定已有部署的 HTTPS 地址。",
+      "新建计数器的 /api/create 使用部署现有 authCode，该凭据不得写入源码、提示词或文档。MCP 仅提供月统计查询。"
+    ]
+  }
+]

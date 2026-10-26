@@ -1,0 +1,50 @@
+name: Agent integrations
+
+on:
+  push:
+    branches: [main]
+    paths: ['integrations/**', '.github/workflows/agent-integrations.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  distribution:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-2025]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Verify installer, runtime policy and all generated distributions
+        run: python integrations/test_integrations.py
+      - name: Generate repository packages
+        run: python integrations/generate.py --output integrations/staged
+      - name: Install the official MCP test client
+        run: python -m pip install 'mcp>=1.16,<2'
+      - name: Exercise every MCP profile using the official client
+        run: python integrations/native_smoke.py --output integration-handshakes
+      - name: Install published native probes and execute bounded real workloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python integrations/native_smoke.py --probes --only basics pingtest cputest memorytest disktest ecs --output integration-native
+
+  provision-mirrors:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: sync-cnb-public-repositories
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Provision reviewed public repositories without changing credentials
+        env:
+          CNB_PUSH_TOKEN: ${{ secrets.CNB_PUSH_TOKEN }}
+        run: python3 scripts/ensure_agent_mirrors.py

@@ -1,0 +1,30 @@
+name: Agent native runtimes
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [docker, podman, containerd, incus, lxd, qemu, pve, kubevirt]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Prepare integration and official MCP client
+        run: |
+          python integrations/generate.py --output integrations/staged
+          python -m pip install 'mcp>=1.16,<2'
+      - name: Provision a disposable native runtime and exercise MCP
+        env:
+          INTEGRATION_RUNTIME: ${{ matrix.runtime }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/test-agent-runtime.sh

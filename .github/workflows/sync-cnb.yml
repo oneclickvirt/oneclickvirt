@@ -22,7 +22,7 @@ jobs:
   sync-source:
     if: github.repository == 'oneclickvirt/oneclickvirt' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
 
     steps:
       - name: Checkout source

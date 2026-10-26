@@ -70,14 +70,39 @@ main() (
     : "${CNB_PUSH_USERNAME:?CNB_PUSH_USERNAME is not configured}"
     : "${CNB_PUSH_TOKEN:?CNB_PUSH_TOKEN is not configured}"
     export GIT_TERMINAL_PROMPT=0
-    local sync_tmp repo failures=0
+    local sync_tmp repo source_branch entry failures=0
     sync_tmp=$(mktemp -d)
     trap 'rm -rf "$sync_tmp"' EXIT
     # Never infer a source from the current checkout: the maintainer also has a
     # private counterpart, which must never be published to these destinations.
-    for repo in oneclickvirt pve incus docker lxd containerd podman qemu kubevirt 6in4 ndpresponder; do
+    # ECS has its own source/artifact synchronization and default branch; it
+    # must never be included in this main/master snapshot replacement.
+    local repositories=()
+    while IFS= read -r entry; do
+        repositories+=("$entry")
+    done < <(python3 - "$CNB_SYNC_SCRIPT_DIR/../integrations/catalog.json" <<'PY'
+import json, pathlib, re, sys
+catalog = pathlib.Path(sys.argv[1])
+entries = {'oneclickvirt': 'main', 'oneclickvirt.github.io': 'main'}
+if catalog.exists():
+    for profile in json.loads(catalog.read_text()):
+        owner, name = profile['repository'].split('/')
+        assert owner == 'oneclickvirt' and re.fullmatch(r'[A-Za-z0-9_.-]+', name)
+        assert re.fullmatch(r'[A-Za-z0-9_.-]+', profile['branch'])
+        if name != 'ecs':
+            entries[name] = profile['branch']
+else:
+    entries.update({name: 'main' for name in 'pve incus docker lxd containerd podman qemu kubevirt 6in4 ndpresponder'.split()})
+for name, branch in sorted(entries.items()):
+    print(name + ':' + branch)
+PY
+    )
+    [[ ${#repositories[@]} -gt 1 ]] || return 1
+    for entry in "${repositories[@]}"; do
+        repo=${entry%%:*}
+        source_branch=${entry#*:}
         printf 'Synchronizing oneclickvirt/%s\n' "$repo"
-        if ! git -c credential.helper= clone --quiet --depth=1 --single-branch --branch main \
+        if ! git -c credential.helper= clone --quiet --depth=1 --single-branch --branch "$source_branch" \
             "https://github.com/oneclickvirt/$repo.git" "$sync_tmp/$repo"; then
             printf 'Failed to read public source: %s\n' "$repo" >&2
             failures=$((failures + 1))
