@@ -126,7 +126,7 @@ python3 install_skill.py --client claude
 
 使用其他客户端时，将参数改为 `--client codex` 或 `--client openclaw`。默认目录分别为 `~/.claude/skills/oneclickvirt`、`~/.agents/skills/oneclickvirt` 和 `~/.openclaw/skills/oneclickvirt`，也可用 `--skill-dir` 指定目录。Windows 下载同一个脚本，使用 Python 3.9 以上版本执行 `py -3 install_skill.py --client claude`。
 
-两个入口都会解析一次 GitHub 正式 Release，校验同版本 Skill 和二进制后一起安装。CNB 提供源码镜像，Release 压缩包仍从 GitHub 下载。安装后 `SKILL.md` 直接位于 Skill 目录，独立 MCP 客户端 `oneclickvirt-mcp` 放在 `~/.local/bin`。安装器不启动主控，不修改系统服务、数据库、客户端设置或已有 API Token。
+两个入口都会解析一次 GitHub 正式 Release，校验同版本 Skill 和二进制后一起安装。CNB 提供源码镜像，Release 压缩包仍从 GitHub 下载。安装后 `SKILL.md` 直接位于 Skill 目录，独立 MCP 程序 `oneclickvirt-mcp` 放在 `~/.local/bin`。安装器不启动主控，不修改系统服务、数据库、客户端设置或已有 API Token。
 
 后续更新时重复下载及安装命令即可。需要固定或返回某个版本时，用 `--version` 指定完整的已发布标签，Skill 和二进制会使用同一版本；已安装版本记录在 `install.json`。复用已有主控二进制时可加 `--mcp-command /opt/oneclickvirt/server/oneclickvirt-server`，只安装 Skill 文件时加 `--skip-binary`。仅安装 Skill 不会自动配置或启动 MCP。
 
@@ -373,13 +373,13 @@ def generate_skill_md(version, tools, resources, prompts, lang="en"):
     lines.append(prereq_title)
     lines.append("")
     prereq_items_en = [
-        "Python 3.9+ for the installer. Prebuilt MCP clients support Linux/Windows amd64 and ARM64; other platforms can use an existing binary or SSH transport.",
+        "Python 3.9+ for the installer. Prebuilt MCP binaries support Linux/Windows amd64 and ARM64; other platforms can use an existing binary or SSH transport.",
         "A running OneClickVirt API endpoint.",
         "An administrator API token from the Web UI under Profile -> API Tokens.",
         "HTTPS for remote OneClickVirt deployments.",
     ]
     prereq_items_zh = [
-        "安装器需要 Python 3.9 以上版本。预编译 MCP 客户端支持 Linux/Windows 的 amd64 和 ARM64；其他平台使用已有二进制或 SSH 连接。",
+        "安装器需要 Python 3.9 以上版本。预编译 MCP 程序支持 Linux/Windows 的 amd64 和 ARM64；其他平台使用已有二进制或 SSH 连接。",
         "OneClickVirt API 正在运行。",
         "从 Web 界面个人中心的 API Tokens 获取管理员 API Token。",
         "远程部署必须使用 HTTPS。",

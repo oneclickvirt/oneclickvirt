@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install a release-matched Skill and optional MCP client without changing services."""
+"""Install a release-matched Skill and optional MCP binary without changing services."""
 import argparse
 import hashlib
 import io
@@ -88,7 +88,7 @@ def binary_asset(system=None, machine=None):
     machine = (machine or platform.machine()).lower()
     architecture = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(machine)
     if system not in ("linux", "windows") or architecture is None:
-        raise ValueError("Prebuilt MCP clients support Linux/Windows amd64/arm64. "
+        raise ValueError("Prebuilt MCP binaries support Linux/Windows amd64/arm64. "
                          "Use --skip-binary and configure an existing client or SSH transport on other platforms.")
     stem = "server-" + system + "-" + architecture
     return stem + (".zip" if system == "windows" else ".tar.gz"), stem + (".exe" if system == "windows" else "")

@@ -127,27 +127,28 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm]
+        runner: [ubuntu-latest, ubuntu-24.04-arm, windows-2025]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
-      - name: Install the actual published Skill and controller client
+      - name: Install and exercise the actual published MCP binary
+        shell: python
         env:
           RELEASE_TAG: ${{ needs.reconcile.outputs.tag }}
         run: |
-          python3 scripts/install_skill.py --version "$RELEASE_TAG" --skill-dir "$RUNNER_TEMP/installed-skill" --bin-dir "$RUNNER_TEMP/mcp-bin"
-          "$RUNNER_TEMP/mcp-bin/oneclickvirt-mcp" --version
-          "$RUNNER_TEMP/mcp-bin/oneclickvirt-mcp" mcp --help
-          python3 - <<'PY'
-          import json, os, pathlib, subprocess
+          import json, os, pathlib, subprocess, sys
           root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          subprocess.run([sys.executable, 'scripts/install_skill.py', '--version', os.environ['RELEASE_TAG'], '--skill-dir', str(root / 'installed-skill'), '--bin-dir', str(root / 'mcp-bin')], check=True)
+          binary = root / 'mcp-bin' / ('oneclickvirt-mcp.exe' if os.name == 'nt' else 'oneclickvirt-mcp')
+          subprocess.run([str(binary), '--version'], check=True)
+          subprocess.run([str(binary), 'mcp', '--help'], check=True)
           messages = [{'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {'protocolVersion': '2024-11-05', 'capabilities': {}, 'clientInfo': {'name': 'skill-release-check', 'version': '1'}}},
                       {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'},
                       {'jsonrpc': '2.0', 'id': 3, 'method': 'resources/list'}]
-          result = subprocess.run([str(root / 'mcp-bin/oneclickvirt-mcp'), 'mcp'], input=''.join(json.dumps(m) + '\n' for m in messages), text=True, capture_output=True, timeout=30, check=True)
+          result = subprocess.run([str(binary), 'mcp'], input=''.join(json.dumps(m) + '\n' for m in messages), text=True, capture_output=True, timeout=30, check=True)
           replies = {r['id']: r for r in map(json.loads, result.stdout.splitlines())}
           assert not any(r.get('error') for r in replies.values()), replies
           assert {1, 2, 3} <= replies.keys()
@@ -155,4 +156,3 @@ jobs:
           assert (root / 'installed-skill/SKILL.md').is_file()
           assert not (root / 'installed-skill/oneclickvirt').exists()
           print('Published MCP stdio handshake, tools and resources passed.')
-          PY

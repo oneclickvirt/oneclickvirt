@@ -22,7 +22,7 @@ What this skill can do:
 
 ## Prerequisites
 
-- Python 3.9+ for the installer. Prebuilt MCP clients support Linux/Windows amd64 and ARM64; other platforms can use an existing binary or SSH transport.
+- Python 3.9+ for the installer. Prebuilt MCP binaries support Linux/Windows amd64 and ARM64; other platforms can use an existing binary or SSH transport.
 - A running OneClickVirt API endpoint.
 - An administrator API token from the Web UI under Profile -> API Tokens.
 - HTTPS for remote OneClickVirt deployments.

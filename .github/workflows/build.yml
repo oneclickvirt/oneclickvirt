@@ -295,7 +295,7 @@ jobs:
         - `server-allinone-windows-{amd64,arm64}.zip`
         ### 监控代理（部署到 Provider 节点）
         - `oneclickvirt-agent-linux-{amd64,arm64}.tar.gz`
-        ### Skill 与 MCP 客户端
+        ### Skill 与 MCP 程序
         - `oneclickvirt-skill.tar.gz` / `oneclickvirt-skill-<本次标签>.tar.gz`：本版本 Skill，内含安装器与 MCP 配置示例
         - `oneclickvirt-skill*.sha256`：Skill 压缩包校验文件
         - 安装及更新：https://www.spiritlhl.net/guide/oneclickvirt/oneclickvirt_advanced_install.html#skill-与-mcp
