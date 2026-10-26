@@ -49,6 +49,10 @@ def generate(profile, target):
  (target/'scripts').mkdir(parents=True,exist_ok=True)
  (skilldir/'SKILL.md').write_text(skill(profile),encoding='utf-8')
  (skilldir/'SKILL_ZH.md').write_text(skill(profile,True),encoding='utf-8')
+ # CNB repository discovery recognizes this root entry. Keep installation
+ # payload paths unchanged so previously downloaded installers remain valid.
+ (target/'SKILL.md').write_bytes((skilldir/'SKILL.md').read_bytes())
+ (target/'SKILL_ZH.md').write_bytes((skilldir/'SKILL_ZH.md').read_bytes())
  (target/'agent/profile.json').write_text(json.dumps(profile,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
  if profile['mcp']:(target/'agent/server.py').write_bytes((ROOT/'templates/server.py').read_bytes())
  installer=(ROOT/'templates/install_agent.py').read_text(encoding="utf-8").replace('__REPOSITORY__',profile['repository']).replace('__DEFAULT_REF__',profile['branch']).replace('__SKILL_NAME__',profile['skill_name'])
@@ -58,7 +62,6 @@ def generate(profile, target):
  manifest={'repository':profile['repository'],'skill_name':profile['skill_name'],'mcp':profile['mcp'],'files':{p:hashlib.sha256((target/p).read_bytes()).hexdigest() for p in paths}}
  (target/'agent/manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
  if profile['repository'].endswith('/ClawChimera'):
-  (target/'SKILL.md').write_text(skill(profile),encoding='utf-8')
   for source,destination in [('claw_run.sh','run.sh'),('claw_run.py','scripts/run_goecs.py'),('claw_pack.sh','pack.sh'),('claw_skill.json','skill.json')]:
    (target/destination).write_bytes((ROOT/'templates'/source).read_bytes())
  return target

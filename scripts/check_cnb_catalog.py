@@ -2,13 +2,19 @@
 """Check CNB discovery and document retrieval for the explicit public catalog."""
 import argparse
 import concurrent.futures
+import fnmatch
 import json
 import os
 from pathlib import Path
 import time
+import subprocess
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "integrations"))
+from configure_cnb import includes
 
 
 def api(path):
@@ -52,7 +58,13 @@ def inspect(repo):
     if metadata.get("visibility_level") != "Public":
         raise ValueError("Destination must already be public: " + repo)
     result = {"repository": repo, "public": True,
-              "default_branch": metadata.get("default_branch")}
+              }
+    if repo == "oneclickvirt/ecs":
+        refs = subprocess.check_output([
+            "git", "-c", "credential.helper=", "ls-remote", "--symref",
+            "https://cnb.cool/oneclickvirt/ecs", "HEAD",
+        ], text=True, timeout=60)
+        result["artifact_default_preserved"] = "ref: refs/heads/main\tHEAD" in refs
     try:
         knowledge = api(repo + "/-/knowledge/base")
     except urllib.error.HTTPError as exc:
@@ -82,6 +94,7 @@ def main():
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     catalog = json.loads((root / "integrations/catalog.json").read_text())
+    profiles = {profile["repository"]: profile for profile in catalog}
     allowed = {profile["repository"] for profile in catalog}
     allowed.update(("oneclickvirt/oneclickvirt", "oneclickvirt/oneclickvirt.github.io"))
     selected = allowed if not args.only else {"oneclickvirt/" + name for name in args.only}
@@ -101,11 +114,21 @@ def main():
             result["skill_discovered"] = repo in skills
             result["knowledge_discovered"] = repo in bases
             knowledge = result["knowledge"]
+            expected = includes(repo, profiles.get(repo))
+            actual = [] if not knowledge else knowledge.get("include", "").split(",")
+            result["public_scope_verified"] = set(actual) == set(expected)
+            for hit in result.get("hits", []):
+                path = (hit.get("metadata") or {}).get("path", "")
+                if not any(fnmatch.fnmatchcase(path, pattern)
+                           or fnmatch.fnmatchcase(path, pattern.replace("**/", ""))
+                           for pattern in expected):
+                    result["public_scope_verified"] = False
             if ((not repo.endswith(".github.io") and repo not in skills)
                     or repo not in bases or not knowledge
                     or knowledge.get("issue_sync_enabled") is not False
                     or not (knowledge.get("statistics") or {}).get("count")
-                    or not result.get("hits")):
+                    or not result.get("hits") or not result["public_scope_verified"]
+                    or result.get("artifact_default_preserved") is False):
                 failed.append(repo)
         report = {"checked": len(results), "skills": sorted(skills),
                   "knowledge_bases": sorted(bases), "repositories": results,

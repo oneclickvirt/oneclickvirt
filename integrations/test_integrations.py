@@ -40,6 +40,9 @@ class IntegrationTests(unittest.TestCase):
    with self.subTest(repository=name):
     m,source=self.installer(name)
     manifest,payload=m.load_payload(lambda path:(source/path).read_bytes())
+    for entry in ['SKILL.md','SKILL_ZH.md']:
+     self.assertEqual((source/entry).read_bytes(),(source/'skills'/profile['skill_name']/entry).read_bytes())
+     self.assertNotIn(entry,manifest['files'])
     skill=self.root/'skills'/name;mcp=self.root/'mcp'/name
     result=m.install(manifest,payload,skill,mcp,{'commit':'a'*40})
     self.assertTrue((skill/'SKILL.md').is_file())
