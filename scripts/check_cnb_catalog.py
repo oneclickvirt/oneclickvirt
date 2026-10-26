@@ -74,6 +74,9 @@ def inspect(repo):
         return result
     result["knowledge"] = {key: knowledge.get(key) for key in (
         "include", "exclude", "issue_sync_enabled", "last_commit_sha", "statistics")}
+    if not (knowledge.get("statistics") or {}).get("count"):
+        result["hits"] = []
+        return result
     query = "Skill MCP installation source version" if not repo.endswith(".github.io") else "PVE 容器 安装 CNB"
     hits = api(repo + "/-/knowledge/base/query?" + urllib.parse.urlencode({
         "query": query, "top_k": 5, "score_threshold": 0,
