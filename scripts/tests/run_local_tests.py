@@ -40,7 +40,7 @@ ci_agent_assets_test.py frontend_proxy_http_test.py live_incus_panel_network_tes
 live_install_storage_test.py live_lxc_script_compat_test.py
 live_nested_docker_test.py live_node_shell_test.py live_panel_cleanup_test.py
 live_ssh_auth_test.py live_uninstall_prompts_test.py remote_ssh_io_test.py
-webssh_external_probe_test.py local_test_inventory_test.py
+webssh_external_probe_test.py local_test_inventory_test.py skill_distribution_test.py
 """.split()
 
 # These entrypoints require their own dedicated fixture/workflow. Keeping

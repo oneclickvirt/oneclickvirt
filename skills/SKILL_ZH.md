@@ -1,33 +1,10 @@
 ---
 name: oneclickvirt
 description: OneClickVirt 操作 Skill，通过 MCP 管理容器、虚拟机、节点、健康检查和监控指标。
-version: 0.3.0
-author: oneclickvirt
-homepage: https://github.com/oneclickvirt/oneclickvirt
-tags:
-  - virtualization
-  - containers
-  - vms
-  - lxd
-  - incus
-  - docker
-  - podman
-  - proxmox
-  - kubevirt
-applyTo:
-  - mcp
-  - cli
-platforms:
-  - linux
-  - macos
-mcpServers:
-  oneclickvirt:
-    command: oneclickvirt
-    args:
-      - mcp
-    env:
-      ONE_CLICK_VIRT_API_URL: ""
-      ONE_CLICK_VIRT_API_TOKEN: "你的API_TOKEN"
+metadata:
+  version: "0.3.0"
+  author: oneclickvirt
+  homepage: https://github.com/oneclickvirt/oneclickvirt
 ---
 
 # OneClickVirt Skill
@@ -45,20 +22,40 @@ mcpServers:
 
 ## 前置条件
 
-- `oneclickvirt` 二进制已在 `PATH` 中，或在 MCP 客户端配置中使用绝对路径。
+- 安装器需要 Python 3.9 以上版本。预编译 MCP 客户端支持 Linux/Windows 的 amd64 和 ARM64；其他平台使用已有二进制或 SSH 连接。
 - OneClickVirt API 正在运行。
 - 从 Web 界面个人中心的 API Tokens 获取管理员 API Token。
 - 远程部署必须使用 HTTPS。
 
 ## 安装
 
-使用本地 MCP 客户端配置：
+从 GitHub 安装或更新最新正式版：
+
+```bash
+curl -fL --retry 3 https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/scripts/install_skill.py -o install_skill.py
+python3 install_skill.py --client claude
+```
+
+也可从 CNB 公共源码镜像下载安装器：
+
+```bash
+curl -fL --retry 3 https://cnb.cool/oneclickvirt/oneclickvirt/-/git/raw/main/scripts/install_skill.py -o install_skill.py
+python3 install_skill.py --client claude
+```
+
+使用其他客户端时，将参数改为 `--client codex` 或 `--client openclaw`。默认目录分别为 `~/.claude/skills/oneclickvirt`、`~/.agents/skills/oneclickvirt` 和 `~/.openclaw/skills/oneclickvirt`，也可用 `--skill-dir` 指定目录。Windows 下载同一个脚本，使用 Python 3.9 以上版本执行 `py -3 install_skill.py --client claude`。
+
+两个入口都会解析一次 GitHub 正式 Release，校验同版本 Skill 和二进制后一起安装。CNB 提供源码镜像，Release 压缩包仍从 GitHub 下载。安装后 `SKILL.md` 直接位于 Skill 目录，独立 MCP 客户端 `oneclickvirt-mcp` 放在 `~/.local/bin`。安装器不启动主控，不修改系统服务、数据库、客户端设置或已有 API Token。
+
+后续更新时重复下载及安装命令即可。需要固定或返回某个版本时，用 `--version` 指定完整的已发布标签，Skill 和二进制会使用同一版本；已安装版本记录在 `install.json`。复用已有主控二进制时可加 `--mcp-command /opt/oneclickvirt/server/oneclickvirt-server`，只安装 Skill 文件时加 `--skip-binary`。仅安装 Skill 不会自动配置或启动 MCP。
+
+将安装目录中 `mcp.example.json` 的 `mcpServers` 配置合并到客户端设置，保留其中的二进制绝对路径，填写 API 地址和 Token。对应模板为：
 
 ```json
 {
   "mcpServers": {
     "oneclickvirt": {
-      "command": "oneclickvirt",
+      "command": "oneclickvirt-mcp",
       "args": ["mcp"],
       "env": {
         "ONE_CLICK_VIRT_API_URL": "https://your-domain.com",
@@ -69,19 +66,7 @@ mcpServers:
 }
 ```
 
-从 Release 压缩包手动安装：
-
-```bash
-mkdir -p ~/.claude/skills/oneclickvirt
-tar -xzf oneclickvirt-skill-v0.3.0.tar.gz -C ~/.claude/skills/oneclickvirt
-```
-
-从本地仓库开发安装：
-
-```bash
-mkdir -p ~/.claude/skills/oneclickvirt
-cp -R skills/. ~/.claude/skills/oneclickvirt/
-```
+客户端必须能够找到该命令，图形界面客户端可能不会继承终端的 `PATH`。项目安装的主控路径为 `/opt/oneclickvirt/server/oneclickvirt-server`，不是 `/opt/oneclickvirt/server/oneclickvirt`。macOS 没有预编译主控产物，可用 `--skip-binary` 安装 Skill，再配置已有的原生编译版本或到 Linux 的 SSH MCP 连接。配置后重启 MCP 客户端。压缩包安装及 SSH 示例见[安装说明](https://www.spiritlhl.net/guide/oneclickvirt/oneclickvirt_advanced_install.html#skill-与-mcp)。
 
 ## 使用方法
 
@@ -125,7 +110,7 @@ cp -R skills/. ~/.claude/skills/oneclickvirt/
 
 ## 故障排查
 
-- `command not found: oneclickvirt`：在 MCP 配置中使用二进制绝对路径。
+- `command not found: oneclickvirt-mcp`：使用已安装的 `mcp.example.json` 中的二进制绝对路径配置客户端。
 - `401 Unauthorized`：确认 `ONE_CLICK_VIRT_API_TOKEN` 是有效管理员 Token。
 - `Connection refused`：确认 `ONE_CLICK_VIRT_API_URL` 正确且 `/api/v1/health` 可访问。
 - 工具未出现：重启 MCP 客户端并检查 MCP Server 日志。

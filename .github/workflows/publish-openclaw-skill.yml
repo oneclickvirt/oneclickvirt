@@ -2,96 +2,157 @@ name: Publish OpenClaw Skill
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
       - 'skills/**'
       - 'mcp.json'
+      - 'scripts/generate_skills.py'
+      - 'scripts/install_skill.py'
+      - 'scripts/package_skill.py'
       - 'scripts/skill_release_check.sh'
+      - 'scripts/tests/skill_distribution_test.py'
       - '.github/workflows/publish-openclaw-skill.yml'
   release:
-    types:
-      - published
+    types: [published]
+  # Releases created with GITHUB_TOKEN do not emit another workflow's release
+  # event. Reconcile after the build as well as packaging in the build itself.
+  workflow_run:
+    workflows: ['Build and Release oneclickvirt']
+    types: [completed]
+  schedule:
+    - cron: '43 3 * * *'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Published release tag, or latest'
+        default: latest
+        required: true
+        type: string
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  PYTHONDONTWRITEBYTECODE: '1'
+
+permissions:
+  contents: read
 
 concurrency:
-  group: openclaw-skill-${{ github.ref }}
-  cancel-in-progress: true
+  group: oneclickvirt-skill-release
+  cancel-in-progress: false
 
 jobs:
-  validate-and-package:
+  reconcile:
+    if: github.repository == 'oneclickvirt/oneclickvirt' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Check skill files are in sync with MCP source
-        run: |
-          # First verify the committed development files against the MCP
-          # source. The source checkout intentionally carries the unreleased
-          # fallback version, while a published controller release gets its
-          # timestamp tag below.
-          python3 scripts/generate_skills.py
-          if ! git diff --quiet skills/SKILL.md skills/SKILL_ZH.md; then
-            echo "ERROR: skills/SKILL.md and skills/SKILL_ZH.md are out of sync with server/mcp/server.go"
-            echo "Run 'python3 scripts/generate_skills.py' locally and commit the changes."
-            git diff skills/SKILL.md skills/SKILL_ZH.md
-            exit 1
-          fi
-          echo "Skill files are in sync with MCP source."
-          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
-            # Keep the packaged Skill's version aligned with the controller
-            # Release tag without changing the committed development files.
-            python3 scripts/generate_skills.py --version "${GITHUB_REF_NAME}"
-          fi
-
-      - name: Validate skill files
-        run: |
-          VERSION=""
-          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
-            VERSION="${GITHUB_REF_NAME:-}"
-          fi
-          bash scripts/skill_release_check.sh "${VERSION}"
-
-      - name: Package skill
-        run: |
-          VERSION="${GITHUB_REF_NAME:-dev}"
-          mkdir -p dist/oneclickvirt
-          cp skills/SKILL.md skills/SKILL_ZH.md mcp.json dist/oneclickvirt/
-          tar -czf "oneclickvirt-skill-${VERSION}.tar.gz" -C dist oneclickvirt
-          sha256sum "oneclickvirt-skill-${VERSION}.tar.gz" > "oneclickvirt-skill-${VERSION}.sha256"
-
-      - name: Upload packaged skill artifact
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: oneclickvirt-skill
-          path: |
-            oneclickvirt-skill-*.tar.gz
-            oneclickvirt-skill-*.sha256
-          if-no-files-found: error
-
-  publish-release-assets:
-    if: github.event_name == 'release'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: validate-and-package
+    timeout-minutes: 15
     permissions:
       contents: write
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
     steps:
-      - name: Download packaged skill artifact
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          name: oneclickvirt-skill
+          ref: main
+      - name: Validate generator, archives and installer behavior
+        run: |
+          python3 scripts/generate_skills.py
+          git diff --exit-code -- skills/SKILL.md skills/SKILL_ZH.md
+          bash scripts/skill_release_check.sh
+          python3 -B scripts/tests/skill_distribution_test.py
+      - name: Resolve one published release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_VERSION: ${{ inputs.version || github.event.release.tag_name || 'latest' }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, sys
+          sys.path.insert(0, 'scripts')
+          from install_skill import valid_tag
+          requested = os.environ['REQUESTED_VERSION']
+          endpoint = 'latest' if requested == 'latest' else 'tags/' + valid_tag(requested)
+          value = json.loads(subprocess.check_output(['gh', 'api', 'repos/' + os.environ['GITHUB_REPOSITORY'] + '/releases/' + endpoint]))
+          tag = valid_tag(value['tag_name'])
+          assert not value['draft']
+          assert requested != 'latest' or not value['prerelease']
+          assets = {a['name'] for a in value['assets']}
+          assert {'SHA256SUMS', 'server-linux-amd64.tar.gz', 'server-linux-arm64.tar.gz', 'server-windows-amd64.zip', 'server-windows-arm64.zip'} <= assets, 'Incomplete controller release'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('tag=' + tag + '\n')
+          PY
+      - name: Package capabilities from the immutable release source
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          git fetch --no-tags origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          git worktree add --detach "$RUNNER_TEMP/skill-release-source" "refs/tags/$RELEASE_TAG"
+          python3 scripts/package_skill.py --source-root "$RUNNER_TEMP/skill-release-source" --version "$RELEASE_TAG" --output-dir dist
+      - name: Publish or repair only Skill assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/previous-skill"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir "$RUNNER_TEMP/previous-skill"
+          python3 - <<'PYCODE'
+          import hashlib, os, pathlib, re
+          previous = pathlib.Path(os.environ['RUNNER_TEMP']) / 'previous-skill/SHA256SUMS'
+          lines = previous.read_text().splitlines(keepends=True)
+          # Preserve all controller/Agent/Web checksum lines verbatim. Only
+          # Skill entries are refreshed when installer tooling changes.
+          retained = []
+          for line in lines:
+              match = re.fullmatch(r'[0-9a-fA-F]{64} [ *](.+)\n?', line)
+              assert match, 'Invalid release checksum manifest'
+              if not match[1].startswith('oneclickvirt-skill'):
+                  retained.append(line if line.endswith('\n') else line + '\n')
+          for asset in sorted(pathlib.Path('dist').iterdir()):
+              retained.append(hashlib.sha256(asset.read_bytes()).hexdigest() + '  ' + asset.name + '\n')
+          pathlib.Path('dist/SHA256SUMS').write_text(''.join(retained))
+          PYCODE
+          if gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern 'oneclickvirt-skill*' --dir "$RUNNER_TEMP/previous-skill"; then
+            unchanged=true
+            for asset in dist/*; do
+              cmp -s "$asset" "$RUNNER_TEMP/previous-skill/$(basename "$asset")" || unchanged=false
+            done
+            if [[ "$unchanged" == true ]]; then
+              echo 'Published Skill assets are already current.'
+              exit 0
+            fi
+          fi
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber dist/*
 
-      - name: Upload release assets
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+  verify-installation:
+    needs: reconcile
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          files: |
-            oneclickvirt-skill-*.tar.gz
-            oneclickvirt-skill-*.sha256
+          ref: main
+      - name: Install the actual published Skill and controller client
+        env:
+          RELEASE_TAG: ${{ needs.reconcile.outputs.tag }}
+        run: |
+          python3 scripts/install_skill.py --version "$RELEASE_TAG" --skill-dir "$RUNNER_TEMP/installed-skill" --bin-dir "$RUNNER_TEMP/mcp-bin"
+          "$RUNNER_TEMP/mcp-bin/oneclickvirt-mcp" --version
+          "$RUNNER_TEMP/mcp-bin/oneclickvirt-mcp" mcp --help
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          messages = [{'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {'protocolVersion': '2024-11-05', 'capabilities': {}, 'clientInfo': {'name': 'skill-release-check', 'version': '1'}}},
+                      {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'},
+                      {'jsonrpc': '2.0', 'id': 3, 'method': 'resources/list'}]
+          result = subprocess.run([str(root / 'mcp-bin/oneclickvirt-mcp'), 'mcp'], input=''.join(json.dumps(m) + '\n' for m in messages), text=True, capture_output=True, timeout=30, check=True)
+          replies = {r['id']: r for r in map(json.loads, result.stdout.splitlines())}
+          assert not any(r.get('error') for r in replies.values()), replies
+          assert {1, 2, 3} <= replies.keys()
+          assert 'get_metrics' in {t['name'] for t in replies[2]['result']['tools']}
+          assert (root / 'installed-skill/SKILL.md').is_file()
+          assert not (root / 'installed-skill/oneclickvirt').exists()
+          print('Published MCP stdio handshake, tools and resources passed.')
+          PY

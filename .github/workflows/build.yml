@@ -267,6 +267,10 @@ jobs:
           web-dist.zip > SHA256SUMS
 
         ls -lh
+    - name: Package matching Skill and installation helpers
+      run: |
+        python3 scripts/package_skill.py --version "v${{ steps.date.outputs.date }}" --output-dir build
+        (cd build && sha256sum oneclickvirt-skill*.tar.gz oneclickvirt-skill*.sha256 >> SHA256SUMS)
     - name: Get previous release tag
       id: get_previous_tag
       run: |
@@ -275,32 +279,35 @@ jobs:
         echo "Previous release tag: $PREVIOUS_TAG"
     - name: Create Release with Auto-generated Notes
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: "source \"$RUNNER_TEMP/ci-network.sh\"\nTAG_NAME=\"v${{ steps.date.outputs.date }}\"\nPREVIOUS_TAG=\"\
-        ${{ steps.get_previous_tag.outputs.previous_tag }}\"\n\n# Build release body header\nRELEASE_HEADER=\"##\
-        \ 自动构建发布 - ${{ steps.date.outputs.date }}\n\n### 独立部署版本（需要分别部署前后端）\n- \\`server-linux-amd64.tar.gz\\` -\
-        \ 后端 Linux AMD64 版本\n- \\`server-linux-arm64.tar.gz\\` - 后端 Linux ARM64 版本  \n- \\`server-windows-amd64.zip\\\
-        ` - 后端 Windows AMD64 版本\n- \\`server-windows-arm64.zip\\` - 后端 Windows ARM64 版本\n- \\`web-dist.zip\\` -\
-        \ 前端静态文件\n\n### 一体化部署版本（前端已内嵌，单二进制文件部署）\n- \\`server-allinone-linux-amd64.tar.gz\\` - 一体化 Linux AMD64 版本\n\
-        - \\`server-allinone-linux-arm64.tar.gz\\` - 一体化 Linux ARM64 版本\n- \\`server-allinone-windows-amd64.zip\\\
-        ` - 一体化 Windows AMD64 版本\n- \\`server-allinone-windows-arm64.zip\\` - 一体化 Windows ARM64 版本\n\n### 监控代理（部署到\
-        \ Provider 节点）\n- \\`oneclickvirt-agent-linux-amd64.tar.gz\\` - 监控代理 Linux AMD64 版本\n- \\`oneclickvirt-agent-linux-arm64.tar.gz\\\
-        ` - 监控代理 Linux ARM64 版本\n\n### 校验文件\n- \\`SHA256SUMS\\` - Release 资产 SHA-256 校验清单\"\n\n# Create release\
-        \ with auto-generated notes\nif [ -n \"$PREVIOUS_TAG\" ]; then\n  gh release create \"$TAG_NAME\" \\\n \
-        \   --title \"Release $TAG_NAME\" \\\n    --notes \"$RELEASE_HEADER\" \\\n    --notes-start-tag \"$PREVIOUS_TAG\"\
-        \ \\\n    --generate-notes \\\n    ./build/server-linux-amd64.tar.gz \\\n    ./build/server-linux-arm64.tar.gz\
-        \ \\\n    ./build/server-windows-amd64.zip \\\n    ./build/server-windows-arm64.zip \\\n    ./build/server-allinone-linux-amd64.tar.gz\
-        \ \\\n    ./build/server-allinone-linux-arm64.tar.gz \\\n    ./build/server-allinone-windows-amd64.zip \\\
-        \n    ./build/server-allinone-windows-arm64.zip \\\n    ./build/oneclickvirt-agent-linux-amd64.tar.gz \\\
-        \n    ./build/oneclickvirt-agent-linux-arm64.tar.gz \\\n    ./build/web-dist.zip \\\n    ./build/SHA256SUMS\n\
-        else\n  gh release create \"$TAG_NAME\" \\\n    --title \"Release $TAG_NAME\" \\\n    --notes \"$RELEASE_HEADER\"\
-        \ \\\n    --generate-notes \\\n    ./build/server-linux-amd64.tar.gz \\\n    ./build/server-linux-arm64.tar.gz\
-        \ \\\n    ./build/server-windows-amd64.zip \\\n    ./build/server-windows-arm64.zip \\\n    ./build/server-allinone-linux-amd64.tar.gz\
-        \ \\\n    ./build/server-allinone-linux-arm64.tar.gz \\\n    ./build/server-allinone-windows-amd64.zip \\\
-        \n    ./build/server-allinone-windows-arm64.zip \\\n    ./build/oneclickvirt-agent-linux-amd64.tar.gz \\\
-        \n    ./build/oneclickvirt-agent-linux-arm64.tar.gz \\\n    ./build/web-dist.zip \\\n    ./build/SHA256SUMS\n\
-        fi\n"
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        RELEASE_TAG: v${{ steps.date.outputs.date }}
+        PREVIOUS_TAG: ${{ steps.get_previous_tag.outputs.previous_tag }}
       shell: bash
+      run: |
+        set -euo pipefail
+        source "$RUNNER_TEMP/ci-network.sh"
+        cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
+        ### 独立部署版本（需要分别部署前后端）
+        - `server-linux-{amd64,arm64}.tar.gz` / `server-windows-{amd64,arm64}.zip`：后端
+        - `web-dist.zip`：前端静态文件
+        ### 一体化部署版本（前端已内嵌）
+        - `server-allinone-linux-{amd64,arm64}.tar.gz`
+        - `server-allinone-windows-{amd64,arm64}.zip`
+        ### 监控代理（部署到 Provider 节点）
+        - `oneclickvirt-agent-linux-{amd64,arm64}.tar.gz`
+        ### Skill 与 MCP 客户端
+        - `oneclickvirt-skill.tar.gz` / `oneclickvirt-skill-<本次标签>.tar.gz`：本版本 Skill，内含安装器与 MCP 配置示例
+        - `oneclickvirt-skill*.sha256`：Skill 压缩包校验文件
+        - 安装及更新：https://www.spiritlhl.net/guide/oneclickvirt/oneclickvirt_advanced_install.html#skill-与-mcp
+        ### 校验文件
+        - `SHA256SUMS`：Release 资产 SHA-256 校验清单
+        NOTES
+        arguments=(--title "Release $RELEASE_TAG" --target "$(git rev-parse HEAD)" --notes-file "$RUNNER_TEMP/release-notes.md" --generate-notes)
+        if [[ -n "$PREVIOUS_TAG" ]]; then
+          arguments+=(--notes-start-tag "$PREVIOUS_TAG")
+        fi
+        gh release create "$RELEASE_TAG" "${arguments[@]}" \
+          ./build/*.tar.gz ./build/*.zip ./build/SHA256SUMS ./build/oneclickvirt-skill*.sha256
     env:
       GOPROXY: https://proxy.golang.org|direct
 'on':

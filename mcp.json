@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "oneclickvirt": {
-      "command": "/opt/oneclickvirt/server/oneclickvirt",
+      "command": "oneclickvirt-mcp",
       "args": ["mcp"],
       "env": {
         "ONE_CLICK_VIRT_API_URL": "http://localhost:8888",

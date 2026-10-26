@@ -1,33 +1,10 @@
 ---
 name: oneclickvirt
 description: OneClickVirt operations skill for managing containers, virtual machines, provider nodes, health checks, and metrics through MCP.
-version: 0.3.0
-author: oneclickvirt
-homepage: https://github.com/oneclickvirt/oneclickvirt
-tags:
-  - virtualization
-  - containers
-  - vms
-  - lxd
-  - incus
-  - docker
-  - podman
-  - proxmox
-  - kubevirt
-applyTo:
-  - mcp
-  - cli
-platforms:
-  - linux
-  - macos
-mcpServers:
-  oneclickvirt:
-    command: oneclickvirt
-    args:
-      - mcp
-    env:
-      ONE_CLICK_VIRT_API_URL: ""
-      ONE_CLICK_VIRT_API_TOKEN: "YOUR_API_TOKEN"
+metadata:
+  version: "0.3.0"
+  author: oneclickvirt
+  homepage: https://github.com/oneclickvirt/oneclickvirt
 ---
 
 # OneClickVirt Skill
@@ -45,20 +22,40 @@ What this skill can do:
 
 ## Prerequisites
 
-- A working `oneclickvirt` binary in `PATH`, or an absolute binary path in the MCP client config.
+- Python 3.9+ for the installer. Prebuilt MCP clients support Linux/Windows amd64 and ARM64; other platforms can use an existing binary or SSH transport.
 - A running OneClickVirt API endpoint.
 - An administrator API token from the Web UI under Profile -> API Tokens.
 - HTTPS for remote OneClickVirt deployments.
 
 ## Installation
 
-Use a local MCP client configuration:
+Install or update the latest stable release from GitHub:
+
+```bash
+curl -fL --retry 3 https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/scripts/install_skill.py -o install_skill.py
+python3 install_skill.py --client claude
+```
+
+The same installer is available from the CNB public source mirror:
+
+```bash
+curl -fL --retry 3 https://cnb.cool/oneclickvirt/oneclickvirt/-/git/raw/main/scripts/install_skill.py -o install_skill.py
+python3 install_skill.py --client claude
+```
+
+Choose `--client codex` or `--client openclaw` for those clients. The default directories are `~/.claude/skills/oneclickvirt`, `~/.agents/skills/oneclickvirt`, and `~/.openclaw/skills/oneclickvirt`; `--skill-dir` overrides the destination. On Windows, download the same script and run it with Python 3.9+ (`py -3 install_skill.py --client claude`).
+
+Both entry points resolve one published GitHub Release, verify its Skill and binary checksums, and install them together. CNB mirrors source; these release archives are downloaded from GitHub. The installer creates `SKILL.md` directly in the Skill directory and a separate `oneclickvirt-mcp` binary in `~/.local/bin`. It does not start the controller or alter services, databases, client settings, or existing API tokens.
+
+Repeat the download and installation commands to update. Pass `--version` with an exact published tag to pin a release or return to it; the Skill and binary use that same tag. `install.json` records the installed version. Reuse an existing controller binary with `--mcp-command /opt/oneclickvirt/server/oneclickvirt-server`, or use `--skip-binary` to install only the Skill files. A Skill alone does not configure or start MCP.
+
+Copy the `mcpServers` entry from the installed `mcp.example.json` into your MCP client's settings, retaining its absolute binary path, and set your API URL/token. The equivalent template is:
 
 ```json
 {
   "mcpServers": {
     "oneclickvirt": {
-      "command": "oneclickvirt",
+      "command": "oneclickvirt-mcp",
       "args": ["mcp"],
       "env": {
         "ONE_CLICK_VIRT_API_URL": "https://your-domain.com",
@@ -69,19 +66,7 @@ Use a local MCP client configuration:
 }
 ```
 
-Manual install from a release archive:
-
-```bash
-mkdir -p ~/.claude/skills/oneclickvirt
-tar -xzf oneclickvirt-skill-v0.3.0.tar.gz -C ~/.claude/skills/oneclickvirt
-```
-
-Development install from a clone:
-
-```bash
-mkdir -p ~/.claude/skills/oneclickvirt
-cp -R skills/. ~/.claude/skills/oneclickvirt/
-```
+The command must be visible to the MCP client; GUI clients may not inherit your shell's `PATH`. A controller installed by the project uses `/opt/oneclickvirt/server/oneclickvirt-server`, not `/opt/oneclickvirt/server/oneclickvirt`. macOS has no prebuilt controller asset: use `--skip-binary` and configure an existing native build or an SSH MCP transport to Linux. Restart the MCP client after configuration. See the [installation guide](https://www.spiritlhl.net/en/guide/oneclickvirt/oneclickvirt_advanced_install.html#skill-and-mcp) for release archives and SSH examples.
 
 ## Usage
 
@@ -117,15 +102,15 @@ Available prompt templates:
 
 ## Examples
 
-- - "List running instances and summarize anything frozen or stopped."
-- - "Create a Debian 12 container on provider 1 with 2 CPU, 1 GB memory, and 20 GB disk."
-- - "Run a quick status check for the platform."
-- - "Check provider 3 health and summarize capacity concerns."
-- - "Troubleshoot instance 42 and suggest the safest next action."
+- "List running instances and summarize anything frozen or stopped."
+- "Create a Debian 12 container on provider 1 with 2 CPU, 1 GB memory, and 20 GB disk."
+- "Run a quick status check for the platform."
+- "Check provider 3 health and summarize capacity concerns."
+- "Troubleshoot instance 42 and suggest the safest next action."
 
 ## Troubleshooting
 
-- `command not found: oneclickvirt`: use an absolute binary path in the MCP config.
+- `command not found: oneclickvirt-mcp`: use the absolute command path from the installed `mcp.example.json` in the client config.
 - `401 Unauthorized`: verify `ONE_CLICK_VIRT_API_TOKEN` is an active administrator token.
 - `Connection refused`: verify `ONE_CLICK_VIRT_API_URL` and that `/api/v1/health` is reachable.
 - Tools do not appear: restart the MCP client and inspect its MCP server logs.
