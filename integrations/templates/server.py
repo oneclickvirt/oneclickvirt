@@ -279,8 +279,12 @@ class Adapter:
             if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.query or parsed.fragment:
                 raise ValueError("Counter endpoint must be an HTTPS base URL")
             url = base + "/api/monthly?" + urllib.parse.urlencode({"counter": args["counter"]})
-            with urllib.request.urlopen(url, timeout=20) as response:
-                return json.loads(response.read(LIMIT))
+            request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "oneclickvirt-mcp/" + VERSION})
+            with urllib.request.urlopen(request, timeout=20) as response:
+                content = response.read(LIMIT + 1)
+                if len(content) > LIMIT:
+                    raise ValueError("Counter response exceeds 1 MiB")
+                return json.loads(content)
         raise ValueError("Unsupported operation")
 
 

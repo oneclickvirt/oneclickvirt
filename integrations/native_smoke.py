@@ -72,7 +72,7 @@ async def main():
  parser.add_argument('--only',nargs='*')
  parser.add_argument('--output',type=Path,default=ROOT/'native-macos')
  args=parser.parse_args();args.output.mkdir(parents=True,exist_ok=True)
- catalog=json.loads((ROOT/'catalog.json').read_text())
+ catalog=json.loads((ROOT/'catalog.json').read_text(encoding="utf-8"))
  selected=[p for p in catalog if p['mcp'] and (not args.only or p['repository'].split('/')[1] in args.only)]
  tcp=socketserver.ThreadingTCPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=tcp.serve_forever,daemon=True);thread.start()
  results=[]
@@ -84,7 +84,8 @@ async def main():
    except Exception as exc:
     result={'repository':profile['repository'],'failure':str(exc)}
    results.append(result)
-   (args.output/'results.json').write_text(json.dumps(results,ensure_ascii=False,indent=2)+'\n')
+   if result.get('failure') or result.get('probe_error') or result.get('counter_error'):print(json.dumps(result,ensure_ascii=True)[:3000],flush=True)
+   (args.output/'results.json').write_text(json.dumps(results,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
    print(name,'failed' if result.get('failure') or result.get('probe_error') or result.get('runtime_error') or result.get('counter_error') else 'passed',flush=True)
  finally:tcp.shutdown();tcp.server_close()
  bad=[r['repository'] for r in results if r.get('failure') or r.get('probe_error') or r.get('runtime_error') or r.get('counter_error')]

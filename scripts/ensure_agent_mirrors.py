@@ -17,17 +17,22 @@ def main():
         owner, name = repo.split("/")
         if owner != "oneclickvirt":
             raise ValueError("Repository is outside the authorized organization")
-        # Check without a token first; private destinations must never be
-        # changed into public repositories or populated by this helper.
-        probe = urllib.request.Request("https://api.cnb.cool/" + repo, headers={"Accept": "application/vnd.cnb.api+json"})
+        # CNB requires authentication for repository metadata, including public
+        # repositories. Never change an existing destination's visibility.
+        probe = urllib.request.Request("https://api.cnb.cool/" + repo, headers={
+            "Accept": "application/vnd.cnb.api+json", "Authorization": "Bearer " + token})
         try:
             with urllib.request.urlopen(probe, timeout=30) as response:
-                response.read()
+                metadata = json.load(response)
+            if metadata.get("visibility") != "public":
+                raise ValueError("Destination is not an existing public mirror: " + repo)
             print("Public mirror exists:", repo, flush=True)
             continue
         except urllib.error.HTTPError as exc:
             if exc.code != 404:
                 failed.append({"repository": repo, "status": exc.code})
+                if exc.code in (401, 403):
+                    break
                 continue
         body = json.dumps({"name": name, "visibility": "public",
                            "description": "Public mirror of https://github.com/" + repo}).encode()

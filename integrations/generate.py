@@ -51,7 +51,7 @@ def generate(profile, target):
  (skilldir/'SKILL_ZH.md').write_text(skill(profile,True),encoding='utf-8')
  (target/'agent/profile.json').write_text(json.dumps(profile,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
  if profile['mcp']:(target/'agent/server.py').write_bytes((ROOT/'templates/server.py').read_bytes())
- installer=(ROOT/'templates/install_agent.py').read_text().replace('__REPOSITORY__',profile['repository']).replace('__DEFAULT_REF__',profile['branch']).replace('__SKILL_NAME__',profile['skill_name'])
+ installer=(ROOT/'templates/install_agent.py').read_text(encoding="utf-8").replace('__REPOSITORY__',profile['repository']).replace('__DEFAULT_REF__',profile['branch']).replace('__SKILL_NAME__',profile['skill_name'])
  (target/'scripts/install_agent.py').write_text(installer,encoding='utf-8')
  paths=['agent/profile.json','skills/'+profile['skill_name']+'/SKILL.md','skills/'+profile['skill_name']+'/SKILL_ZH.md']
  if profile['mcp']:paths.append('agent/server.py')
@@ -65,7 +65,7 @@ def main():
  parser.add_argument('--output',type=Path,required=True)
  parser.add_argument('--repository')
  args=parser.parse_args()
- for profile in json.loads((ROOT/'catalog.json').read_text()):
+ for profile in json.loads((ROOT/'catalog.json').read_text(encoding="utf-8")):
   if not args.repository or profile['repository']==args.repository:
    generate(profile,args.output/profile['repository'].split('/')[1])
 

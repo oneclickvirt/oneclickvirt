@@ -21,7 +21,7 @@ def module(path,name):
  m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);return m
 server=module(ROOT/'templates/server.py','agent_server')
 generator=module(ROOT/'generate.py','agent_generator')
-CATALOG=json.loads((ROOT/'catalog.json').read_text())
+CATALOG=json.loads((ROOT/'catalog.json').read_text(encoding="utf-8"))
 
 class IntegrationTests(unittest.TestCase):
  def setUp(self):
@@ -48,16 +48,16 @@ class IntegrationTests(unittest.TestCase):
     self.assertFalse((skill/profile['skill_name']).exists())
     (skill/'personal.txt').write_text('retained')
     m.install(manifest,payload,skill,mcp,{'commit':'b'*40})
-    self.assertEqual((skill/'personal.txt').read_text(),'retained')
-    self.assertEqual(json.loads((skill/'install.json').read_text())['commit'],'b'*40)
+    self.assertEqual((skill/'personal.txt').read_text(encoding="utf-8"),'retained')
+    self.assertEqual(json.loads((skill/'install.json').read_text(encoding="utf-8"))['commit'],'b'*40)
  def test_tampered_payload_never_replaces_installed_files(self):
   m,source=self.installer();target=self.root/'installed';target.mkdir();(target/'SKILL.md').write_text('original')
   original=(source/'agent/server.py').read_bytes()
   with self.assertRaises(ValueError):
    m.load_payload(lambda p:original+b'corrupt' if p=='agent/server.py' else (source/p).read_bytes())
-  self.assertEqual((target/'SKILL.md').read_text(),'original')
+  self.assertEqual((target/'SKILL.md').read_text(encoding="utf-8"),'original')
  def test_manifest_cannot_add_arbitrary_destination(self):
-  m,source=self.installer();raw=json.loads((source/'agent/manifest.json').read_text());raw['files']['../outside']='a'*64
+  m,source=self.installer();raw=json.loads((source/'agent/manifest.json').read_text(encoding="utf-8"));raw['files']['../outside']='a'*64
   with self.assertRaises(ValueError):m.load_payload(lambda p:json.dumps(raw).encode() if p=='agent/manifest.json' else (source/p).read_bytes())
  def test_skill_only_does_not_install_mcp(self):
   m,source=self.installer();manifest,payload=m.load_payload(lambda p:(source/p).read_bytes())

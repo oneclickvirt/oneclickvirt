@@ -840,7 +840,7 @@
           "-tgdc=false",
           "-web=false"
         ],
-        "timeout": 35
+        "timeout": 120
       }
     },
     "help_args": [
@@ -895,7 +895,7 @@
           "-tgdc=false",
           "-web=false"
         ],
-        "timeout": 35
+        "timeout": 120
       }
     },
     "help_args": [

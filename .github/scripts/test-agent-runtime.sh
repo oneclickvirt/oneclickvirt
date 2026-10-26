@@ -85,6 +85,7 @@ spec:
         kubevirt.io/domain: $name
     spec:
       domain:
+        devices: {}
         resources:
           requests:
             memory: 64Mi
