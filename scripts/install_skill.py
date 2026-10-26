@@ -164,6 +164,15 @@ def install(args, fetch=download):
     config = json.loads(files["mcp.example.json"])
     config["mcpServers"]["oneclickvirt"]["command"] = command or "oneclickvirt-mcp"
     files["mcp.example.json"] = (json.dumps(config, indent=2) + "\n").encode()
+    files["mcp.claude.json"] = files["mcp.example.json"]
+    entry = config["mcpServers"]["oneclickvirt"]
+    files["mcp.openclaw.json"] = (json.dumps({"mcp": {"servers": {"oneclickvirt": dict(entry, requestTimeoutMs=180000)}}}, indent=2) + "\n").encode()
+    toml = "[mcp_servers.oneclickvirt]\ncommand = " + json.dumps(entry["command"], ensure_ascii=False)
+    toml += "\nargs = " + json.dumps(entry.get("args", []), ensure_ascii=False) + "\ntool_timeout_sec = 180\n"
+    if entry.get("env"):
+        toml += "\n[mcp_servers.oneclickvirt.env]\n"
+        toml += "".join(key + " = " + json.dumps(value, ensure_ascii=False) + "\n" for key, value in entry["env"].items())
+    files["mcp.codex.toml"] = toml.encode("utf-8")
     record = {"tag": tag, "repository": REPOSITORY, "binary_asset": runtime_name,
               "binary_sha256": hashlib.sha256(runtime).hexdigest() if runtime else None}
     # No files are changed until every selected archive has been verified.
@@ -174,7 +183,9 @@ def install(args, fetch=download):
         atomic_write(destination / name, value, 0o644)
     atomic_write(destination / "install.json", (json.dumps(record, indent=2) + "\n").encode(), 0o644)
     print("Installed OneClickVirt Skill " + tag + " into " + str(destination))
-    print("MCP configuration example: " + str(destination / "mcp.example.json"))
+    client = getattr(args, "client", "claude")
+    example = {"codex": "mcp.codex.toml", "claude": "mcp.claude.json", "openclaw": "mcp.openclaw.json"}[client]
+    print("MCP configuration example: " + str(destination / example))
     print("Set your API URL/token in your client's MCP configuration; existing client configuration was not edited.")
     if args.skip_binary and not command:
         print("Binary installation skipped. Configure an existing MCP binary or an SSH transport before use.")
@@ -182,6 +193,8 @@ def install(args, fetch=download):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", default="latest", help="latest stable release, or an exact published tag")
     parser.add_argument("--client", choices=("claude", "codex", "openclaw"), default="claude")

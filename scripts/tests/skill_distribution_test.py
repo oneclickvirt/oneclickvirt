@@ -110,6 +110,20 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual((self.args.bin_dir / "oneclickvirt-mcp").read_bytes(), b"new-binary")
         self.assertEqual(json.loads((self.args.skill_dir / "install.json").read_text())["tag"], self.latest)
 
+    def test_generated_client_examples_have_native_shapes(self):
+        self.install()
+        directory = self.args.skill_dir
+        claude = json.loads((directory / "mcp.claude.json").read_text())["mcpServers"]["oneclickvirt"]
+        claw = json.loads((directory / "mcp.openclaw.json").read_text())["mcp"]["servers"]["oneclickvirt"]
+        self.assertEqual(claude["command"], claw["command"])
+        try:
+            import tomllib
+        except ImportError:
+            return
+        codex = tomllib.loads((directory / "mcp.codex.toml").read_text(encoding="utf-8"))["mcp_servers"]["oneclickvirt"]
+        self.assertEqual(codex["args"], claude["args"])
+        self.assertEqual(codex["env"], claude["env"])
+
     def test_exact_tag_can_return_to_an_older_release(self):
         old = self.latest
         self.add_release("v20261101-000001", b"new-binary")

@@ -49,7 +49,7 @@ Both entry points resolve one published GitHub Release, verify its Skill and bin
 
 Repeat the download and installation commands to update. Pass `--version` with an exact published tag to pin a release or return to it; the Skill and binary use that same tag. `install.json` records the installed version. Reuse an existing controller binary with `--mcp-command /opt/oneclickvirt/server/oneclickvirt-server`, or use `--skip-binary` to install only the Skill files. A Skill alone does not configure or start MCP.
 
-Copy the `mcpServers` entry from the installed `mcp.example.json` into your MCP client's settings, retaining its absolute binary path, and set your API URL/token. The equivalent template is:
+The installer generates `mcp.codex.toml` for `~/.codex/config.toml`, `mcp.claude.json` for the project `.mcp.json`, and `mcp.openclaw.json` for `~/.openclaw/openclaw.json`. Merge the matching file while keeping existing entries, retain the absolute binary path, and set your API URL/token. `mcp.example.json` remains a Claude-format compatibility example. The Claude Code structure is:
 
 ```json
 {

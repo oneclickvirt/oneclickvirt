@@ -89,7 +89,7 @@ Both entry points resolve one published GitHub Release, verify its Skill and bin
 
 Repeat the download and installation commands to update. Pass `--version` with an exact published tag to pin a release or return to it; the Skill and binary use that same tag. `install.json` records the installed version. Reuse an existing controller binary with `--mcp-command /opt/oneclickvirt/server/oneclickvirt-server`, or use `--skip-binary` to install only the Skill files. A Skill alone does not configure or start MCP.
 
-Copy the `mcpServers` entry from the installed `mcp.example.json` into your MCP client's settings, retaining its absolute binary path, and set your API URL/token. The equivalent template is:
+The installer generates `mcp.codex.toml` for `~/.codex/config.toml`, `mcp.claude.json` for the project `.mcp.json`, and `mcp.openclaw.json` for `~/.openclaw/openclaw.json`. Merge the matching file while keeping existing entries, retain the absolute binary path, and set your API URL/token. `mcp.example.json` remains a Claude-format compatibility example. The Claude Code structure is:
 
 ```json
 {
@@ -130,7 +130,7 @@ python3 install_skill.py --client claude
 
 后续更新时重复下载及安装命令即可。需要固定或返回某个版本时，用 `--version` 指定完整的已发布标签，Skill 和二进制会使用同一版本；已安装版本记录在 `install.json`。复用已有主控二进制时可加 `--mcp-command /opt/oneclickvirt/server/oneclickvirt-server`，只安装 Skill 文件时加 `--skip-binary`。仅安装 Skill 不会自动配置或启动 MCP。
 
-将安装目录中 `mcp.example.json` 的 `mcpServers` 配置合并到客户端设置，保留其中的二进制绝对路径，填写 API 地址和 Token。对应模板为：
+安装器生成的 `mcp.codex.toml` 合并到 `~/.codex/config.toml`，`mcp.claude.json` 合并到项目 `.mcp.json`，`mcp.openclaw.json` 合并到 `~/.openclaw/openclaw.json`。保留已有条目和二进制绝对路径，填写 API 地址和 Token。`mcp.example.json` 保留为 Claude 格式的兼容示例。下面为 Claude Code 的结构：
 
 ```json
 {

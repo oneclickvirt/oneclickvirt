@@ -63,6 +63,17 @@ class IntegrationTests(unittest.TestCase):
   m,source=self.installer();manifest,payload=m.load_payload(lambda p:(source/p).read_bytes())
   result=m.install(manifest,payload,self.root/'skill',self.root/'mcp',{'commit':'a'*40},True)
   self.assertFalse(result['mcp_installed']);self.assertFalse((self.root/'mcp').exists())
+ def test_client_examples_keep_each_clients_native_config_shape(self):
+  m,source=self.installer();manifest,payload=m.load_payload(lambda p:(source/p).read_bytes())
+  skill=self.root/'skill';mcp=self.root/'mcp'
+  m.install(manifest,payload,skill,mcp,{'commit':'a'*40},binary='/absolute/probe')
+  name='oneclickvirt-basics'
+  self.assertEqual(json.loads((skill/'mcp.claude.json').read_text())["mcpServers"][name]['args'],[str(mcp/'server.py')])
+  self.assertEqual(json.loads((skill/'mcp.openclaw.json').read_text())["mcp"]["servers"][name]['env']['ONECLICKVIRT_MCP_BINARY'],str(Path('/absolute/probe').resolve()))
+  try:import tomllib
+  except ImportError:return
+  value=tomllib.loads((skill/'mcp.codex.toml').read_text(encoding='utf-8'))['mcp_servers'][name]
+  self.assertEqual(value['command'],sys.executable);self.assertEqual(value['tool_timeout_sec'],180)
  def test_symlink_destinations_are_preserved(self):
   if os.name=='nt':self.skipTest('Unix symlink test')
   m,source=self.installer();manifest,payload=m.load_payload(lambda p:(source/p).read_bytes())
