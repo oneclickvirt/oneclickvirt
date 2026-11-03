@@ -17,6 +17,13 @@ on:
         default: all
         options: [all, ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-2025]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+concurrency:
+  group: agent-integrations-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 

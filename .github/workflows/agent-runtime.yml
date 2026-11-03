@@ -9,6 +9,13 @@ on:
         default: all
         options: [all, docker, podman, containerd, incus, lxd, qemu, pve, kubevirt]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+concurrency:
+  group: agent-runtime-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
