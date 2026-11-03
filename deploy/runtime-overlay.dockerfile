@@ -3,7 +3,7 @@
 # package is temporarily unavailable during a production image build.
 
 ARG BASE_IMAGE=oneclickvirt/oneclickvirt:latest
-ARG GO_VERSION=1.25.0
+ARG GO_VERSION=1.26.10
 
 FROM node:22-slim AS frontend-builder
 ARG TARGETARCH

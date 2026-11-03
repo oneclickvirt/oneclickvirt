@@ -1,0 +1,79 @@
+name: Dependency security
+
+'on':
+  workflow_dispatch: {}
+  schedule:
+    - cron: '23 3 * * 1'
+  push:
+    paths:
+      - server/go.mod
+      - server/go.sum
+      - server/agent/Cargo.toml
+      - server/agent/Cargo.lock
+      - web/package.json
+      - web/package-lock.json
+      - .github/workflows/dependency-security.yml
+  pull_request:
+    paths:
+      - server/go.mod
+      - server/go.sum
+      - server/agent/Cargo.toml
+      - server/agent/Cargo.lock
+      - web/package.json
+      - web/package-lock.json
+      - .github/workflows/dependency-security.yml
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+concurrency:
+  group: dependency-security-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Audit Go modules
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Check every required Go module
+        working-directory: server
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -scan=module
+
+  npm:
+    name: Audit frontend dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Check production and development dependencies
+        working-directory: web
+        run: npm audit --audit-level=low
+
+  rust:
+    name: Audit Agent dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+      - name: Install RustSec auditor
+        run: cargo install cargo-audit --version 0.22.2 --locked
+      - name: Check runtime and build dependencies
+        working-directory: server/agent
+        run: cargo audit

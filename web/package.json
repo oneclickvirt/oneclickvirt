@@ -20,7 +20,7 @@
     "@xterm/addon-unicode11": "^0.9.0",
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/xterm": "^5.5.0",
-    "axios": "^1.8.2",
+    "axios": "^1.21.0",
     "dotenv": "^17.2.1",
     "echarts": "^6.1.0",
     "element-plus": "^2.10.2",
@@ -29,7 +29,7 @@
     "nprogress": "^0.2.0",
     "path-browserify": "^1.0.1",
     "pinia": "^2.2.2",
-    "qs": "^6.13.0",
+    "qs": "^6.17.1",
     "screenfull": "^6.0.2",
     "vue": "^3.5.7",
     "vue-i18n": "^11.4.16",
@@ -44,7 +44,10 @@
     "eslint-plugin-vue": "^10.11.1",
     "sass": "^1.78.0",
     "terser": "^5.43.1",
-    "vite": "^6.2.3",
+    "vite": "^6.4.5",
     "vue-eslint-parser": "^10.4.1"
+  },
+  "overrides": {
+    "minimatch": "11.0.4"
   }
 }

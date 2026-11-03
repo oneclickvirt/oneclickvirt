@@ -302,8 +302,14 @@ pub(super) async fn open_shell_session(
 
     // Wrap master in AsyncFd for non-blocking async I/O.  Shared via Arc so
     // both the stdin-writer task and the PTY-reader task can use the same fd.
-    let async_master =
-        Arc::new(AsyncFd::new(master_owned).map_err(|e| format!("AsyncFd::new: {}", e))?);
+    // SAFETY: `master_owned` is an `OwnedFd` returned by `open_pty`, so it is
+    // valid, remains open for the lifetime of `AsyncFd`, and always refers to
+    // the same non-blocking PTY master descriptor. Tokio 1.54 requires the
+    // explicit registration API to make these invariants visible.
+    let async_master = Arc::new(
+        unsafe { AsyncFd::register(master_owned) }
+            .map_err(|e| format!("AsyncFd::register: {}", e))?,
+    );
 
     let mut cmd = Command::new(&shell);
     if let Some(command) = command {

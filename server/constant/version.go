@@ -19,7 +19,7 @@ const CompatibleAgentVersion = "0.4.0"
 
 // CurrentAgentVersion is the version shipped in this controller's Agent assets.
 // Compatible patch releases do not raise the minimum and disconnect existing nodes.
-const CurrentAgentVersion = "0.4.1"
+const CurrentAgentVersion = "0.4.2"
 
 const APIContractVersion = "2026-08-16.1"
 

@@ -1,6 +1,6 @@
 # OneClickVirt All-in-One Container
 
-ARG GO_VERSION=1.25.0
+ARG GO_VERSION=1.26.10
 FROM node:24-slim AS frontend-builder
 ARG TARGETARCH
 ARG NODE_OPTIONS=--max-old-space-size=1024

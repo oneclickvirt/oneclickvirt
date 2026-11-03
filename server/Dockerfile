@@ -1,5 +1,5 @@
 # Backend Dockerfile
-ARG GO_VERSION=1.25.0
+ARG GO_VERSION=1.26.10
 FROM golang:${GO_VERSION}-alpine AS build
 WORKDIR /app
 COPY . .

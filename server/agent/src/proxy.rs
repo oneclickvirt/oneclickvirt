@@ -1,24 +1,24 @@
 use axum::{
     body::Body,
-    extract::{Host, Request, State},
+    extract::{Request, State},
     http::{HeaderValue, StatusCode, Uri, Version},
     response::{IntoResponse, Response},
 };
+use axum_extra::extract::Host;
 use hyper_util::{
     client::legacy::Client,
     rt::{TokioExecutor, TokioIo},
 };
 use std::sync::RwLock as StdRwLock;
-use std::{collections::HashMap, env, io::BufReader, sync::Arc};
+use std::{collections::HashMap, env, sync::Arc};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
 use crate::app_state::AppState;
 
-use rustls_pemfile::{certs, private_key};
 use tokio_rustls::rustls::{
     self,
-    pki_types::CertificateDer,
+    pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject},
     server::{ClientHello, ResolvesServerCert},
     sign::CertifiedKey,
 };
@@ -71,10 +71,7 @@ impl ResolvesServerCert for DomainCertResolver {
 
 /// Parse PEM-encoded cert chain and private key into a CertifiedKey
 pub fn parse_certified_key(cert_pem: &str, key_pem: &str) -> Result<CertifiedKey, String> {
-    use std::io::Cursor;
-
-    let mut cert_reader = BufReader::new(Cursor::new(cert_pem.as_bytes()));
-    let cert_chain: Vec<CertificateDer> = certs(&mut cert_reader)
+    let cert_chain: Vec<CertificateDer> = CertificateDer::pem_slice_iter(cert_pem.as_bytes())
         .collect::<Result<_, _>>()
         .map_err(|e| format!("parse cert: {e}"))?;
 
@@ -82,10 +79,8 @@ pub fn parse_certified_key(cert_pem: &str, key_pem: &str) -> Result<CertifiedKey
         return Err("no certificates found in PEM".into());
     }
 
-    let mut key_reader = BufReader::new(Cursor::new(key_pem.as_bytes()));
-    let key_der = private_key(&mut key_reader)
-        .map_err(|e| format!("parse key: {e}"))?
-        .ok_or_else(|| "no private key found in PEM".to_string())?;
+    let key_der =
+        PrivateKeyDer::from_pem_slice(key_pem.as_bytes()).map_err(|e| format!("parse key: {e}"))?;
 
     let provider = rustls::crypto::ring::default_provider();
     let signing_key = provider
@@ -453,10 +448,11 @@ mod tests {
     use axum::{
         Router,
         body::Body,
-        extract::{Host, State},
+        extract::State,
         http::{HeaderMap, Request, Version, header},
         routing::any,
     };
+    use axum_extra::extract::Host;
     use futures_util::{SinkExt, StreamExt};
     use http_body_util::BodyExt;
     use hyper::Uri;

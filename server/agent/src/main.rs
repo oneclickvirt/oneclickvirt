@@ -27,7 +27,6 @@ use docs::ApiDoc;
 use rusqlite::Connection;
 use std::{
     env, fs,
-    io::BufReader,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     path::Path,
     sync::Arc,
@@ -302,10 +301,7 @@ async fn main() {
         return;
     }
 
-    let api_router = build_api_router(state.clone());
-
-    let app = api_router
-        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()));
+    let app = build_standalone_router(state);
 
     // API server address
     let api_addr: SocketAddr = "0.0.0.0:23782".parse().expect("invalid bind address");
@@ -327,6 +323,11 @@ async fn main() {
     )
     .await
     .expect("API server error");
+}
+
+fn build_standalone_router(state: AppState) -> Router {
+    build_api_router(state)
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
 }
 
 /// Build the API router with all monitoring, block-rule, and domain-proxy routes.
@@ -446,14 +447,17 @@ async fn start_proxy_servers(proxy_routes: proxy::ProxyRoutes, cert_store: proxy
         for https_addr in proxy_bind_addrs(https_addr) {
             match bind_proxy_listener(https_addr) {
                 Ok(listener) => {
+                    let server = match axum_server::from_tcp_rustls(listener, tls_config.clone()) {
+                        Ok(server) => server,
+                        Err(e) => {
+                            error!(%https_addr, error = %e, "failed to initialize HTTPS proxy server");
+                            continue;
+                        }
+                    };
                     info!(%https_addr, "starting HTTPS reverse proxy server");
-                    let tls_config = tls_config.clone();
                     let router = router.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = axum_server::from_tcp_rustls(listener, tls_config)
-                            .serve(router.into_make_service())
-                            .await
-                        {
+                        if let Err(e) = server.serve(router.into_make_service()).await {
                             error!(%https_addr, error = %e, "HTTPS proxy server error");
                         }
                     });
@@ -529,9 +533,10 @@ fn load_tls_config(
     key_path: &str,
     cert_store: proxy::CertStore,
 ) -> Result<axum_server::tls_rustls::RustlsConfig, Box<dyn std::error::Error>> {
-    use rustls_pemfile::{certs, private_key};
-    use std::io::Cursor;
-    use tokio_rustls::rustls::{self, pki_types::CertificateDer};
+    use tokio_rustls::rustls::{
+        self,
+        pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject},
+    };
 
     // Check if files exist
     if !Path::new(cert_path).exists() {
@@ -543,8 +548,7 @@ fn load_tls_config(
 
     // Read certificate file
     let cert_file = fs::read(cert_path).map_err(|e| format!("failed to read cert file: {}", e))?;
-    let mut cert_reader = BufReader::new(Cursor::new(cert_file));
-    let cert_chain: Vec<CertificateDer> = certs(&mut cert_reader)
+    let cert_chain: Vec<CertificateDer> = CertificateDer::pem_slice_iter(&cert_file)
         .collect::<Result<_, _>>()
         .map_err(|e| format!("failed to parse certificates: {}", e))?;
 
@@ -554,10 +558,8 @@ fn load_tls_config(
 
     // Read private key file
     let key_file = fs::read(key_path).map_err(|e| format!("failed to read key file: {}", e))?;
-    let mut key_reader = BufReader::new(Cursor::new(key_file));
-    let key_der = private_key(&mut key_reader)
-        .map_err(|e| format!("failed to parse private key: {}", e))?
-        .ok_or("no private keys found in key file")?;
+    let key_der = PrivateKeyDer::from_pem_slice(&key_file)
+        .map_err(|e| format!("failed to parse private key: {}", e))?;
 
     // Build default CertifiedKey
     let provider = rustls::crypto::ring::default_provider();
@@ -673,8 +675,105 @@ fn agent_api_addr_from(value: Option<&str>) -> SocketAddr {
 
 #[cfg(test)]
 mod tests {
-    use super::{agent_api_addr_from, proxy_bind_addrs, proxy_listener_addrs, version_requested};
-    use std::net::SocketAddr;
+    use super::{
+        AppState, agent_api_addr_from, build_standalone_router, init_db, proxy_bind_addrs,
+        proxy_listener_addrs, version_requested,
+    };
+    use axum::{
+        body::Body,
+        extract::ConnectInfo,
+        http::{Request, StatusCode},
+    };
+    use http_body_util::BodyExt;
+    use rusqlite::Connection;
+    use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+    use tokio::sync::{Mutex, RwLock};
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn standalone_swagger_assets_and_api_auth_survive_dependency_updates() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn).unwrap();
+        let app = build_standalone_router(AppState {
+            conn: Arc::new(Mutex::new(conn)),
+            traffic_operation_lock: Arc::new(Mutex::new(())),
+            domain_proxy_operation_lock: Arc::new(Mutex::new(())),
+            api_token: "swagger-regression-token".into(),
+            traffic_collect_interval: 5,
+            traffic_collect_batch_size: 512,
+            traffic_reconcile_interval: 60,
+            traffic_reconcile_batch_size: 128,
+            resource_collect_interval: 30,
+            resource_collect_batch_size: 16,
+            traffic_collect_method: "nft".into(),
+            proxy_routes: Arc::new(RwLock::new(HashMap::new())),
+            cert_store: Arc::new(std::sync::RwLock::new(HashMap::new())),
+        });
+
+        for path in [
+            "/swagger-ui/",
+            "/swagger-ui/swagger-ui.css",
+            "/swagger-ui/swagger-ui-bundle.js",
+            "/swagger-ui/swagger-initializer.js",
+        ] {
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+            assert!(
+                !response
+                    .into_body()
+                    .collect()
+                    .await
+                    .unwrap()
+                    .to_bytes()
+                    .is_empty()
+            );
+        }
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api-docs/openapi.json")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let document: serde_json::Value =
+            serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
+        assert!(document["paths"]["/api/v1/list"]["get"].is_object());
+        assert_eq!(
+            document["components"]["securitySchemes"]["token_auth"]["name"],
+            "x-token"
+        );
+
+        for (token, expected) in [
+            (None, StatusCode::UNAUTHORIZED),
+            (Some("wrong-token"), StatusCode::UNAUTHORIZED),
+            (Some("swagger-regression-token"), StatusCode::OK),
+        ] {
+            let mut request = Request::builder()
+                .uri("/api/v1/list")
+                .extension(ConnectInfo(
+                    "192.0.2.25:12345".parse::<SocketAddr>().unwrap(),
+                ));
+            if let Some(token) = token {
+                request = request.header("x-token", token);
+            }
+            let response = app
+                .clone()
+                .oneshot(request.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected);
+        }
+    }
 
     #[test]
     fn version_flag_is_detected_without_starting_the_agent() {

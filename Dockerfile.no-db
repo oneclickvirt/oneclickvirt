@@ -1,6 +1,6 @@
 # OneClickVirt Container (Without Database)
 
-ARG GO_VERSION=1.25.0
+ARG GO_VERSION=1.26.10
 FROM node:24-slim AS frontend-builder
 ARG TARGETARCH
 WORKDIR /app/web
