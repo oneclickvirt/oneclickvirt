@@ -53,7 +53,8 @@ type CreateProviderRequest struct {
 	SSHPort               int    `json:"sshPort"`
 	Username              string `json:"username"`
 	Password              string `json:"password"`
-	SSHKey                string `json:"sshKey"` // SSH私钥，优先于密码使用
+	SSHKey                string `json:"sshKey"`           // SSH私钥，优先于密码使用
+	SSHKeyPassphrase      string `json:"sshKeyPassphrase"` // SSH私钥口令，可选
 	Token                 string `json:"token"`
 	Config                string `json:"config"`
 	Region                string `json:"region"`
@@ -188,8 +189,9 @@ type UpdateProviderRequest struct {
 	PortIP                string          `json:"portIP"` // 端口映射使用的公网IP
 	SSHPort               int             `json:"sshPort"`
 	Username              string          `json:"username"`
-	Password              *string         `json:"password,omitempty"` // 使用指针以区分"未提供"和"空值"
-	SSHKey                *string         `json:"sshKey,omitempty"`   // SSH私钥，使用指针以区分"未提供"和"空值"
+	Password              *string         `json:"password,omitempty"`         // 使用指针以区分"未提供"和"空值"
+	SSHKey                *string         `json:"sshKey,omitempty"`           // SSH私钥，使用指针以区分"未提供"和"空值"
+	SSHKeyPassphrase      *string         `json:"sshKeyPassphrase,omitempty"` // 私钥口令，使用指针以区分"未提供"和"空值"
 	Token                 string          `json:"token"`
 	Config                string          `json:"config"`
 	Region                string          `json:"region"`
@@ -366,12 +368,13 @@ type UnfreezeProviderRequest struct {
 
 // TestSSHConnectionRequest 测试SSH连接请求
 type TestSSHConnectionRequest struct {
-	Host      string `json:"host" binding:"required"`     // SSH服务器地址
-	Port      int    `json:"port" binding:"required"`     // SSH端口
-	Username  string `json:"username" binding:"required"` // SSH用户名
-	Password  string `json:"password"`                    // SSH密码（使用密码认证时必填）
-	SSHKey    string `json:"sshKey"`                      // SSH私钥（使用密钥认证时必填）
-	TestCount int    `json:"testCount"`                   // 测试次数，默认3次
+	Host             string `json:"host" binding:"required"`     // SSH服务器地址
+	Port             int    `json:"port" binding:"required"`     // SSH端口
+	Username         string `json:"username" binding:"required"` // SSH用户名
+	Password         string `json:"password"`                    // SSH密码（使用密码认证时必填）
+	SSHKey           string `json:"sshKey"`                      // SSH私钥（使用密钥认证时必填）
+	SSHKeyPassphrase string `json:"sshKeyPassphrase"`            // SSH私钥口令（加密私钥时填写）
+	TestCount        int    `json:"testCount"`                   // 测试次数，默认3次
 }
 
 type CreateInviteCodeRequest struct {

@@ -459,11 +459,12 @@ func (p *PodmanPortMapping) getSSHClient(providerInfo *provider.Provider) (*util
 	} else {
 		authConfig = provider.ProviderAuthConfig{
 			SSH: &provider.SSHConfig{
-				Host:       utils.ExtractHost(providerInfo.Endpoint),
-				Port:       providerInfo.SSHPort,
-				Username:   providerInfo.Username,
-				Password:   providerInfo.Password,
-				KeyContent: providerInfo.SSHKey,
+				Host:          utils.ExtractHost(providerInfo.Endpoint),
+				Port:          providerInfo.SSHPort,
+				Username:      providerInfo.Username,
+				Password:      providerInfo.Password,
+				KeyContent:    providerInfo.SSHKey,
+				KeyPassphrase: providerInfo.SSHKeyPassphrase,
 			},
 		}
 	}
@@ -473,11 +474,12 @@ func (p *PodmanPortMapping) getSSHClient(providerInfo *provider.Provider) (*util
 	}
 
 	config := utils.SSHConfig{
-		Host:       authConfig.SSH.Host,
-		Port:       authConfig.SSH.Port,
-		Username:   authConfig.SSH.Username,
-		Password:   authConfig.SSH.Password,
-		PrivateKey: authConfig.SSH.KeyContent,
+		Host:                 authConfig.SSH.Host,
+		Port:                 authConfig.SSH.Port,
+		Username:             authConfig.SSH.Username,
+		Password:             authConfig.SSH.Password,
+		PrivateKey:           authConfig.SSH.KeyContent,
+		PrivateKeyPassphrase: authConfig.SSH.KeyPassphrase,
 	}
 
 	client, err := utils.NewSSHClient(config)

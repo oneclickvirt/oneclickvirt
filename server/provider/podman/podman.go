@@ -104,13 +104,14 @@ func (p *PodmanProvider) Connect(ctx context.Context, config provider.NodeConfig
 	}
 
 	sshConfig := utils.SSHConfig{
-		Host:           config.Host,
-		Port:           config.Port,
-		Username:       config.Username,
-		Password:       config.Password,
-		PrivateKey:     config.PrivateKey,
-		ConnectTimeout: time.Duration(sshConnectTimeout) * time.Second,
-		ExecuteTimeout: time.Duration(sshExecuteTimeout) * time.Second,
+		Host:                 config.Host,
+		Port:                 config.Port,
+		Username:             config.Username,
+		Password:             config.Password,
+		PrivateKey:           config.PrivateKey,
+		PrivateKeyPassphrase: config.PrivateKeyPassphrase,
+		ConnectTimeout:       time.Duration(sshConnectTimeout) * time.Second,
+		ExecuteTimeout:       time.Duration(sshExecuteTimeout) * time.Second,
 	}
 	client, err := utils.NewSSHClient(sshConfig)
 	if err != nil {
@@ -121,15 +122,16 @@ func (p *PodmanProvider) Connect(ctx context.Context, config provider.NodeConfig
 	p.connected = true
 
 	healthConfig := health.HealthConfig{
-		Host:          config.Host,
-		Port:          config.Port,
-		Username:      config.Username,
-		Password:      config.Password,
-		PrivateKey:    config.PrivateKey,
-		APIEnabled:    false,
-		SSHEnabled:    true,
-		Timeout:       30 * time.Second,
-		ServiceChecks: []string{serviceCheckName},
+		Host:                 config.Host,
+		Port:                 config.Port,
+		Username:             config.Username,
+		Password:             config.Password,
+		PrivateKey:           config.PrivateKey,
+		PrivateKeyPassphrase: config.PrivateKeyPassphrase,
+		APIEnabled:           false,
+		SSHEnabled:           true,
+		Timeout:              30 * time.Second,
+		ServiceChecks:        []string{serviceCheckName},
 	}
 
 	zapLogger, _ := zap.NewProduction()

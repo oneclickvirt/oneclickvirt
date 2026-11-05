@@ -361,11 +361,12 @@ func TestSSHConnection(c *gin.Context) {
 	}
 
 	sshConfig := utils.SSHConfig{
-		Host:       req.Host,
-		Port:       req.Port,
-		Username:   req.Username,
-		Password:   req.Password,
-		PrivateKey: req.SSHKey,
+		Host:                 req.Host,
+		Port:                 req.Port,
+		Username:             req.Username,
+		Password:             req.Password,
+		PrivateKey:           req.SSHKey,
+		PrivateKeyPassphrase: req.SSHKeyPassphrase,
 	}
 
 	minLatency, maxLatency, avgLatency, err := utils.TestSSHConnectionLatency(sshConfig, req.TestCount)

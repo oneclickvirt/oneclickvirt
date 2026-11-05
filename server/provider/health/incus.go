@@ -143,7 +143,7 @@ func (i *IncusHealthChecker) checkSSH(ctx context.Context) error {
 
 	// 如果提供了SSH私钥，添加密钥认证
 	if i.config.PrivateKey != "" {
-		signer, err := ssh.ParsePrivateKey([]byte(i.config.PrivateKey))
+		signer, err := utils.ParseSSHPrivateKey(i.config.PrivateKey, i.config.PrivateKeyPassphrase)
 		if err == nil {
 			authMethods = append(authMethods, ssh.PublicKeys(signer))
 			if i.logger != nil {

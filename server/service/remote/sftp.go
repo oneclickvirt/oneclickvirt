@@ -19,13 +19,14 @@ import (
 )
 
 type SSHAccessTarget struct {
-	ProviderID     uint
-	Host           string
-	Port           int
-	Username       string
-	Password       string
-	PrivateKey     string
-	UseAgentTunnel bool
+	ProviderID           uint
+	Host                 string
+	Port                 int
+	Username             string
+	Password             string
+	PrivateKey           string
+	PrivateKeyPassphrase string
+	UseAgentTunnel       bool
 
 	// FallbackAgentTunnelHost/Port are used for agent-mode instances whose
 	// public SSH port mapping is stale or temporarily refused. The web terminal
@@ -207,10 +208,11 @@ func ResolveProviderSSHTarget(provider *providerModel.Provider) (*SSHAccessTarge
 	}
 
 	target := &SSHAccessTarget{
-		ProviderID: provider.ID,
-		Username:   provider.Username,
-		Password:   provider.Password,
-		PrivateKey: provider.SSHKey,
+		ProviderID:           provider.ID,
+		Username:             provider.Username,
+		Password:             provider.Password,
+		PrivateKey:           provider.SSHKey,
+		PrivateKeyPassphrase: provider.SSHKeyPassphrase,
 	}
 
 	if provider.ConnectionType == "agent" {
@@ -242,7 +244,7 @@ func buildSSHClientConfig(target *SSHAccessTarget, timeout time.Duration) (*ssh.
 
 	authMethods := make([]ssh.AuthMethod, 0, 2)
 	if strings.TrimSpace(target.PrivateKey) != "" {
-		signer, err := ssh.ParsePrivateKey([]byte(target.PrivateKey))
+		signer, err := utils.ParseSSHPrivateKey(target.PrivateKey, target.PrivateKeyPassphrase)
 		if err != nil {
 			return nil, fmt.Errorf("解析 SSH 私钥失败: %w", err)
 		}

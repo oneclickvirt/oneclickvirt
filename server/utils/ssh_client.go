@@ -16,13 +16,14 @@ import (
 )
 
 type SSHConfig struct {
-	Host           string
-	Port           int
-	Username       string
-	Password       string
-	PrivateKey     string // SSH私钥内容，优先于密码使用
-	ConnectTimeout time.Duration
-	ExecuteTimeout time.Duration
+	Host                 string
+	Port                 int
+	Username             string
+	Password             string
+	PrivateKey           string // SSH私钥内容，优先于密码使用
+	PrivateKeyPassphrase string // SSH私钥口令，可选
+	ConnectTimeout       time.Duration
+	ExecuteTimeout       time.Duration
 }
 
 type SSHClient struct {
@@ -180,7 +181,7 @@ func dialSSHContext(ctx context.Context, config SSHConfig) (*ssh.Client, context
 
 	// 如果提供了SSH私钥，添加密钥认证
 	if config.PrivateKey != "" {
-		signer, err := ssh.ParsePrivateKey([]byte(config.PrivateKey))
+		signer, err := ParseSSHPrivateKey(config.PrivateKey, config.PrivateKeyPassphrase)
 		if err != nil {
 			global.APP_LOG.Warn("SSH私钥解析失败，将尝试使用密码认证",
 				zap.String("host", config.Host),
@@ -201,6 +202,9 @@ func dialSSHContext(ctx context.Context, config SSHConfig) (*ssh.Client, context
 
 	// 如果既没有密钥也没有密码，返回错误
 	if len(authMethods) == 0 {
+		if config.PrivateKey != "" {
+			return nil, nil, nil, nil, fmt.Errorf("no authentication method available: SSH private key or passphrase is invalid")
+		}
 		return nil, nil, nil, nil, fmt.Errorf("no authentication method available: neither SSH key nor password provided")
 	}
 

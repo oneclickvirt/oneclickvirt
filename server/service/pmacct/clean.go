@@ -264,13 +264,14 @@ echo "=== pmacct 资源清理完成: %s ==="
 
 	// 从连接池获取SSH客户端
 	sshConfig := utils.SSHConfig{
-		Host:           host,
-		Port:           port,
-		Username:       providerRecord.Username,
-		Password:       providerRecord.Password,
-		PrivateKey:     providerRecord.SSHKey,
-		ConnectTimeout: 30 * time.Second,
-		ExecuteTimeout: 60 * time.Second,
+		Host:                 host,
+		Port:                 port,
+		Username:             providerRecord.Username,
+		Password:             providerRecord.Password,
+		PrivateKey:           providerRecord.SSHKey,
+		PrivateKeyPassphrase: providerRecord.SSHKeyPassphrase,
+		ConnectTimeout:       30 * time.Second,
+		ExecuteTimeout:       60 * time.Second,
 	}
 
 	sshClient, err := s.sshPool.GetOrCreate(providerID, sshConfig)

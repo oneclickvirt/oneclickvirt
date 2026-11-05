@@ -351,13 +351,14 @@ func (cs *CertService) autoConfigureProxmoxWithStream(ctx context.Context, provi
 func (cs *CertService) executeScriptViaSFTP(provider *provider.Provider, script, filename string) error {
 	host, port := utils.ParseEndpoint(provider.Endpoint, provider.SSHPort)
 	sshConfig := utils.SSHConfig{
-		Host:           host,
-		Port:           port,
-		Username:       provider.Username,
-		Password:       provider.Password,
-		PrivateKey:     provider.SSHKey,
-		ConnectTimeout: 10 * time.Second,
-		ExecuteTimeout: configScriptExecuteTimeout,
+		Host:                 host,
+		Port:                 port,
+		Username:             provider.Username,
+		Password:             provider.Password,
+		PrivateKey:           provider.SSHKey,
+		PrivateKeyPassphrase: provider.SSHKeyPassphrase,
+		ConnectTimeout:       10 * time.Second,
+		ExecuteTimeout:       configScriptExecuteTimeout,
 	}
 
 	sshClient, err := utils.NewSSHClient(sshConfig)
@@ -395,13 +396,14 @@ func (cs *CertService) executeScriptViaSFTPWithStreamContext(ctx context.Context
 	}
 	host, port := utils.ParseEndpoint(provider.Endpoint, provider.SSHPort)
 	sshConfig := utils.SSHConfig{
-		Host:           host,
-		Port:           port,
-		Username:       provider.Username,
-		Password:       provider.Password,
-		PrivateKey:     provider.SSHKey,
-		ConnectTimeout: 10 * time.Second,
-		ExecuteTimeout: configScriptExecuteTimeout,
+		Host:                 host,
+		Port:                 port,
+		Username:             provider.Username,
+		Password:             provider.Password,
+		PrivateKey:           provider.SSHKey,
+		PrivateKeyPassphrase: provider.SSHKeyPassphrase,
+		ConnectTimeout:       10 * time.Second,
+		ExecuteTimeout:       configScriptExecuteTimeout,
 	}
 
 	sshClient, err := utils.NewSSHClient(sshConfig)
@@ -489,13 +491,14 @@ func (cs *CertService) getProxmoxTokenFromRemoteContext(ctx context.Context, pro
 	}
 	host, port := utils.ParseEndpoint(provider.Endpoint, provider.SSHPort)
 	sshConfig := utils.SSHConfig{
-		Host:           host,
-		Port:           port,
-		Username:       provider.Username,
-		Password:       provider.Password,
-		PrivateKey:     provider.SSHKey,
-		ConnectTimeout: 12 * time.Second,
-		ExecuteTimeout: 60 * time.Second,
+		Host:                 host,
+		Port:                 port,
+		Username:             provider.Username,
+		Password:             provider.Password,
+		PrivateKey:           provider.SSHKey,
+		PrivateKeyPassphrase: provider.SSHKeyPassphrase,
+		ConnectTimeout:       12 * time.Second,
+		ExecuteTimeout:       60 * time.Second,
 	}
 
 	sshClient, err := utils.NewSSHClient(sshConfig)

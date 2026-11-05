@@ -133,13 +133,14 @@ func (d *DockerProvider) Connect(ctx context.Context, config provider.NodeConfig
 	}
 
 	sshConfig := utils.SSHConfig{
-		Host:           config.Host,
-		Port:           config.Port,
-		Username:       config.Username,
-		Password:       config.Password,
-		PrivateKey:     config.PrivateKey,
-		ConnectTimeout: time.Duration(sshConnectTimeout) * time.Second,
-		ExecuteTimeout: time.Duration(sshExecuteTimeout) * time.Second,
+		Host:                 config.Host,
+		Port:                 config.Port,
+		Username:             config.Username,
+		Password:             config.Password,
+		PrivateKey:           config.PrivateKey,
+		PrivateKeyPassphrase: config.PrivateKeyPassphrase,
+		ConnectTimeout:       time.Duration(sshConnectTimeout) * time.Second,
+		ExecuteTimeout:       time.Duration(sshExecuteTimeout) * time.Second,
 	}
 	client, err := utils.NewSSHClient(sshConfig)
 	if err != nil {
@@ -151,15 +152,16 @@ func (d *DockerProvider) Connect(ctx context.Context, config provider.NodeConfig
 
 	// 初始化健康检查器，使用Provider的SSH连接，避免创建独立连接导致节点混淆
 	healthConfig := health.HealthConfig{
-		Host:          config.Host,
-		Port:          config.Port,
-		Username:      config.Username,
-		Password:      config.Password,
-		PrivateKey:    config.PrivateKey,
-		APIEnabled:    false, // Docker Provider 不使用 API
-		SSHEnabled:    true,
-		Timeout:       30 * time.Second,
-		ServiceChecks: []string{d.runtime.ServiceCheckName},
+		Host:                 config.Host,
+		Port:                 config.Port,
+		Username:             config.Username,
+		Password:             config.Password,
+		PrivateKey:           config.PrivateKey,
+		PrivateKeyPassphrase: config.PrivateKeyPassphrase,
+		APIEnabled:           false, // Docker Provider 不使用 API
+		SSHEnabled:           true,
+		Timeout:              30 * time.Second,
+		ServiceChecks:        []string{d.runtime.ServiceCheckName},
 	}
 
 	// 创建一个简单的zap logger实例给健康检查器使用

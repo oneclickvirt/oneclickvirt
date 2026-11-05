@@ -192,6 +192,7 @@ func (ps *ProviderService) loadProviderWithOptionsLocked(ctx context.Context, db
 		Username:              dbProvider.Username,
 		Password:              dbProvider.Password,
 		PrivateKey:            dbProvider.SSHKey,
+		PrivateKeyPassphrase:  dbProvider.SSHKeyPassphrase,
 		Token:                 dbProvider.Token,
 		CACertPath:            dbProvider.CACertPath,
 		UUID:                  dbProvider.UUID,

@@ -234,6 +234,7 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	// 临时保存更新后的值，用于验证
 	newPassword := provider.Password
 	newSSHKey := provider.SSHKey
+	newSSHKeyPassphrase := provider.SSHKeyPassphrase
 
 	// 是否修改了密码
 	passwordChanged := false
@@ -255,6 +256,26 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 			zap.String("status", map[bool]string{true: "cleared", false: "set"}[*req.SSHKey == ""]))
 	}
 
+	// The private-key passphrase is independent from the node login password.
+	// Omission preserves the current value; an explicit empty value clears it.
+	// Replacing the key without sending a passphrase also clears the old value,
+	// because it belonged to the previous key.
+	sshKeyPassphraseChanged := false
+	if req.SSHKeyPassphrase != nil {
+		newSSHKeyPassphrase = *req.SSHKeyPassphrase
+		sshKeyPassphraseChanged = true
+	}
+	if sshKeyChanged && req.SSHKeyPassphrase == nil {
+		newSSHKeyPassphrase = ""
+		sshKeyPassphraseChanged = true
+	}
+	if newSSHKey == "" {
+		// A passphrase without the private key it protects is not an
+		// authentication method and must never remain stored by itself.
+		newSSHKeyPassphrase = ""
+		sshKeyPassphraseChanged = true
+	}
+
 	// 验证：SSH 直连模式下必须至少保留一种认证方式；agent 模式无需 SSH 凭据
 	if effectiveConnectionType != "agent" && effectiveConnectionType != "local" && newPassword == "" && newSSHKey == "" {
 		global.APP_LOG.Warn("Provider更新失败：尝试清空所有认证方式",
@@ -268,6 +289,9 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	}
 	if sshKeyChanged {
 		provider.SSHKey = newSSHKey
+	}
+	if sshKeyPassphraseChanged {
+		provider.SSHKeyPassphrase = newSSHKeyPassphrase
 	}
 	if req.Token != "" {
 		provider.Token = req.Token

@@ -65,11 +65,12 @@ type HealthConfig struct {
 	ProviderName string `json:"provider_name"` // Provider名称
 
 	// 基础连接配置
-	Host       string `json:"host"`
-	Port       int    `json:"port"`
-	Username   string `json:"username"`
-	Password   string `json:"password"`
-	PrivateKey string `json:"private_key"` // SSH私钥，优先于密码使用
+	Host                 string `json:"host"`
+	Port                 int    `json:"port"`
+	Username             string `json:"username"`
+	Password             string `json:"password"`
+	PrivateKey           string `json:"private_key"`            // SSH私钥，优先于密码使用
+	PrivateKeyPassphrase string `json:"private_key_passphrase"` // SSH私钥口令，可选
 
 	// API配置
 	APIEnabled    bool   `json:"api_enabled"`
@@ -101,28 +102,29 @@ func (c HealthConfig) DeepCopy() HealthConfig {
 	copy(customCommands, c.CustomCommands)
 
 	return HealthConfig{
-		ProviderID:     c.ProviderID,
-		ProviderName:   c.ProviderName,
-		Host:           c.Host,
-		Port:           c.Port,
-		Username:       c.Username,
-		Password:       c.Password,
-		PrivateKey:     c.PrivateKey,
-		APIEnabled:     c.APIEnabled,
-		APIPort:        c.APIPort,
-		APIScheme:      c.APIScheme,
-		SkipTLSVerify:  c.SkipTLSVerify,
-		Token:          c.Token,
-		TokenID:        c.TokenID,
-		CertPath:       c.CertPath,
-		KeyPath:        c.KeyPath,
-		CACertPath:     c.CACertPath,
-		CertContent:    c.CertContent,
-		KeyContent:     c.KeyContent,
-		Timeout:        c.Timeout,
-		SSHEnabled:     c.SSHEnabled,
-		ServiceChecks:  serviceChecks,
-		CustomCommands: customCommands,
+		ProviderID:           c.ProviderID,
+		ProviderName:         c.ProviderName,
+		Host:                 c.Host,
+		Port:                 c.Port,
+		Username:             c.Username,
+		Password:             c.Password,
+		PrivateKey:           c.PrivateKey,
+		PrivateKeyPassphrase: c.PrivateKeyPassphrase,
+		APIEnabled:           c.APIEnabled,
+		APIPort:              c.APIPort,
+		APIScheme:            c.APIScheme,
+		SkipTLSVerify:        c.SkipTLSVerify,
+		Token:                c.Token,
+		TokenID:              c.TokenID,
+		CertPath:             c.CertPath,
+		KeyPath:              c.KeyPath,
+		CACertPath:           c.CACertPath,
+		CertContent:          c.CertContent,
+		KeyContent:           c.KeyContent,
+		Timeout:              c.Timeout,
+		SSHEnabled:           c.SSHEnabled,
+		ServiceChecks:        serviceChecks,
+		CustomCommands:       customCommands,
 	}
 }
 

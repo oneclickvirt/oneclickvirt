@@ -47,7 +47,7 @@ type TokenInfo interface {
 // CheckProviderHealthWithAuthConfig 根据认证配置执行健康检查
 // 返回: sshStatus, apiStatus, hostName, error
 func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfig(ctx context.Context, providerID uint, providerName, providerType, host, username, password, privateKey string, port int, authConfig ProviderAuthConfig) (string, string, string, error) {
-	return phc.CheckProviderHealthWithAuthConfigAndRule(ctx, providerID, providerName, providerType, host, username, password, privateKey, port, authConfig, "auto")
+	return phc.CheckProviderHealthWithAuthConfigAndRuleAndPassphrase(ctx, providerID, providerName, providerType, host, username, password, privateKey, "", port, authConfig, "auto")
 }
 
 // CheckProviderHealthWithAuthConfigAndRule applies the Provider execution rule
@@ -56,6 +56,13 @@ func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfig(ctx context.
 // checker construction time also avoids a second probe or a per-instance
 // fallback when the scheduler records the result.
 func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfigAndRule(ctx context.Context, providerID uint, providerName, providerType, host, username, password, privateKey string, port int, authConfig ProviderAuthConfig, executionRule string) (string, string, string, error) {
+	return phc.CheckProviderHealthWithAuthConfigAndRuleAndPassphrase(ctx, providerID, providerName, providerType, host, username, password, privateKey, "", port, authConfig, executionRule)
+}
+
+// CheckProviderHealthWithAuthConfigAndRuleAndPassphrase is the passphrase-aware
+// health-check entry point. The legacy methods above intentionally delegate to
+// it so callers that do not have an encrypted key remain source-compatible.
+func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfigAndRuleAndPassphrase(ctx context.Context, providerID uint, providerName, providerType, host, username, password, privateKey, privateKeyPassphrase string, port int, authConfig ProviderAuthConfig, executionRule string) (string, string, string, error) {
 	// 复制副本避免共享状态，立即创建所有参数的本地副本
 	localProviderID := providerID
 	localProviderName := providerName
@@ -64,6 +71,7 @@ func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfigAndRule(ctx c
 	localUsername := username
 	localPassword := password
 	localPrivateKey := privateKey
+	localPrivateKeyPassphrase := privateKeyPassphrase
 	localPort := port
 
 	// 添加入口日志，追踪参数
@@ -78,17 +86,18 @@ func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfigAndRule(ctx c
 	}
 
 	config := HealthConfig{
-		ProviderID:    localProviderID,
-		ProviderName:  localProviderName,
-		Host:          localHost,
-		Port:          localPort,
-		Username:      localUsername,
-		Password:      localPassword,
-		PrivateKey:    localPrivateKey,
-		SSHEnabled:    true,
-		APIEnabled:    true,
-		SkipTLSVerify: true,
-		Timeout:       30 * time.Second,
+		ProviderID:           localProviderID,
+		ProviderName:         localProviderName,
+		Host:                 localHost,
+		Port:                 localPort,
+		Username:             localUsername,
+		Password:             localPassword,
+		PrivateKey:           localPrivateKey,
+		PrivateKeyPassphrase: localPrivateKeyPassphrase,
+		SSHEnabled:           true,
+		APIEnabled:           true,
+		SkipTLSVerify:        true,
+		Timeout:              30 * time.Second,
 	}
 
 	// 根据认证配置设置具体的认证信息
@@ -274,6 +283,12 @@ func (phc *ProviderHealthChecker) CheckProviderHealthFromConfig(ctx context.Cont
 
 // CheckSSHConnection 单独检查SSH连接
 func (phc *ProviderHealthChecker) CheckSSHConnection(ctx context.Context, providerID uint, providerName, host, username, password, privateKey string, port int) error {
+	return phc.CheckSSHConnectionWithPassphrase(ctx, providerID, providerName, host, username, password, privateKey, "", port)
+}
+
+// CheckSSHConnectionWithPassphrase checks a node using an optional private-key
+// passphrase while retaining password authentication as a fallback.
+func (phc *ProviderHealthChecker) CheckSSHConnectionWithPassphrase(ctx context.Context, providerID uint, providerName, host, username, password, privateKey, privateKeyPassphrase string, port int) error {
 	// 复制副本避免共享状态，立即创建所有参数的本地副本
 	localProviderID := providerID
 	localProviderName := providerName
@@ -281,19 +296,21 @@ func (phc *ProviderHealthChecker) CheckSSHConnection(ctx context.Context, provid
 	localUsername := username
 	localPassword := password
 	localPrivateKey := privateKey
+	localPrivateKeyPassphrase := privateKeyPassphrase
 	localPort := port
 
 	config := HealthConfig{
-		ProviderID:   localProviderID,
-		ProviderName: localProviderName,
-		Host:         localHost,
-		Port:         localPort,
-		Username:     localUsername,
-		Password:     localPassword,
-		PrivateKey:   localPrivateKey,
-		SSHEnabled:   true,
-		APIEnabled:   false,
-		Timeout:      30 * time.Second,
+		ProviderID:           localProviderID,
+		ProviderName:         localProviderName,
+		Host:                 localHost,
+		Port:                 localPort,
+		Username:             localUsername,
+		Password:             localPassword,
+		PrivateKey:           localPrivateKey,
+		PrivateKeyPassphrase: localPrivateKeyPassphrase,
+		SSHEnabled:           true,
+		APIEnabled:           false,
+		Timeout:              30 * time.Second,
 	}
 	checker := NewDockerHealthChecker(config, phc.logger)
 	defer checker.Close()

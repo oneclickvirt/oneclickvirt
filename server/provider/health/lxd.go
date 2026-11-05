@@ -143,7 +143,7 @@ func (l *LXDHealthChecker) checkSSH(ctx context.Context) error {
 
 	// 如果提供了SSH私钥，添加密钥认证
 	if l.config.PrivateKey != "" {
-		signer, err := ssh.ParsePrivateKey([]byte(l.config.PrivateKey))
+		signer, err := utils.ParseSSHPrivateKey(l.config.PrivateKey, l.config.PrivateKeyPassphrase)
 		if err == nil {
 			authMethods = append(authMethods, ssh.PublicKeys(signer))
 			if l.logger != nil {

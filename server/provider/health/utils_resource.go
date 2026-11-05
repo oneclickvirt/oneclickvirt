@@ -23,6 +23,12 @@ func (phc *ProviderHealthChecker) GetSystemResourceInfo(ctx context.Context, pro
 
 // GetSystemResourceInfoWithKey 通过SSH获取系统资源信息（支持SSH密钥、provider类型和存储池名称）
 func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKey(ctx context.Context, providerID uint, providerName, host, username, password, privateKey string, port int, providerType, storagePoolName string) (*ResourceInfo, error) {
+	return phc.GetSystemResourceInfoWithKeyAndPassphrase(ctx, providerID, providerName, host, username, password, privateKey, "", port, providerType, storagePoolName)
+}
+
+// GetSystemResourceInfoWithKeyAndPassphrase is the passphrase-aware resource
+// probe. The old method remains as a compatibility wrapper.
+func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKeyAndPassphrase(ctx context.Context, providerID uint, providerName, host, username, password, privateKey, privateKeyPassphrase string, port int, providerType, storagePoolName string) (*ResourceInfo, error) {
 	// 复制副本避免共享状态，立即创建所有参数的本地副本
 	localProviderID := providerID
 	localProviderName := providerName
@@ -30,6 +36,7 @@ func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKey(ctx context.Conte
 	localUsername := username
 	localPassword := password
 	localPrivateKey := privateKey
+	localPrivateKeyPassphrase := privateKeyPassphrase
 	localPort := port
 	localProviderType := providerType
 	localStoragePoolName := storagePoolName
@@ -49,7 +56,7 @@ func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKey(ctx context.Conte
 
 	// 如果提供了SSH私钥，添加密钥认证
 	if localPrivateKey != "" {
-		signer, err := ssh.ParsePrivateKey([]byte(localPrivateKey))
+		signer, err := utils.ParseSSHPrivateKey(localPrivateKey, localPrivateKeyPassphrase)
 		if err == nil {
 			authMethods = append(authMethods, ssh.PublicKeys(signer))
 			if phc.logger != nil {
@@ -72,6 +79,9 @@ func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKey(ctx context.Conte
 
 	// 如果既没有密钥也没有密码，返回错误
 	if len(authMethods) == 0 {
+		if localPrivateKey != "" {
+			return nil, fmt.Errorf("no authentication method available: SSH private key or passphrase is invalid")
+		}
 		return nil, fmt.Errorf("no authentication method available: neither SSH key nor password provided")
 	}
 

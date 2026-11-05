@@ -374,7 +374,7 @@ func handleSSHCommandTerminal(ws *websocket.Conn, provider providerModel.Provide
 		err     error
 	)
 	if provider.SSHKey != "" {
-		client, session, err = utils.CreateSSHConnectionWithKey(host, port, provider.Username, provider.SSHKey)
+		client, session, err = utils.CreateSSHConnectionWithKeyAndPassphrase(host, port, provider.Username, provider.SSHKey, provider.SSHKeyPassphrase)
 	} else {
 		client, session, err = utils.CreateSSHConnection(host, port, provider.Username, provider.Password)
 	}

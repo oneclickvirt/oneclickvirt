@@ -52,6 +52,8 @@ type ConnectProviderRequest struct {
 	Port                  int      `json:"port"`
 	Username              string   `json:"username"`
 	Password              string   `json:"password"`
+	SSHKey                string   `json:"sshKey,omitempty"`
+	SSHKeyPassphrase      string   `json:"sshKeyPassphrase,omitempty"`
 	Token                 string   `json:"token"`
 	TokenID               string   `json:"token_id"`
 	CertPath              string   `json:"cert_path"`

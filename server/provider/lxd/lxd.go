@@ -141,13 +141,14 @@ func (l *LXDProvider) Connect(ctx context.Context, config provider.NodeConfig) e
 
 	// 尝试 SSH 连接
 	sshConfig := utils.SSHConfig{
-		Host:           config.Host,
-		Port:           config.Port,
-		Username:       config.Username,
-		Password:       config.Password,
-		PrivateKey:     config.PrivateKey,
-		ConnectTimeout: time.Duration(sshConnectTimeout) * time.Second,
-		ExecuteTimeout: time.Duration(sshExecuteTimeout) * time.Second,
+		Host:                 config.Host,
+		Port:                 config.Port,
+		Username:             config.Username,
+		Password:             config.Password,
+		PrivateKey:           config.PrivateKey,
+		PrivateKeyPassphrase: config.PrivateKeyPassphrase,
+		ConnectTimeout:       time.Duration(sshConnectTimeout) * time.Second,
+		ExecuteTimeout:       time.Duration(sshExecuteTimeout) * time.Second,
 	}
 
 	client, err := utils.NewSSHClient(sshConfig)
@@ -160,19 +161,20 @@ func (l *LXDProvider) Connect(ctx context.Context, config provider.NodeConfig) e
 
 	// 初始化健康检查器，使用Provider的SSH连接，避免创建独立连接导致节点混淆
 	healthConfig := health.HealthConfig{
-		Host:          config.Host,
-		Port:          config.Port,
-		Username:      config.Username,
-		Password:      config.Password,
-		PrivateKey:    config.PrivateKey,
-		APIEnabled:    l.hasAPIAccess(),
-		APIPort:       8443,
-		APIScheme:     "https",
-		SSHEnabled:    true,
-		Timeout:       30 * time.Second,
-		ServiceChecks: []string{"lxd"},
-		CertPath:      config.CertPath,
-		KeyPath:       config.KeyPath,
+		Host:                 config.Host,
+		Port:                 config.Port,
+		Username:             config.Username,
+		Password:             config.Password,
+		PrivateKey:           config.PrivateKey,
+		PrivateKeyPassphrase: config.PrivateKeyPassphrase,
+		APIEnabled:           l.hasAPIAccess(),
+		APIPort:              8443,
+		APIScheme:            "https",
+		SSHEnabled:           true,
+		Timeout:              30 * time.Second,
+		ServiceChecks:        []string{"lxd"},
+		CertPath:             config.CertPath,
+		KeyPath:              config.KeyPath,
 	}
 
 	zapLogger, _ := zap.NewProduction()

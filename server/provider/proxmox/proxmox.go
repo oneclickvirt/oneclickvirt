@@ -237,13 +237,14 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 
 	// 尝试 SSH 连接
 	sshConfig := utils.SSHConfig{
-		Host:           config.Host,
-		Port:           config.Port,
-		Username:       config.Username,
-		Password:       config.Password,
-		PrivateKey:     config.PrivateKey,
-		ConnectTimeout: time.Duration(sshConnectTimeout) * time.Second,
-		ExecuteTimeout: time.Duration(sshExecuteTimeout) * time.Second,
+		Host:                 config.Host,
+		Port:                 config.Port,
+		Username:             config.Username,
+		Password:             config.Password,
+		PrivateKey:           config.PrivateKey,
+		PrivateKeyPassphrase: config.PrivateKeyPassphrase,
+		ConnectTimeout:       time.Duration(sshConnectTimeout) * time.Second,
+		ExecuteTimeout:       time.Duration(sshExecuteTimeout) * time.Second,
 	}
 
 	client, err := utils.NewSSHClient(sshConfig)
@@ -281,21 +282,22 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 
 	// 初始化健康检查器，使用Provider的SSH连接，避免创建独立连接导致节点混淆
 	healthConfig := health.HealthConfig{
-		Host:          p.config.Host,
-		Port:          p.config.Port,
-		Username:      p.config.Username,
-		Password:      p.config.Password,
-		PrivateKey:    p.config.PrivateKey,
-		APIEnabled:    p.hasAPIAccess(),
-		APIPort:       8006,
-		APIScheme:     "https",
-		SSHEnabled:    true,
-		SkipTLSVerify: p.config.CACertPath == "",
-		CACertPath:    p.config.CACertPath,
-		Timeout:       30 * time.Second,
-		ServiceChecks: []string{"pvestatd", "pvedaemon", "pveproxy"},
-		Token:         p.config.Token,
-		TokenID:       p.config.TokenID,
+		Host:                 p.config.Host,
+		Port:                 p.config.Port,
+		Username:             p.config.Username,
+		Password:             p.config.Password,
+		PrivateKey:           p.config.PrivateKey,
+		PrivateKeyPassphrase: p.config.PrivateKeyPassphrase,
+		APIEnabled:           p.hasAPIAccess(),
+		APIPort:              8006,
+		APIScheme:            "https",
+		SSHEnabled:           true,
+		SkipTLSVerify:        p.config.CACertPath == "",
+		CACertPath:           p.config.CACertPath,
+		Timeout:              30 * time.Second,
+		ServiceChecks:        []string{"pvestatd", "pvedaemon", "pveproxy"},
+		Token:                p.config.Token,
+		TokenID:              p.config.TokenID,
 	}
 
 	zapLogger, _ := zap.NewProduction()

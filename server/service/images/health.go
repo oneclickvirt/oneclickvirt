@@ -95,13 +95,19 @@ func (t *TokenConfigAdapter) GetTokenSecret() string {
 // CheckProviderHealthWithConfig 使用配置进行健康检查
 // 返回: sshStatus, apiStatus, hostName, error
 func CheckProviderHealthWithConfig(ctx context.Context, providerID uint, providerName, providerType, host, username, password, sshKey string, port int, authConfig *provider.ProviderAuthConfig) (string, string, string, error) {
-	return CheckProviderHealthWithConfigAndRule(ctx, providerID, providerName, providerType, host, username, password, sshKey, port, authConfig, "auto")
+	return CheckProviderHealthWithConfigAndRuleAndPassphrase(ctx, providerID, providerName, providerType, host, username, password, sshKey, "", port, authConfig, "auto")
 }
 
 // CheckProviderHealthWithConfigAndRule is the execution-rule aware variant
 // used by the provider health scheduler.  The legacy function above keeps the
 // established auto-mode contract for other callers.
 func CheckProviderHealthWithConfigAndRule(ctx context.Context, providerID uint, providerName, providerType, host, username, password, sshKey string, port int, authConfig *provider.ProviderAuthConfig, executionRule string) (string, string, string, error) {
+	return CheckProviderHealthWithConfigAndRuleAndPassphrase(ctx, providerID, providerName, providerType, host, username, password, sshKey, "", port, authConfig, executionRule)
+}
+
+// CheckProviderHealthWithConfigAndRuleAndPassphrase forwards an optional SSH
+// private-key passphrase to the shared health checker.
+func CheckProviderHealthWithConfigAndRuleAndPassphrase(ctx context.Context, providerID uint, providerName, providerType, host, username, password, sshKey, sshKeyPassphrase string, port int, authConfig *provider.ProviderAuthConfig, executionRule string) (string, string, string, error) {
 	// 使用全局logger，如果没有则传nil
 	var logger *zap.Logger
 	if global.APP_LOG != nil {
@@ -110,5 +116,5 @@ func CheckProviderHealthWithConfigAndRule(ctx context.Context, providerID uint, 
 
 	healthChecker := health.NewProviderHealthChecker(logger)
 	adapter := NewHealthConfigAdapter(authConfig)
-	return healthChecker.CheckProviderHealthWithAuthConfigAndRule(ctx, providerID, providerName, providerType, host, username, password, sshKey, port, adapter, executionRule)
+	return healthChecker.CheckProviderHealthWithAuthConfigAndRuleAndPassphrase(ctx, providerID, providerName, providerType, host, username, password, sshKey, sshKeyPassphrase, port, adapter, executionRule)
 }

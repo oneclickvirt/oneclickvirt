@@ -215,6 +215,10 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 			return nil, err
 		}
 	}
+	sshKeyPassphrase := ""
+	if req.SSHKey != "" {
+		sshKeyPassphrase = req.SSHKeyPassphrase
+	}
 
 	provider := providerModel.Provider{
 		Name:                     req.Name,
@@ -226,6 +230,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		Username:                 providerUsername,
 		Password:                 req.Password,
 		SSHKey:                   req.SSHKey,
+		SSHKeyPassphrase:         sshKeyPassphrase,
 		Token:                    req.Token,
 		Config:                   req.Config,
 		Region:                   req.Region,

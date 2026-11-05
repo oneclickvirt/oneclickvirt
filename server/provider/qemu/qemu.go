@@ -78,13 +78,14 @@ func (p *QEMUProvider) Connect(ctx context.Context, config provider.NodeConfig) 
 	}
 
 	sshConfig := utils.SSHConfig{
-		Host:           config.Host,
-		Port:           config.Port,
-		Username:       config.Username,
-		Password:       config.Password,
-		PrivateKey:     config.PrivateKey,
-		ConnectTimeout: time.Duration(sshConnectTimeout) * time.Second,
-		ExecuteTimeout: time.Duration(sshExecuteTimeout) * time.Second,
+		Host:                 config.Host,
+		Port:                 config.Port,
+		Username:             config.Username,
+		Password:             config.Password,
+		PrivateKey:           config.PrivateKey,
+		PrivateKeyPassphrase: config.PrivateKeyPassphrase,
+		ConnectTimeout:       time.Duration(sshConnectTimeout) * time.Second,
+		ExecuteTimeout:       time.Duration(sshExecuteTimeout) * time.Second,
 	}
 
 	client, err := utils.NewSSHClient(sshConfig)
@@ -97,15 +98,16 @@ func (p *QEMUProvider) Connect(ctx context.Context, config provider.NodeConfig) 
 
 	// 初始化健康检查器，使用Provider的SSH连接
 	healthConfig := health.HealthConfig{
-		Host:          config.Host,
-		Port:          config.Port,
-		Username:      config.Username,
-		Password:      config.Password,
-		PrivateKey:    config.PrivateKey,
-		APIEnabled:    false,
-		SSHEnabled:    true,
-		Timeout:       30 * time.Second,
-		ServiceChecks: []string{"libvirtd"},
+		Host:                 config.Host,
+		Port:                 config.Port,
+		Username:             config.Username,
+		Password:             config.Password,
+		PrivateKey:           config.PrivateKey,
+		PrivateKeyPassphrase: config.PrivateKeyPassphrase,
+		APIEnabled:           false,
+		SSHEnabled:           true,
+		Timeout:              30 * time.Second,
+		ServiceChecks:        []string{"libvirtd"},
 	}
 
 	zapLogger, _ := zap.NewProduction()

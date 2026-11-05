@@ -57,6 +57,7 @@ const buildDefaultForm = () => ({
   username: '',
   password: '',
   sshKey: '',
+  sshKeyPassphrase: '',
   authMethod: 'password',
   description: '',
   region: '',
@@ -226,6 +227,7 @@ export function useProviderForm(loadProviders) {
     addProviderForm.username = connectionType === 'local' ? (provider.username || 'root') : (provider.username || '')
     addProviderForm.password = ''
     addProviderForm.sshKey = ''
+    addProviderForm.sshKeyPassphrase = ''
     addProviderForm.authMethod = provider.authMethod || 'password'
     addProviderForm.description = provider.description || ''
     addProviderForm.region = provider.region || ''
@@ -558,8 +560,18 @@ export function useProviderForm(loadProviders) {
         // 编辑模式：仅当用户主动填写了密码/密钥时才发送（空值表示"不修改"）
         if (formData.authMethod === 'password' && formData.password) {
           serverData.password = formData.password
+          // Switching from key authentication must remove the old key and its
+          // passphrase, otherwise the backend would keep preferring it.
+          serverData.sshKey = ''
+          serverData.sshKeyPassphrase = ''
         } else if (formData.authMethod === 'sshKey' && formData.sshKey) {
           serverData.sshKey = formData.sshKey
+          serverData.password = ''
+          // A replacement key with no passphrase clears the previous key's
+          // passphrase; leaving both fields blank preserves existing auth.
+          serverData.sshKeyPassphrase = formData.sshKeyPassphrase || ''
+        } else if (formData.authMethod === 'sshKey' && formData.sshKeyPassphrase) {
+          serverData.sshKeyPassphrase = formData.sshKeyPassphrase
         }
       } else {
         // 创建模式：密码/密钥必须提供（上方的校验已确保非 agent/local 模式必填）
@@ -569,6 +581,7 @@ export function useProviderForm(loadProviders) {
           serverData.password = formData.password
         } else if (formData.authMethod === 'sshKey') {
           serverData.sshKey = formData.sshKey
+          serverData.sshKeyPassphrase = formData.sshKeyPassphrase || ''
         }
       }
 

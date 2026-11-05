@@ -95,13 +95,14 @@ func (p *Provider) Connect(ctx context.Context, config rootProvider.NodeConfig) 
 		sshExecuteTimeout = 300
 	}
 	client, err := utils.NewSSHClient(utils.SSHConfig{
-		Host:           config.Host,
-		Port:           config.Port,
-		Username:       config.Username,
-		Password:       config.Password,
-		PrivateKey:     config.PrivateKey,
-		ConnectTimeout: time.Duration(sshConnectTimeout) * time.Second,
-		ExecuteTimeout: time.Duration(sshExecuteTimeout) * time.Second,
+		Host:                 config.Host,
+		Port:                 config.Port,
+		Username:             config.Username,
+		Password:             config.Password,
+		PrivateKey:           config.PrivateKey,
+		PrivateKeyPassphrase: config.PrivateKeyPassphrase,
+		ConnectTimeout:       time.Duration(sshConnectTimeout) * time.Second,
+		ExecuteTimeout:       time.Duration(sshExecuteTimeout) * time.Second,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to connect via SSH: %w", err)
@@ -134,15 +135,16 @@ func (p *Provider) ConnectAgent(executor utils.ShellExecutor, config rootProvide
 
 func (p *Provider) initHealthChecker(config rootProvider.NodeConfig, sshClient *ssh.Client) {
 	healthConfig := health.HealthConfig{
-		Host:          config.Host,
-		Port:          config.Port,
-		Username:      config.Username,
-		Password:      config.Password,
-		PrivateKey:    config.PrivateKey,
-		APIEnabled:    false,
-		SSHEnabled:    true,
-		Timeout:       30 * time.Second,
-		ServiceChecks: []string{p.spec.CLI},
+		Host:                 config.Host,
+		Port:                 config.Port,
+		Username:             config.Username,
+		Password:             config.Password,
+		PrivateKey:           config.PrivateKey,
+		PrivateKeyPassphrase: config.PrivateKeyPassphrase,
+		APIEnabled:           false,
+		SSHEnabled:           true,
+		Timeout:              30 * time.Second,
+		ServiceChecks:        []string{p.spec.CLI},
 	}
 	zapLogger, _ := zap.NewProduction()
 	p.healthChecker = health.NewDockerHealthCheckerWithSSH(healthConfig, zapLogger, sshClient)

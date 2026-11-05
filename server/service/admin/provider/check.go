@@ -57,6 +57,7 @@ func (s *Service) CheckProviderHealthWithOptionsContext(ctx context.Context, pro
 	localUsername := provider.Username
 	localPassword := provider.Password
 	localSSHKey := provider.SSHKey
+	localSSHKeyPassphrase := provider.SSHKeyPassphrase
 	localSSHPort := provider.SSHPort
 	if localSSHPort == 0 {
 		localSSHPort = 22 // 如果数据库中没有设置SSH端口，使用默认值22
@@ -177,16 +178,16 @@ func (s *Service) CheckProviderHealthWithOptionsContext(ctx context.Context, pro
 		}
 	case isAPIOnly:
 		authConfig := provider2.ProviderAuthConfigFromRecord(provider)
-		sshStatus, apiStatus, hostName, err = images.CheckProviderHealthWithConfigAndRule(
-			ctx, localProviderID, localProviderName, localProviderType, host, localUsername, localPassword, localSSHKey, localSSHPort, authConfig, executionRule)
+		sshStatus, apiStatus, hostName, err = images.CheckProviderHealthWithConfigAndRuleAndPassphrase(
+			ctx, localProviderID, localProviderName, localProviderType, host, localUsername, localPassword, localSSHKey, localSSHKeyPassphrase, localSSHPort, authConfig, executionRule)
 	case provider.AutoConfigured && strings.TrimSpace(provider.AuthConfig) != "":
 		authConfig := provider2.ProviderAuthConfigFromRecord(provider)
-		sshStatus, apiStatus, hostName, err = images.CheckProviderHealthWithConfigAndRule(
-			ctx, localProviderID, localProviderName, localProviderType, host, localUsername, localPassword, localSSHKey, localSSHPort, authConfig, executionRule)
+		sshStatus, apiStatus, hostName, err = images.CheckProviderHealthWithConfigAndRuleAndPassphrase(
+			ctx, localProviderID, localProviderName, localProviderType, host, localUsername, localPassword, localSSHKey, localSSHKeyPassphrase, localSSHPort, authConfig, executionRule)
 	default:
 		// ssh_only and unconfigured auto nodes retain the historical SSH-only
 		// probe. Explicit ssh_only advertises API as not applicable.
-		if sshErr := healthChecker.CheckSSHConnection(ctx, localProviderID, localProviderName, host, localUsername, localPassword, localSSHKey, localSSHPort); sshErr != nil {
+		if sshErr := healthChecker.CheckSSHConnectionWithPassphrase(ctx, localProviderID, localProviderName, host, localUsername, localPassword, localSSHKey, localSSHKeyPassphrase, localSSHPort); sshErr != nil {
 			sshStatus = "offline"
 			err = sshErr
 		} else {
@@ -229,7 +230,7 @@ func (s *Service) CheckProviderHealthWithOptionsContext(ctx context.Context, pro
 			zap.Int("sshPort", localSSHPort),
 			zap.Bool("forceRefresh", forceRefresh))
 
-		resourceInfo, resourceErr := healthChecker.GetSystemResourceInfoWithKey(ctx, localProviderID, localProviderName, host, localUsername, localPassword, localSSHKey, localSSHPort, provider.Type, provider.StoragePool)
+		resourceInfo, resourceErr := healthChecker.GetSystemResourceInfoWithKeyAndPassphrase(ctx, localProviderID, localProviderName, host, localUsername, localPassword, localSSHKey, localSSHKeyPassphrase, localSSHPort, provider.Type, provider.StoragePool)
 		if resourceErr != nil {
 			global.APP_LOG.Warn("获取系统资源信息失败",
 				zap.String("provider", localProviderName),

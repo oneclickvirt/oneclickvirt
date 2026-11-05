@@ -295,7 +295,14 @@ func CreateSSHConnection(host string, port int, username, password string) (*ssh
 
 // CreateSSHConnectionWithKey 创建SSH连接（使用SSH私钥认证）
 func CreateSSHConnectionWithKey(host string, port int, username, privateKey string) (*ssh.Client, *ssh.Session, error) {
-	signer, err := ssh.ParsePrivateKey([]byte(privateKey))
+	return CreateSSHConnectionWithKeyAndPassphrase(host, port, username, privateKey, "")
+}
+
+// CreateSSHConnectionWithKeyAndPassphrase creates an SSH connection with an
+// optionally encrypted private key. The legacy CreateSSHConnectionWithKey
+// wrapper above keeps existing callers source-compatible.
+func CreateSSHConnectionWithKeyAndPassphrase(host string, port int, username, privateKey, passphrase string) (*ssh.Client, *ssh.Session, error) {
+	signer, err := ParseSSHPrivateKey(privateKey, passphrase)
 	if err != nil {
 		return nil, nil, fmt.Errorf("解析SSH私钥失败: %w", err)
 	}

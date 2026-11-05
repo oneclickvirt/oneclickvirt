@@ -34,9 +34,10 @@ type ConnectProviderRequest struct {
 	Port                  int    `json:"port"`    // 兼容旧的port字段
 	SSHPort               int    `json:"sshPort"` // 新的sshPort字段
 	Username              string `json:"username" binding:"required"`
-	Password              string `json:"password" binding:"required"`
-	SSHKey                string `json:"sshKey"` // SSH私钥内容，优先于密码使用
-	Token                 string `json:"token"`  // API Token，用于ProxmoxVE等
+	Password              string `json:"password"`
+	SSHKey                string `json:"sshKey"`           // SSH私钥内容，优先于密码使用
+	SSHKeyPassphrase      string `json:"sshKeyPassphrase"` // SSH私钥口令，可选
+	Token                 string `json:"token"`            // API Token，用于ProxmoxVE等
 	ContainerEnabled      bool   `json:"container_enabled"`
 	VirtualMachineEnabled bool   `json:"vm_enabled"`
 	CertPath              string `json:"cert_path"`
@@ -67,6 +68,9 @@ type CreateInstanceRequest struct {
 // ConnectProvider 连接Provider（测试连接）
 // 此方法仅用于测试连接，会创建临时实例，不会影响已加载的Provider实例
 func (s *ProviderApiService) ConnectProvider(ctx context.Context, req ConnectProviderRequest) error {
+	if req.Password == "" && req.SSHKey == "" {
+		return fmt.Errorf("必须提供SSH密码或SSH私钥其中一种认证方式")
+	}
 	// 创建临时Provider实例用于测试连接
 	prov, err := provider.GetProvider(req.Type)
 	if err != nil {
@@ -92,6 +96,7 @@ func (s *ProviderApiService) ConnectProvider(ctx context.Context, req ConnectPro
 		Username:              req.Username,
 		Password:              req.Password,
 		PrivateKey:            req.SSHKey,
+		PrivateKeyPassphrase:  req.SSHKeyPassphrase,
 		Token:                 req.Token,
 		ContainerEnabled:      req.ContainerEnabled,
 		VirtualMachineEnabled: req.VirtualMachineEnabled,

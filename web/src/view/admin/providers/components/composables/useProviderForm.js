@@ -87,6 +87,7 @@ export function useProviderForm(props, emit) {
     username: '',
     password: '',
     sshKey: '',
+    sshKeyPassphrase: '',
     authMethod: 'password',
     description: '',
     region: '',
@@ -428,6 +429,9 @@ export function useProviderForm(props, emit) {
         requestData.password = formData.value.password
       } else if (formData.value.authMethod === 'sshKey') {
         requestData.sshKey = formData.value.sshKey
+        if (formData.value.sshKeyPassphrase) {
+          requestData.sshKeyPassphrase = formData.value.sshKeyPassphrase
+        }
       }
 
       const result = await testSSHConnectionAPI(requestData)
@@ -478,6 +482,7 @@ export function useProviderForm(props, emit) {
   const handleAuthMethodChange = (newMethod) => {
     if (newMethod === 'password') {
       formData.value.sshKey = ''
+      formData.value.sshKeyPassphrase = ''
     } else if (newMethod === 'sshKey') {
       formData.value.password = ''
     }

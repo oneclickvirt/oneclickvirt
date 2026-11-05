@@ -339,11 +339,12 @@ func ProviderAuthConfigFromRecord(record providerModel.Provider) *providerModel.
 		Username: record.Username,
 		Password: record.Password,
 		SSH: &providerModel.SSHConfig{
-			Host:       ExtractHostFromEndpoint(record.Endpoint),
-			Port:       record.SSHPort,
-			Username:   record.Username,
-			Password:   record.Password,
-			KeyContent: record.SSHKey,
+			Host:          ExtractHostFromEndpoint(record.Endpoint),
+			Port:          record.SSHPort,
+			Username:      record.Username,
+			Password:      record.Password,
+			KeyContent:    record.SSHKey,
+			KeyPassphrase: record.SSHKeyPassphrase,
 		},
 	}
 
@@ -363,7 +364,23 @@ func ProviderAuthConfigFromRecord(record providerModel.Provider) *providerModel.
 				auth.Password = persisted.Password
 			}
 			if persisted.SSH != nil {
-				auth.SSH = persisted.SSH
+				persistedSSH := *persisted.SSH
+				if persistedSSH.Host == "" {
+					persistedSSH.Host = auth.SSH.Host
+				}
+				if persistedSSH.Port == 0 {
+					persistedSSH.Port = auth.SSH.Port
+				}
+				if persistedSSH.Username == "" {
+					persistedSSH.Username = auth.SSH.Username
+				}
+				// The provider row is the source of truth for mutable SSH
+				// credentials. This prevents a stale AuthConfig backup from
+				// resurrecting a cleared password, key, or key passphrase.
+				persistedSSH.Password = auth.SSH.Password
+				persistedSSH.KeyContent = auth.SSH.KeyContent
+				persistedSSH.KeyPassphrase = auth.SSH.KeyPassphrase
+				auth.SSH = &persistedSSH
 			}
 			auth.Certificate = persisted.Certificate
 			auth.Token = persisted.Token
@@ -731,11 +748,12 @@ func (s *ProviderConfigService) CreateAuthConfigFromCertInfo(provider *providerM
 		Type:     provider.Type,
 		Endpoint: endpoint,
 		SSH: &providerModel.SSHConfig{
-			Host:       ExtractHostFromEndpoint(provider.Endpoint),
-			Port:       provider.SSHPort,
-			Username:   provider.Username,
-			Password:   provider.Password,
-			KeyContent: provider.SSHKey,
+			Host:          ExtractHostFromEndpoint(provider.Endpoint),
+			Port:          provider.SSHPort,
+			Username:      provider.Username,
+			Password:      provider.Password,
+			KeyContent:    provider.SSHKey,
+			KeyPassphrase: provider.SSHKeyPassphrase,
 		},
 		Certificate: &providerModel.CertConfig{
 			CertPath:        certInfo.CertPath,
@@ -753,11 +771,12 @@ func (s *ProviderConfigService) CreateAuthConfigFromTokenInfo(provider *provider
 		Type:     provider.Type,
 		Endpoint: endpoint,
 		SSH: &providerModel.SSHConfig{
-			Host:       ExtractHostFromEndpoint(provider.Endpoint),
-			Port:       provider.SSHPort,
-			Username:   provider.Username,
-			Password:   provider.Password,
-			KeyContent: provider.SSHKey,
+			Host:          ExtractHostFromEndpoint(provider.Endpoint),
+			Port:          provider.SSHPort,
+			Username:      provider.Username,
+			Password:      provider.Password,
+			KeyContent:    provider.SSHKey,
+			KeyPassphrase: provider.SSHKeyPassphrase,
 		},
 		Token: &providerModel.TokenConfig{
 			TokenID:     tokenInfo.TokenID,

@@ -483,13 +483,14 @@ func (i *IptablesPortMapping) createSSHClient(providerInfo *provider.Provider) (
 	host, port := i.parseEndpoint(providerInfo.Endpoint)
 
 	sshConfig := utils.SSHConfig{
-		Host:           host,
-		Port:           port,
-		Username:       providerInfo.Username,
-		Password:       providerInfo.Password,
-		PrivateKey:     providerInfo.SSHKey,
-		ConnectTimeout: 10 * time.Second,
-		ExecuteTimeout: 60 * time.Second,
+		Host:                 host,
+		Port:                 port,
+		Username:             providerInfo.Username,
+		Password:             providerInfo.Password,
+		PrivateKey:           providerInfo.SSHKey,
+		PrivateKeyPassphrase: providerInfo.SSHKeyPassphrase,
+		ConnectTimeout:       10 * time.Second,
+		ExecuteTimeout:       60 * time.Second,
 	}
 
 	return utils.NewSSHClient(sshConfig)

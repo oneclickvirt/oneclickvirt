@@ -457,7 +457,8 @@ func (p *SSHConnectionPool) isSameConfig(a, b SSHConfig) bool {
 		a.Port == b.Port &&
 		a.Username == b.Username &&
 		a.Password == b.Password &&
-		a.PrivateKey == b.PrivateKey
+		a.PrivateKey == b.PrivateKey &&
+		a.PrivateKeyPassphrase == b.PrivateKeyPassphrase
 }
 
 // cleanupIdleConnections 自适应清理空闲、不健康和过期的连接

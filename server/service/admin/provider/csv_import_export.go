@@ -22,6 +22,7 @@ var providerCSVHeaders = []string{
 	"username",
 	"password",
 	"sshKey",
+	"sshKeyPassphrase",
 	"token",
 	"config",
 	"agentSecret",
@@ -161,15 +162,18 @@ func normalizeCSVHeader(h string) string {
 	h = strings.TrimPrefix(h, "\ufeff")
 	key := strings.ToLower(strings.NewReplacer("_", "", "-", "", " ", "").Replace(h))
 	aliases := map[string]string{
-		"sshpassword":           "password",
-		"sshprivatekey":         "sshKey",
-		"privatekey":            "sshKey",
-		"agentsecret":           "agentSecret",
-		"agenttoken":            "token",
-		"containertypeenabled":  "container_enabled",
-		"containerenabled":      "container_enabled",
-		"vmenabled":             "vm_enabled",
-		"virtualmachineenabled": "vm_enabled",
+		"sshpassword":             "password",
+		"sshprivatekey":           "sshKey",
+		"privatekey":              "sshKey",
+		"sshkeypassphrase":        "sshKeyPassphrase",
+		"sshprivatekeypassphrase": "sshKeyPassphrase",
+		"privatekeypassphrase":    "sshKeyPassphrase",
+		"agentsecret":             "agentSecret",
+		"agenttoken":              "token",
+		"containertypeenabled":    "container_enabled",
+		"containerenabled":        "container_enabled",
+		"vmenabled":               "vm_enabled",
+		"virtualmachineenabled":   "vm_enabled",
 	}
 	for _, canonical := range providerCSVHeaders {
 		aliases[strings.ToLower(strings.NewReplacer("_", "", "-", "", " ", "").Replace(canonical))] = canonical
@@ -376,6 +380,9 @@ func (s *Service) applyCSVToCreateReq(req *admin.CreateProviderRequest, values m
 	if v := values["sshKey"]; v != "" {
 		req.SSHKey = v
 	}
+	if v := values["sshKeyPassphrase"]; v != "" {
+		req.SSHKeyPassphrase = v
+	}
 	if v := values["connectionType"]; v != "" {
 		req.ConnectionType = v
 	}
@@ -519,6 +526,10 @@ func (s *Service) applyCSVToUpdateReq(req *admin.UpdateProviderRequest, values m
 	if v, ok := values["sshKey"]; ok && v != "" {
 		vCopy := v
 		req.SSHKey = &vCopy
+	}
+	if v, ok := values["sshKeyPassphrase"]; ok && (v != "" || values["sshKey"] != "") {
+		vCopy := v
+		req.SSHKeyPassphrase = &vCopy
 	}
 	if v := values["connectionType"]; v != "" {
 		req.ConnectionType = v
@@ -664,6 +675,7 @@ func (s *Service) ExportProvidersCSV(ownerAdminID uint, providerIDs []uint) ([]b
 			p.Username,
 			p.Password,
 			p.SSHKey,
+			p.SSHKeyPassphrase,
 			p.Token,
 			p.Config,
 			p.AgentSecret,

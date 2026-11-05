@@ -94,17 +94,18 @@ type Provider struct {
 
 	// 基本信息
 	// name已有uniqueIndex，type添加索引
-	Name        string `json:"name" gorm:"uniqueIndex;not null;size:64"`    // Provider名称（唯一）
-	Description string `json:"description" gorm:"type:text"`                // Provider描述（管理员备注）
-	Type        string `json:"type" gorm:"not null;size:32;index:idx_type"` // Provider类型：docker, podman, containerd, orbstack, lxd, incus, proxmox, qemu, kubevirt, vmware
-	Endpoint    string `json:"endpoint" gorm:"size:255"`                    // SSH连接端点地址
-	PortIP      string `json:"portIP" gorm:"size:255"`                      // 端口映射使用的公网IP（非必填，若为空则使用Endpoint）
-	SSHPort     int    `json:"sshPort" gorm:"default:22"`                   // SSH连接端口
-	Username    string `json:"username" gorm:"size:128"`                    // SSH连接用户名
-	Password    string `json:"-" gorm:"size:255"`                           // SSH连接密码（不返回给前端）
-	SSHKey      string `json:"-" gorm:"type:text"`                          // SSH私钥（不返回给前端，优先于密码使用）
-	Token       string `json:"-" gorm:"size:255"`                           // API访问令牌（不返回给前端）
-	Config      string `json:"config" gorm:"type:text"`                     // 额外配置信息（JSON格式）
+	Name             string `json:"name" gorm:"uniqueIndex;not null;size:64"`    // Provider名称（唯一）
+	Description      string `json:"description" gorm:"type:text"`                // Provider描述（管理员备注）
+	Type             string `json:"type" gorm:"not null;size:32;index:idx_type"` // Provider类型：docker, podman, containerd, orbstack, lxd, incus, proxmox, qemu, kubevirt, vmware
+	Endpoint         string `json:"endpoint" gorm:"size:255"`                    // SSH连接端点地址
+	PortIP           string `json:"portIP" gorm:"size:255"`                      // 端口映射使用的公网IP（非必填，若为空则使用Endpoint）
+	SSHPort          int    `json:"sshPort" gorm:"default:22"`                   // SSH连接端口
+	Username         string `json:"username" gorm:"size:128"`                    // SSH连接用户名
+	Password         string `json:"-" gorm:"size:255"`                           // SSH连接密码（不返回给前端）
+	SSHKey           string `json:"-" gorm:"type:text"`                          // SSH私钥（不返回给前端，优先于密码使用）
+	SSHKeyPassphrase string `json:"-" gorm:"type:text"`                          // SSH私钥口令（不返回给前端）
+	Token            string `json:"-" gorm:"size:255"`                           // API访问令牌（不返回给前端）
+	Config           string `json:"config" gorm:"type:text"`                     // 额外配置信息（JSON格式）
 
 	// 状态和地理信息
 	Status      string `json:"status" gorm:"default:active;size:16;index:idx_status"` // Provider状态：active, inactive
@@ -722,9 +723,10 @@ type ProviderNodeConfig struct {
 	Port                  int      `json:"port"`
 	Username              string   `json:"username"`
 	Password              string   `json:"password"`
-	PrivateKey            string   `json:"private_key"` // SSH私钥内容，优先于密码使用
-	Token                 string   `json:"token"`       // API Token Secret，用于ProxmoxVE等
-	TokenID               string   `json:"token_id"`    // API Token ID，用于ProxmoxVE等 (USER@REALM!TOKENID)
+	PrivateKey            string   `json:"private_key"`            // SSH私钥内容，优先于密码使用
+	PrivateKeyPassphrase  string   `json:"private_key_passphrase"` // SSH私钥口令，可选
+	Token                 string   `json:"token"`                  // API Token Secret，用于ProxmoxVE等
+	TokenID               string   `json:"token_id"`               // API Token ID，用于ProxmoxVE等 (USER@REALM!TOKENID)
 	CertPath              string   `json:"cert_path"`
 	KeyPath               string   `json:"key_path"`
 	CACertPath            string   `json:"ca_cert_path"`        // API服务端CA证书路径（可选）

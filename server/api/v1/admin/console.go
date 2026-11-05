@@ -715,7 +715,7 @@ func newConsoleExecutor(p providerModel.Provider) (utils.ShellExecutor, func(), 
 		port = 22
 	}
 	client, err := utils.NewSSHClient(utils.SSHConfig{
-		Host: host, Port: port, Username: p.Username, Password: p.Password, PrivateKey: p.SSHKey,
+		Host: host, Port: port, Username: p.Username, Password: p.Password, PrivateKey: p.SSHKey, PrivateKeyPassphrase: p.SSHKeyPassphrase,
 		ConnectTimeout: 15 * time.Second, ExecuteTimeout: 240 * time.Second,
 	})
 	if err != nil {

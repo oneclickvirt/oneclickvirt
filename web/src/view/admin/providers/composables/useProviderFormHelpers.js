@@ -47,6 +47,9 @@ export function useProviderFormHelpers() {
         requestData.password = formData.password
       } else if (formData.authMethod === 'sshKey') {
         requestData.sshKey = formData.sshKey
+        if (formData.sshKeyPassphrase) {
+          requestData.sshKeyPassphrase = formData.sshKeyPassphrase
+        }
       }
 
       const result = await testSSHConnectionAPI(requestData)
@@ -98,6 +101,7 @@ export function useProviderFormHelpers() {
     // 切换认证方式时，清空被隐藏的字段
     if (newMethod === 'password') {
       formData.sshKey = ''
+      formData.sshKeyPassphrase = ''
     } else if (newMethod === 'sshKey') {
       formData.password = ''
     }
@@ -123,6 +127,7 @@ export function useProviderFormHelpers() {
     username: '',
     password: '',
     sshKey: '',
+    sshKeyPassphrase: '',
     authMethod: 'password',
     description: '',
     region: '',

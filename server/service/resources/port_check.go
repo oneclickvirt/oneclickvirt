@@ -456,6 +456,7 @@ func (s *PortMappingService) createSSHClientForProvider(providerInfo *provider.P
 	// 如果有SSH密钥，优先使用密钥
 	if providerInfo.SSHKey != "" {
 		sshConfig.PrivateKey = providerInfo.SSHKey
+		sshConfig.PrivateKeyPassphrase = providerInfo.SSHKeyPassphrase
 	}
 
 	// 如果Endpoint包含端口，使用指定的端口

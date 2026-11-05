@@ -100,6 +100,28 @@
         </div>
       </el-form-item>
 
+      <el-form-item
+        v-if="modelValue.authMethod === 'sshKey'"
+        :label="$t('admin.providers.sshKeyPassphrase')"
+        prop="sshKeyPassphrase"
+      >
+        <el-input
+          v-model="modelValue.sshKeyPassphrase"
+          type="password"
+          :placeholder="isEditing ? $t('admin.providers.sshKeyPassphraseEditPlaceholder') : $t('admin.providers.sshKeyPassphrasePlaceholder')"
+          show-password
+          autocomplete="new-password"
+        />
+        <div class="form-tip">
+          <el-text
+            size="small"
+            type="info"
+          >
+            {{ $t('admin.providers.sshKeyPassphraseTip') }}
+          </el-text>
+        </div>
+      </el-form-item>
+
       <el-divider content-position="left">
         {{ $t('admin.providers.sshTimeoutConfig') }}
       </el-divider>

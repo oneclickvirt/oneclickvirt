@@ -143,7 +143,7 @@ func (p *ProxmoxHealthChecker) checkSSH(ctx context.Context) error {
 
 	// 如果提供了SSH私钥，添加密钥认证
 	if p.config.PrivateKey != "" {
-		signer, err := ssh.ParsePrivateKey([]byte(p.config.PrivateKey))
+		signer, err := utils.ParseSSHPrivateKey(p.config.PrivateKey, p.config.PrivateKeyPassphrase)
 		if err == nil {
 			authMethods = append(authMethods, ssh.PublicKeys(signer))
 			if p.logger != nil {

@@ -165,7 +165,7 @@ func ExecWebSocket(c *gin.Context) {
 	var sshClient *ssh.Client
 	var session *ssh.Session
 	if provider.SSHKey != "" {
-		sshClient, session, err = utils.CreateSSHConnectionWithKey(sshHost, sshPort, provider.Username, provider.SSHKey)
+		sshClient, session, err = utils.CreateSSHConnectionWithKeyAndPassphrase(sshHost, sshPort, provider.Username, provider.SSHKey, provider.SSHKeyPassphrase)
 	} else {
 		sshClient, session, err = utils.CreateSSHConnection(sshHost, sshPort, provider.Username, provider.Password)
 	}

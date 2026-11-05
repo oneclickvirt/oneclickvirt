@@ -164,7 +164,7 @@ func (d *DockerHealthChecker) checkSSH(ctx context.Context) error {
 
 	// 如果提供了SSH私钥，添加密钥认证
 	if d.config.PrivateKey != "" {
-		signer, err := ssh.ParsePrivateKey([]byte(d.config.PrivateKey))
+		signer, err := utils.ParseSSHPrivateKey(d.config.PrivateKey, d.config.PrivateKeyPassphrase)
 		if err == nil {
 			authMethods = append(authMethods, ssh.PublicKeys(signer))
 			if d.logger != nil {
