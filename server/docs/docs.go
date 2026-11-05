@@ -23459,7 +23459,6 @@ const docTemplate = `{
             "required": [
                 "host",
                 "name",
-                "password",
                 "type",
                 "username"
             ],
@@ -23512,6 +23511,10 @@ const docTemplate = `{
                 },
                 "sshKey": {
                     "description": "SSH私钥内容，优先于密码使用",
+                    "type": "string"
+                },
+                "sshKeyPassphrase": {
+                    "description": "SSH私钥口令，可选",
                     "type": "string"
                 },
                 "sshPort": {
