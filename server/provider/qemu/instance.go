@@ -261,7 +261,7 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 
 		tmpPath := baseImage + ".tmp"
 		runDownload := func(rawURL string) (string, error) {
-			downloadScript := utils.BuildRemoteDownloadScript(rawURL, tmpPath, baseImage)
+			downloadScript := utils.BuildRemoteDownloadScriptWithFallback(utils.ImageDownloadCandidates(rawURL), tmpPath, baseImage)
 			return p.sshClient.ExecuteViaTempScript(downloadScript, nil, 30*time.Minute)
 		}
 		dlOutput, dlErr := runDownload(downloadURL)

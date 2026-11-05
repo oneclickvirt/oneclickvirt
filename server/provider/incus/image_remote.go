@@ -125,7 +125,7 @@ func (i *IncusProvider) downloadFileToRemote(url, remotePath string) error {
 
 func (i *IncusProvider) downloadFileToRemoteWithTimeout(url, remotePath string, timeout time.Duration) error {
 	tmpPath := remotePath + ".tmp"
-	script := utils.BuildRemoteDownloadScript(url, tmpPath, remotePath)
+	script := utils.BuildRemoteDownloadScriptWithFallback(utils.ImageDownloadCandidates(url), tmpPath, remotePath)
 
 	global.APP_LOG.Debug("执行远程下载脚本",
 		zap.String("url", utils.TruncateString(url, 100)))

@@ -51,7 +51,7 @@ func shellConfigValue(value string) string {
 }
 
 func (p *ProxmoxProvider) downloadRemoteFile(url, tmpPath, dstPath string, timeout time.Duration) (string, error) {
-	downloadScript := utils.BuildRemoteDownloadScript(url, tmpPath, dstPath)
+	downloadScript := utils.BuildRemoteDownloadScriptWithFallback(utils.ImageDownloadCandidates(url), tmpPath, dstPath)
 	return p.sshClient.ExecuteViaTempScript(downloadScript, nil, timeout)
 }
 

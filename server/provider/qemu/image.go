@@ -93,7 +93,7 @@ func (p *QEMUProvider) sshPullImage(ctx context.Context, imageURL string) error 
 
 		// 下载镜像（使用临时文件+mv模式）
 		tmpPath := remotePath + ".tmp"
-		downloadScript := utils.BuildRemoteDownloadScript(imageURL, tmpPath, remotePath)
+		downloadScript := utils.BuildRemoteDownloadScriptWithFallback(utils.ImageDownloadCandidates(imageURL), tmpPath, remotePath)
 		output, err := p.sshClient.ExecuteViaTempScript(downloadScript, nil, 30*time.Minute)
 		if err != nil {
 			global.APP_LOG.Error("镜像下载失败",

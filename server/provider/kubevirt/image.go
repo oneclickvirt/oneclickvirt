@@ -86,7 +86,7 @@ func (p *KubeVirtProvider) sshPullImage(ctx context.Context, imageURL string) er
 		p.sshClient.Execute(fmt.Sprintf("mkdir -p %s", shellSingleQuote(ImageDir)))
 
 		tmpPath := remotePath + ".tmp"
-		downloadScript := utils.BuildRemoteDownloadScript(imageURL, tmpPath, remotePath)
+		downloadScript := utils.BuildRemoteDownloadScriptWithFallback(utils.ImageDownloadCandidates(imageURL), tmpPath, remotePath)
 		output, err := p.sshClient.ExecuteViaTempScript(downloadScript, nil, 30*time.Minute)
 		if err != nil {
 			global.APP_LOG.Error("镜像下载失败",

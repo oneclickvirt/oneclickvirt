@@ -99,7 +99,7 @@ func (c *ContainerdProvider) downloadFileToRemote(url, remotePath string) error 
 
 func (c *ContainerdProvider) downloadFileToRemoteWithTimeout(url, remotePath string, timeout time.Duration) error {
 	tmpPath := remotePath + ".tmp"
-	script := utils.BuildRemoteDownloadScript(url, tmpPath, remotePath)
+	script := utils.BuildRemoteDownloadScriptWithFallback(utils.ImageDownloadCandidates(url), tmpPath, remotePath)
 
 	output, err := c.sshClient.ExecuteViaTempScript(script, nil, timeout)
 	if err != nil {

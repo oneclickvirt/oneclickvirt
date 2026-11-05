@@ -91,7 +91,7 @@ func (p *QEMUProvider) sshCreateLXCContainer(ctx context.Context, config provide
 			downloadURL = utils.GetBaseCDNEndpoint() + downloadURL
 		}
 		runDownload := func(rawURL string) (string, error) {
-			downloadScript := utils.BuildRemoteDownloadScript(rawURL, tmpPath, imageFile)
+			downloadScript := utils.BuildRemoteDownloadScriptWithFallback(utils.ImageDownloadCandidates(rawURL), tmpPath, imageFile)
 			return p.sshClient.ExecuteViaTempScript(downloadScript, nil, 30*time.Minute)
 		}
 		output, err := runDownload(downloadURL)

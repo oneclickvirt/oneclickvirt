@@ -179,7 +179,7 @@ func (p *ProxmoxProvider) downloadImageToRemote(ctx context.Context, imageURL, i
 // downloadFileToRemote 在远程服务器上下载文件
 func (p *ProxmoxProvider) downloadFileToRemote(url, remotePath string) error {
 	tmpPath := remotePath + ".tmp"
-	script := utils.BuildRemoteDownloadScript(url, tmpPath, remotePath)
+	script := utils.BuildRemoteDownloadScriptWithFallback(utils.ImageDownloadCandidates(url), tmpPath, remotePath)
 
 	output, err := p.sshClient.ExecuteViaTempScript(script, nil, 30*time.Minute)
 	if err != nil {

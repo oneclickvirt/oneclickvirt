@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -26,6 +27,16 @@ var imageDownloadGroup singleflight.Group
 
 type ImageDownloadService struct {
 	cdnEndpoints []string
+	httpClient   *http.Client
+}
+
+var imageDownloadTransport = &http.Transport{
+	Proxy:                 http.ProxyFromEnvironment,
+	DialContext:           (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+	TLSHandshakeTimeout:   10 * time.Second,
+	ResponseHeaderTimeout: 10 * time.Second,
+	IdleConnTimeout:       90 * time.Second,
+	ForceAttemptHTTP2:     true,
 }
 
 func NewImageDownloadService() *ImageDownloadService {
@@ -62,17 +73,8 @@ func (s *ImageDownloadService) DownloadImageForProvider(imageURL, imageName, pro
 			return filePath, nil
 		}
 
-		// 确定下载URL
-		downloadURL := s.getDownloadURL(imageURL, providerCountry)
-
-		global.APP_LOG.Info("开始下载镜像",
-			zap.String("imageName", imageName),
-			zap.String("downloadURL", downloadURL),
-			zap.String("filePath", filePath))
-
-		// 下载文件
-		if err := s.downloadFile(downloadURL, filePath); err != nil {
-			os.Remove(filePath)
+		candidates := s.getDownloadURLs(imageURL, providerCountry)
+		if err := s.downloadFromCandidates(candidates, filePath); err != nil {
 			return "", fmt.Errorf("下载镜像失败: %w", err)
 		}
 
@@ -445,8 +447,38 @@ func (s *ImageDownloadService) validateGzipFile(file *os.File) bool {
 
 // getDownloadURL 根据Provider国家和URL确定下载地址
 func (s *ImageDownloadService) getDownloadURL(originalURL, providerCountry string) string {
-	// 默认随机尝试CDN，不再限制地区
-	return s.getCDNURL(originalURL)
+	candidates := s.getDownloadURLs(originalURL, providerCountry)
+	if len(candidates) == 0 {
+		return originalURL
+	}
+	return candidates[0]
+}
+
+func (s *ImageDownloadService) getDownloadURLs(originalURL, providerCountry string) []string {
+	// Build the list without probing CDN servers before the primary node.
+	endpoints := append([]string(nil), s.cdnEndpoints...)
+	rand.Shuffle(len(endpoints), func(i, j int) { endpoints[i], endpoints[j] = endpoints[j], endpoints[i] })
+	fallbacks := make([]string, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		fallbacks = append(fallbacks, endpoint+originalURL)
+	}
+	return utils.ImageDownloadCandidates(originalURL, fallbacks...)
+}
+
+func (s *ImageDownloadService) downloadFromCandidates(candidates []string, filePath string) error {
+	var lastErr error
+	for _, candidate := range candidates {
+		if err := s.downloadFile(candidate, filePath); err != nil {
+			lastErr = err
+			global.APP_LOG.Warn("镜像候选地址下载失败，尝试下一个地址", zap.String("downloadURL", candidate), zap.Error(err))
+			continue
+		}
+		return nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("没有可用的镜像地址")
+	}
+	return lastErr
 }
 
 // getCDNURL 获取随机CDN加速URL
@@ -497,7 +529,10 @@ func (s *ImageDownloadService) downloadFile(url, filePath string) error {
 	defer os.Remove(tmpPath)
 
 	// 创建HTTP客户端（30分钟超时，带连接池）
-	client := utils.GetHTTPClientWithTimeout(30 * time.Minute)
+	client := s.httpClient
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Minute, Transport: imageDownloadTransport}
+	}
 
 	// 发起下载请求
 	resp, err := client.Get(url)
@@ -509,6 +544,9 @@ func (s *ImageDownloadService) downloadFile(url, filePath string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("下载失败，HTTP状态码: %d", resp.StatusCode)
 	}
+	if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/html") {
+		return fmt.Errorf("镜像地址返回 HTML 页面")
+	}
 
 	// 创建目标文件
 	file, err := os.Create(tmpPath)
@@ -518,9 +556,15 @@ func (s *ImageDownloadService) downloadFile(url, filePath string) error {
 	defer file.Close()
 
 	// 复制数据
-	_, err = io.Copy(file, resp.Body)
+	written, err := io.Copy(file, resp.Body)
 	if err != nil {
 		return fmt.Errorf("写入文件失败: %w", err)
+	}
+	if written == 0 {
+		return fmt.Errorf("镜像文件为空")
+	}
+	if err := file.Close(); err != nil {
+		return err
 	}
 
 	// 移动到最终位置
