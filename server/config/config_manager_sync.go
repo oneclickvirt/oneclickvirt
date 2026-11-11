@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"sort"
 
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
@@ -11,7 +12,13 @@ import (
 // 此方法不写回 YAML，而是基于当前缓存快照重建完整嵌套配置并触发回调，
 // 确保 API 局部更新后 global.APP_CONFIG 与 configCache 保持一致。
 func (cm *ConfigManager) syncToGlobalConfig(config map[string]interface{}) error {
-	cm.logger.Info("配置已更新，将通过回调同步到全局配置", zap.Any("config", config))
+	// 只记录被更新的顶层配置键名，不记录配置值（其中包含 SMTP 密码、Bot Token、私钥等敏感信息）
+	updatedKeys := make([]string, 0, len(config))
+	for k := range config {
+		updatedKeys = append(updatedKeys, k)
+	}
+	sort.Strings(updatedKeys)
+	cm.logger.Info("配置已更新，将通过回调同步到全局配置", zap.Strings("updatedKeys", updatedKeys))
 
 	nestedConfig, skippedSystemCount := cm.buildNestedConfigSnapshot()
 	cm.logger.Info("配置缓存快照已构建完成",
@@ -43,8 +50,7 @@ func (cm *ConfigManager) buildNestedConfigSnapshot() (map[string]interface{}, in
 		}
 
 		cm.logger.Debug("处理配置项",
-			zap.String("key", key),
-			zap.Any("value", value))
+			zap.String("key", key))
 		setNestedValue(nestedConfig, key, value)
 	}
 
