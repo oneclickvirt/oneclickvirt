@@ -36,7 +36,7 @@ export async function synchronizeVersion(root, tag, check = false) {
       const value = file.endsWith('.go') ? `const ServerVersion = "${tag}"`
         : file.endsWith('dsh-service.mjs') ? `export const VERSION = '${tag}'`
         : file.endsWith('dsh-client.js') ? `const releaseVersion = /* OCV_RELEASE */ '${tag}'`
-        : `  version: "${tag}"`
+        : `  version: "${tag.slice(1)}"`
       assert(pattern.test(original), 'Missing version field in ' + file)
       updated = original.replace(pattern, value)
     }

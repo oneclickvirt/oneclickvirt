@@ -27,5 +27,5 @@ assert(client.includes('const dictionaries = /* OCV_LOCALES */ ' + JSON.stringif
 for (const match of client.matchAll(/\bt\('([^']+)'\)/g)) assert(Object.hasOwn(dictionaries.en, match[1]), 'Translation: ' + match[1])
 for (const file of ['README.md', 'README_ZH.md']) assert((await readFile(new URL('../' + file, import.meta.url), 'utf8')).includes('dsh plugin --profile web add github:oneclickvirt/oneclickvirt'))
 assert((await readFile(new URL('../server/constant/version.go', import.meta.url), 'utf8')).includes('ServerVersion = "' + VERSION + '"'))
-assert((await readFile(new URL('../skills/SKILL.md', import.meta.url), 'utf8')).includes('version: "' + VERSION + '"'))
+assert((await readFile(new URL('../skills/SKILL.md', import.meta.url), 'utf8')).includes('version: "' + VERSION.slice(1) + '"'))
 console.error('DSH manifest, versions, translations, syntax and dependency install scripts verified.')
