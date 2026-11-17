@@ -28,6 +28,7 @@ export async function synchronizeVersion(root, tag, check = false) {
       const lock = JSON.parse(original)
       lock.version = version; lock.packages[''].version = version
       updated = JSON.stringify(lock, null, 2) + '\n'
+      if (original.includes('\r\n')) updated = updated.replace(/\n/g, '\r\n')
     } else {
       const pattern = file.endsWith('.go') ? /const ServerVersion = "[^"]+"/
         : file.endsWith('dsh-service.mjs') ? /export const VERSION = '[^']+'/

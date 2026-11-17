@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, copyFile, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, copyFile, readFile, writeFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
@@ -26,6 +26,12 @@ test('one release updates all version fields, checks drift, and is idempotent', 
   await synchronizeVersion(root, tag)
   assert.equal((await synchronizeVersion(root, tag, true)).packageVersion, '20260201.1203.0')
   assert.deepEqual((await synchronizeVersion(root, tag)).changed, [])
+  const lockFile = new URL('package-lock.json', root)
+  await writeFile(lockFile, (await readFile(lockFile, 'utf8')).replace(/\r?\n/g, '\r\n'))
+  await synchronizeVersion(root, tag, true)
+  await synchronizeVersion(root, 'v20260201-001204')
+  assert(!(await readFile(lockFile, 'utf8')).replace(/\r\n/g, '').includes('\n'), 'Windows line endings are preserved')
+  await synchronizeVersion(root, tag)
   assert.match(await readFile(new URL('skills/dsh-service.mjs', root), 'utf8'), /VERSION = 'v20260201-001203'/)
   assert.equal(JSON.parse(await readFile(new URL('package.json', root), 'utf8')).version, '20260201.1203.0')
   const before = await readFile(new URL('package.json', root), 'utf8')
