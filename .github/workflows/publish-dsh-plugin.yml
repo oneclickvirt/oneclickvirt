@@ -11,10 +11,6 @@ on:
         default: latest
         required: true
         type: string
-      publish_npm:
-        description: Publish with an already configured npm Trusted Publisher
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -93,7 +89,7 @@ jobs:
           PY
 
   npm:
-    if: github.repository == 'oneclickvirt/oneclickvirt' && (vars.DSH_NPM_TRUSTED_PUBLISHING == 'true' || inputs.publish_npm == true)
+    if: github.repository == 'oneclickvirt/oneclickvirt'
     needs: release
     runs-on: ubuntu-24.04
     timeout-minutes: 15
