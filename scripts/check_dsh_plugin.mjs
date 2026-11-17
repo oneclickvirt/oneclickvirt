@@ -2,10 +2,12 @@ import assert from 'node:assert/strict'
 import { readFile, access } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import { VERSION } from '../skills/dsh-service.mjs'
+import { packageVersion, synchronizeVersion } from './set_release_version.mjs'
 const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 const lock = JSON.parse(await readFile(new URL('../package-lock.json', import.meta.url), 'utf8'))
-assert.equal(pkg.name, 'dsh-plugin-oneclickvirt'); assert.equal(pkg.version, VERSION)
-assert.equal(lock.version, VERSION); assert.equal(pkg.license, 'GPL-3.0-only')
+assert.equal(pkg.name, 'dsh-plugin-oneclickvirt'); assert.equal(pkg.version, packageVersion(VERSION))
+assert.equal(lock.version, pkg.version); assert.equal(pkg.license, 'GPL-3.0-only')
+await synchronizeVersion(new URL('../', import.meta.url), VERSION, true)
 assert.deepEqual(pkg.dsh.bundle.platforms, ['darwin', 'linux', 'win32'])
 assert.equal(pkg.dsh.client.immediately, true)
 assert.equal(pkg.dependencies, undefined); assert.equal(pkg.optionalDependencies, undefined)

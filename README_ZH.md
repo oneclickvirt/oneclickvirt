@@ -326,7 +326,7 @@ dsh plugin --profile web add github:oneclickvirt/oneclickvirt
 <details>
 <summary>安装和使用 OneClickVirt 页面</summary>
 
-需要 DSH `>=0.2.2-rc.1 <0.3.0` 和 Node.js 22.6 以上版本。Desktop 在 **插件 → 添加 → 安装第三方插件** 中填写 GitHub 仓库，或选择 [DSH Release](https://github.com/oneclickvirt/oneclickvirt/releases/tag/dsh-v0.3.1) 中的 `dsh-plugin-oneclickvirt-0.3.1.tgz`。Desktop 配置由应用管理，上面的命令用于 Web 配置。
+需要 DSH `>=0.2.2-rc.1 <0.3.0` 和 Node.js 22.6 以上版本。Desktop 在 **插件 → 添加 → 安装第三方插件** 中填写 GitHub 仓库，或选择 [DSH Release](https://github.com/oneclickvirt/oneclickvirt/releases/latest) 中的 `dsh-plugin-oneclickvirt.tgz`。Desktop 配置由应用管理，上面的命令用于 Web 配置。
 
 从侧栏打开 **OneClickVirt**，登录已部署的平台。管理员与普通用户按原有权限管理实例、选择节点镜像和资源规格、修改备注别名、查看任务与监控。切换 DSH 页面后保留当前页面。账号密码登录并保持登录时会创建设备专用 API Token，退出时清除并撤销；已有 API Token 沿用其有效期，退出不撤销。密码不保存。
 

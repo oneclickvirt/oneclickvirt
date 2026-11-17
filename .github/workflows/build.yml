@@ -78,6 +78,8 @@ jobs:
   build-and-release:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    permissions:
+      contents: write
     needs:
     - build-agent-amd64
     - build-agent-arm64
@@ -118,7 +120,7 @@ jobs:
         fi
     - name: Get current date
       id: date
-      run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> "$GITHUB_OUTPUT"
+      run: echo "date=$(date -u +'%Y%m%d-%H%M%S')" >> "$GITHUB_OUTPUT"
     - name: Create build directory
       run: mkdir -p build
     - name: Download agent artifacts
@@ -154,7 +156,7 @@ jobs:
     - name: Update version constants for this release
       run: |
         TAG_NAME="v${{ steps.date.outputs.date }}"
-        sed -i "s/const ServerVersion = \".*\"/const ServerVersion = \"${TAG_NAME}\"/" server/constant/version.go
+        node scripts/set_release_version.mjs "$TAG_NAME"
         AGENT_VERSION=$(sed -n 's/^version = "\([^"]*\)"/\1/p' server/agent/Cargo.toml | head -1)
         MIN_AGENT_VERSION=$(sed -n 's/^const CompatibleAgentVersion = "\([^"]*\)"/\1/p' server/constant/version.go)
         CURRENT_AGENT_VERSION=$(sed -n 's/^const CurrentAgentVersion = "\([^"]*\)"/\1/p' server/constant/version.go)
@@ -167,6 +169,16 @@ jobs:
         PY
         echo "Updated controller release tag to: ${TAG_NAME}; minimum Agent API version: ${MIN_AGENT_VERSION}"
         cat server/constant/version.go
+        # Keep the immutable release tag and GitHub source installs on the
+        # same version. A concurrent main update stops this push safely.
+        test "$(git rev-parse HEAD)" = "$(git ls-remote origin refs/heads/main | cut -f1)"
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        git add server/constant/version.go package.json package-lock.json skills/dsh-service.mjs skills/dsh-client.js skills/SKILL.md skills/SKILL_ZH.md
+        if ! git diff --cached --quiet; then
+          git commit -m "chore: synchronize controller and plugin version ${TAG_NAME}"
+          git push origin HEAD:main
+        fi
     - name: Build Vue web application
       run: |
         cd web
@@ -271,10 +283,23 @@ jobs:
       run: |
         python3 scripts/package_skill.py --version "v${{ steps.date.outputs.date }}" --output-dir build
         (cd build && sha256sum oneclickvirt-skill*.tar.gz oneclickvirt-skill*.sha256 >> SHA256SUMS)
+    - name: Package matching DSH plugin
+      run: |
+        set -euo pipefail
+        npm ci --ignore-scripts
+        npm run build -- --check
+        npm run check
+        npm test
+        npm pack --ignore-scripts --pack-destination build
+        cp "build/dsh-plugin-oneclickvirt-$(node -p "require('./package.json').version").tgz" build/dsh-plugin-oneclickvirt.tgz
+        (cd build && sha256sum dsh-plugin-oneclickvirt*.tgz > DSH-SHA256SUMS && cat DSH-SHA256SUMS >> SHA256SUMS)
     - name: Get previous release tag
       id: get_previous_tag
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: |
-        PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+        PREVIOUS_TAG=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null || true)
+        [[ "$PREVIOUS_TAG" =~ ^v[0-9]{8}-[0-9]{6}$ ]] || PREVIOUS_TAG=''
         echo "previous_tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
         echo "Previous release tag: $PREVIOUS_TAG"
     - name: Create Release with Auto-generated Notes
@@ -299,6 +324,9 @@ jobs:
         - `oneclickvirt-skill.tar.gz` / `oneclickvirt-skill-<本次标签>.tar.gz`：本版本 Skill，内含安装器与 MCP 配置示例
         - `oneclickvirt-skill*.sha256`：Skill 压缩包校验文件
         - 安装及更新：https://www.spiritlhl.net/guide/oneclickvirt/oneclickvirt_advanced_install.html#skill-与-mcp
+        ### DeepSeek Harness Plugin
+        - `dsh-plugin-oneclickvirt.tgz`：与本次主控使用相同时间戳版本的 DSH 插件
+        - `DSH-SHA256SUMS`：插件压缩包校验文件
         ### 校验文件
         - `SHA256SUMS`：Release 资产 SHA-256 校验清单
         NOTES
@@ -307,7 +335,7 @@ jobs:
           arguments+=(--notes-start-tag "$PREVIOUS_TAG")
         fi
         gh release create "$RELEASE_TAG" "${arguments[@]}" \
-          ./build/*.tar.gz ./build/*.zip ./build/SHA256SUMS ./build/oneclickvirt-skill*.sha256
+          ./build/*.tar.gz ./build/*.zip ./build/*.tgz ./build/SHA256SUMS ./build/DSH-SHA256SUMS ./build/oneclickvirt-skill*.sha256
     env:
       GOPROXY: https://proxy.golang.org|direct
 'on':

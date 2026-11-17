@@ -1,10 +1,8 @@
 package constant
 
-// ServerVersion is the source-build fallback. Official controller builds use
-// the release workflow to replace this value with a vYYYYMMDD-HHMMSS tag.
-// It must stay independent from the latest public release because this source
-// tree may contain changes that have not been released yet.
-const ServerVersion = "0.3.1"
+// ServerVersion shares the vYYYYMMDD-HHMMSS release tag with the DSH plugin
+// and Skills. Source builds still carry the unofficial marker below.
+const ServerVersion = "v20261117-073556"
 
 // AgentReleaseVersion is the controller release tag containing the Agent
 // assets. It is separate from CompatibleAgentVersion: the latter is the

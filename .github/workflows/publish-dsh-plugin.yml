@@ -1,12 +1,14 @@
 name: Publish DSH Plugin
 
 on:
-  push:
-    tags: ['dsh-v*.*.*']
+  workflow_run:
+    workflows: ['Build and Release oneclickvirt']
+    types: [completed]
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Plugin tag, for example dsh-v0.3.1
+        description: Controller release tag, for example v20261117-073556, or latest
+        default: latest
         required: true
         type: string
       publish_npm:
@@ -18,7 +20,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: publish-dsh-plugin-${{ github.ref }}
+  group: publish-dsh-plugin
   cancel-in-progress: false
 
 env:
@@ -26,40 +28,69 @@ env:
 
 jobs:
   release:
-    if: github.repository == 'oneclickvirt/oneclickvirt'
+    if: github.repository == 'oneclickvirt/oneclickvirt' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    permissions:
-      contents: write
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
     steps:
+      - name: Resolve the complete controller release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_VERSION: ${{ inputs.release_tag || 'latest' }}
+        run: |
+          set -euo pipefail
+          endpoint=latest
+          if [[ "$REQUESTED_VERSION" != latest ]]; then
+            [[ "$REQUESTED_VERSION" =~ ^v[0-9]{8}-[0-9]{6}$ ]]
+            endpoint="tags/$REQUESTED_VERSION"
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/$endpoint" > "$RUNNER_TEMP/controller-release.json"
+          python3 - <<'PY'
+          import json, os, pathlib, re
+          release = json.loads((pathlib.Path(os.environ['RUNNER_TEMP']) / 'controller-release.json').read_text())
+          tag = release['tag_name']
+          assert re.fullmatch(r'v[0-9]{8}-[0-9]{6}', tag)
+          assert not release['draft'] and not release['prerelease']
+          assets = {asset['name'] for asset in release['assets']}
+          assert {'SHA256SUMS', 'server-linux-amd64.tar.gz', 'server-linux-arm64.tar.gz', 'server-windows-amd64.zip', 'server-windows-arm64.zip', 'dsh-plugin-oneclickvirt.tgz', 'DSH-SHA256SUMS'} <= assets, 'Incomplete controller/plugin release'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('tag=' + tag + '\n')
+          PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.release_tag || github.ref }}
+          ref: ${{ steps.release.outputs.tag }}
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24
           package-manager-cache: false
-      - name: Validate release version
+      - name: Verify shared release version
         env:
-          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
-        run: test "$RELEASE_TAG" = "dsh-v$(node -p "require('./package.json').version")"
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: node scripts/set_release_version.mjs --check "$RELEASE_TAG"
       - run: npm ci --ignore-scripts
       - run: npm run build -- --check
       - run: npm run check
       - run: npm test
-      - name: Pack and publish release assets
+      - name: Verify the published plugin archives
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
-          npm pack --ignore-scripts
-          sha256sum dsh-plugin-oneclickvirt-*.tgz > DSH-SHA256SUMS
-          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" --verify-tag --latest=false --title "OneClickVirt DSH Plugin ${RELEASE_TAG#dsh-v}" --notes 'OneClickVirt native DSH page and tools. Install the tgz in Desktop, or use the GitHub repository in the Web profile. Requires DSH >=0.2.2-rc.1 <0.3.0. Controller releases retain their existing timestamp tags.'
-          fi
-          gh release upload "$RELEASE_TAG" dsh-plugin-oneclickvirt-*.tgz DSH-SHA256SUMS --clobber
+          mkdir "$RUNNER_TEMP/published-dsh"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern 'dsh-plugin-oneclickvirt*.tgz' --pattern DSH-SHA256SUMS --dir "$RUNNER_TEMP/published-dsh"
+          (cd "$RUNNER_TEMP/published-dsh" && sha256sum --check DSH-SHA256SUMS)
+          python3 - <<'PY'
+          import json, os, pathlib, tarfile
+          package = json.loads(pathlib.Path('package.json').read_text())
+          archive = pathlib.Path(os.environ['RUNNER_TEMP']) / 'published-dsh/dsh-plugin-oneclickvirt.tgz'
+          with tarfile.open(archive) as source:
+              assert json.load(source.extractfile('package/package.json'))['version'] == package['version']
+              assert source.extractfile('package/skills/dsh-service.mjs').read() == pathlib.Path('skills/dsh-service.mjs').read_bytes()
+          PY
 
   npm:
     if: github.repository == 'oneclickvirt/oneclickvirt' && (vars.DSH_NPM_TRUSTED_PUBLISHING == 'true' || inputs.publish_npm == true)
@@ -72,7 +103,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.release_tag || github.ref }}
+          ref: ${{ needs.release.outputs.tag }}
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:

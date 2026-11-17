@@ -3,9 +3,9 @@ name: DSH Plugin
 on:
   push:
     branches: [main]
-    paths: ['skills/dsh*', 'skills/en.json', 'skills/zh.json', 'scripts/*dsh*', 'package*.json', '.github/workflows/dsh-plugin.yml']
+    paths: ['skills/dsh*', 'skills/en.json', 'skills/zh.json', 'scripts/*dsh*', 'scripts/set_release_version*', 'package*.json', '.github/workflows/dsh-plugin.yml']
   pull_request:
-    paths: ['skills/dsh*', 'skills/en.json', 'skills/zh.json', 'scripts/*dsh*', 'package*.json', '.github/workflows/dsh-plugin.yml']
+    paths: ['skills/dsh*', 'skills/en.json', 'skills/zh.json', 'scripts/*dsh*', 'scripts/set_release_version*', 'package*.json', '.github/workflows/dsh-plugin.yml']
   workflow_dispatch:
 
 permissions:

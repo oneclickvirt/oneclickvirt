@@ -327,7 +327,7 @@ dsh plugin --profile web add github:oneclickvirt/oneclickvirt
 <details>
 <summary>Install and use the OneClickVirt page</summary>
 
-Requires DSH `>=0.2.2-rc.1 <0.3.0` and Node.js 22.6 or newer. In Desktop, use **Plugins → Add → Install third-party plugin** with the GitHub repository, or select `dsh-plugin-oneclickvirt-0.3.1.tgz` from [DSH releases](https://github.com/oneclickvirt/oneclickvirt/releases/tag/dsh-v0.3.1). The Desktop profile is managed by the app; the command above is for the Web profile.
+Requires DSH `>=0.2.2-rc.1 <0.3.0` and Node.js 22.6 or newer. In Desktop, use **Plugins → Add → Install third-party plugin** with the GitHub repository, or select `dsh-plugin-oneclickvirt.tgz` from [DSH releases](https://github.com/oneclickvirt/oneclickvirt/releases/latest). The Desktop profile is managed by the app; the command above is for the Web profile.
 
 Open **OneClickVirt** in the sidebar and sign in to an existing deployment. Administrators and users can manage instances within their existing permissions, select node images and resource specifications, edit display aliases, and inspect tasks and monitoring. Switching DSH pages preserves this page. Remembered password sign-in creates a device API token; signing out clears it and revokes that device token. Existing API tokens keep their own expiry and are not revoked on sign-out. Passwords are never saved.
 
