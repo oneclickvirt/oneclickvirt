@@ -33,6 +33,20 @@ def tar_bytes(name, data, link=None):
 
 
 class DistributionTests(unittest.TestCase):
+    def test_metadata_authentication_never_reaches_assets_or_redirects(self):
+        with patch.dict(installer.os.environ, {"GH_TOKEN": "fixture-token"}, clear=True):
+            with patch.object(installer.urllib.request, "urlopen") as open_url:
+                open_url.return_value.__enter__.return_value.read.return_value = b"{}"
+                for url, authenticated in ((installer.API + "latest", True),
+                        ("https://github.com/oneclickvirt/oneclickvirt/releases/download/v1/asset", False),
+                        ("https://api.github.com.evil.invalid/repos/oneclickvirt/oneclickvirt/releases/latest", False)):
+                    installer.download(url)
+                    request = open_url.call_args.args[0]
+                    self.assertEqual(request.get_header("Authorization"), "Bearer fixture-token" if authenticated else None)
+                    redirected = installer.urllib.request.HTTPRedirectHandler().redirect_request(
+                        request, None, 302, "Found", {}, "https://release-assets.githubusercontent.com/asset")
+                    self.assertIsNone(redirected.get_header("Authorization"))
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

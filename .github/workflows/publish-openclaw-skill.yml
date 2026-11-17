@@ -138,6 +138,7 @@ jobs:
         shell: python
         env:
           RELEASE_TAG: ${{ needs.reconcile.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           import json, os, pathlib, subprocess, sys
           root = pathlib.Path(os.environ['RUNNER_TEMP'])

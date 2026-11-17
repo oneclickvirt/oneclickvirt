@@ -31,6 +31,12 @@ def download(url, limit=128 * 1024 * 1024):
         try:
             request = urllib.request.Request(url, headers={
                 "User-Agent": "oneclickvirt-skill-installer", "Cache-Control": "no-cache"})
+            if url.startswith(API):
+                token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+                if token:
+                    # Authenticate metadata only. This header is not forwarded
+                    # to release storage or any other redirect destination.
+                    request.add_unredirected_header("Authorization", "Bearer " + token)
             with urllib.request.urlopen(request, timeout=45) as response:
                 value = response.read(limit + 1)
             if len(value) > limit:
