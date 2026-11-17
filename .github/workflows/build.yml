@@ -239,6 +239,18 @@ jobs:
 
         # Windows ARM64 (with embedded frontend)
         GOOS=windows GOARCH=arm64 go build -tags embed -ldflags="$LDFLAGS" -o ../build/server-allinone-windows-arm64.exe .
+    - name: Verify controller binaries report the shared release version
+      env:
+        RELEASE_TAG: v${{ steps.date.outputs.date }}
+      run: |
+        python3 - <<'PY'
+        import os, subprocess
+        for binary in ('server-linux-amd64', 'server-allinone-linux-amd64'):
+            value = subprocess.check_output(['./build/' + binary, '--version'], text=True)
+            assert value.startswith('oneclickvirt ' + os.environ['RELEASE_TAG'] + ' commit='), value
+            assert value.rstrip().endswith('official=true'), value
+            print(value, end='')
+        PY
     - name: Compress binaries
       run: |
         cd build
