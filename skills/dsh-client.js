@@ -46,7 +46,7 @@ window.__ModuleLoader__.load({
       const [search, setSearch] = React.useState(''), [filter, setFilter] = React.useState(''), [page, setPage] = React.useState(1), [providerPage, setProviderPage] = React.useState(1), [providerTotal, setProviderTotal] = React.useState(0), [taskPage, setTaskPage] = React.useState(1)
       const [detail, setDetail] = React.useState(null), [modal, setModal] = React.useState(null), [alias, setAlias] = React.useState(''), [confirmation, setConfirmation] = React.useState('')
       const [draft, setDraft] = React.useState({}), [catalog, setCatalog] = React.useState(null), [catalogBusy, setCatalogBusy] = React.useState(false), [sidebar, setSidebar] = React.useState(saved.sidebar)
-      const lifetime = React.useRef(null), epoch = React.useRef(0), account = React.useRef(''), locked = React.useRef(false), catalogRevision = React.useRef(0)
+      const lifetime = React.useRef(null), epoch = React.useRef(0), account = React.useRef(''), locked = React.useRef(false), signingOut = React.useRef(false), catalogRevision = React.useRef(0)
       const connected = Boolean(status?.connected), admin = Boolean(status?.admin)
       const scopeOf = state => state?.connected ? state.baseUrl + '/' + state.user.id : ''
       const wipe = () => { setInstances({ list: [], total: 0 }); setProviders([]); setTasks({ list: [], total: 0 }); setOverview(null); setDetail(null); setModal(null); setCatalog(null); setDraft({}); setPage(1); setTaskPage(1); setProviderPage(1); setProviderTotal(0); setSearch(''); setFilter('') }
@@ -61,7 +61,7 @@ window.__ModuleLoader__.load({
         return data
       }
       const call = (name, args = {}, signal = lifetime.current?.signal) => api({ action: 'call', name, args }, signal)
-      const refreshStatus = async signal => { const revision = epoch.current, data = await api({ action: 'status' }, signal); if (!signal?.aborted && revision === epoch.current) adopt(data); return data }
+      const refreshStatus = async signal => { const revision = epoch.current, data = await api({ action: 'status' }, signal); if (!signal?.aborted && !signingOut.current && revision === epoch.current) adopt(data); return data }
       const execute = async work => {
         if (locked.current) return
         locked.current = true; setBusy(true); setError(''); setToast('')
@@ -99,7 +99,7 @@ window.__ModuleLoader__.load({
         const controller = new AbortController(), revision = epoch.current
         let running = false
         const load = async () => {
-          if (running) return
+          if (running || signingOut.current) return
           running = true
           try {
             const name = ({ overview: 'get_system_status', instances: 'list_instances', providers: 'list_providers', create: 'list_providers', tasks: 'tasks' })[tab]
@@ -146,9 +146,13 @@ window.__ModuleLoader__.load({
         })
       }
       const signOut = () => execute(async () => {
-        const result = await api({ action: 'logout' }, lifetime.current.signal)
-        adopt(result); setLogin(old => ({ ...old, password: '', token: '', captcha: '', captchaId: '' })); setCaptcha('')
-        if (!result.remoteTokenRevoked) setError(t('revokeWarning'))
+        signingOut.current = true; ++epoch.current; ++catalogRevision.current
+        try {
+          const result = await api({ action: 'logout' }, lifetime.current.signal)
+          adopt(result); setLogin(old => ({ ...old, password: '', token: '', captcha: '', captchaId: '' })); setCaptcha('')
+          setError(result.remoteTokenRevoked ? '' : t('revokeWarning'))
+        } catch (e) { setError(e.message) }
+        finally { signingOut.current = false }
       })
       const inspect = row => execute(async () => { const revision = epoch.current, data = await call('get_instance_detail', { instance_id: row.id }); if (revision === epoch.current) setDetail({ id: row.id, data }) })
       const doMutation = () => execute(async () => {

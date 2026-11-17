@@ -16,6 +16,8 @@ test('native page keeps mounted state across navigation; both roles can create a
   globalThis.window = window; globalThis.document = window.document; globalThis.IS_REACT_ACT_ENVIRONMENT = true
   window.ResizeObserver = class { observe() {} disconnect() {} }
   window.HTMLElement.prototype.getBoundingClientRect = () => ({ top: 0, left: 0, width: 1200, height: 900 })
+  // The bridge constructs Node Requests; use its AbortSignal realm as well.
+  window.AbortController = globalThis.AbortController; window.AbortSignal = globalThis.AbortSignal
   window.fetch = async (_url, options) => endpoint(new Request('http://dsh.local/api/oneclickvirt.plugin', options))
   let plugin, dict
   window.__ModuleLoader__ = { load: module => { plugin = module.factory(() => React) } }
@@ -68,5 +70,7 @@ test('native page keeps mounted state across navigation; both roles can create a
     const stored = window.localStorage.getItem('oneclickvirt.dsh.ui.v1')
     assert(!/fixture-password|device-token|test-admin-token|test-user-token/.test(stored))
     await settle(() => click('Sign out')); assert(!window.document.body.textContent.includes('host-original'))
+    await settle()
+    assert.equal(window.document.querySelector('.ocv-error'), null, 'sign-out must not show a background polling error')
   }
 })
