@@ -317,6 +317,23 @@ chmod +x install.sh
 | `ONECLICKVIRT_UPDATE_HEALTH_PORT` | 重启后的本机 `/api/v1/health` 检查端口，默认读取主控配置或使用 `8888`。 |
 | `ONECLICKVIRT_UPDATE_ALLOW_UNVERIFIED=true` | 仅用于受控恢复场景，允许缺少 `SHA256SUMS` 的旧 Release；生产环境不建议设置。 |
 
+### DeepSeek Harness Plugin
+
+```bash
+dsh plugin --profile web add github:oneclickvirt/oneclickvirt
+```
+
+<details>
+<summary>安装和使用 OneClickVirt 页面</summary>
+
+需要 DSH `>=0.2.2-rc.1 <0.3.0` 和 Node.js 22.6 以上版本。Desktop 在 **插件 → 添加 → 安装第三方插件** 中填写 GitHub 仓库，或选择 [DSH Release](https://github.com/oneclickvirt/oneclickvirt/releases/tag/dsh-v0.3.1) 中的 `dsh-plugin-oneclickvirt-0.3.1.tgz`。Desktop 配置由应用管理，上面的命令用于 Web 配置。
+
+从侧栏打开 **OneClickVirt**，登录已部署的平台。管理员与普通用户按原有权限管理实例、选择节点镜像和资源规格、修改备注别名、查看任务与监控。切换 DSH 页面后保留当前页面。账号密码登录并保持登录时会创建设备专用 API Token，退出时清除并撤销；已有 API Token 沿用其有效期，退出不撤销。密码不保存。
+
+CLI／CI 可通过 `ONE_CLICK_VIRT_API_URL` 和 `ONE_CLICK_VIRT_API_TOKEN` 使用同一套原生工具，无需 Web 页面或额外 MCP 程序。插件支持 macOS、Windows 与 Linux，安装不会修改现有主控、数据库或虚拟化节点。安装、更新与凭据存储详见 [完整说明](https://www.spiritlhl.net/guide/oneclickvirt/oneclickvirt_advanced_install.html#deepseek-harness-plugin)。
+
+</details>
+
 ### 方式四：自己编译打包
 
 <details>

@@ -53,3 +53,7 @@ data
 action_tests/reports/*
 test-report.md
 *.log
+
+# DSH plugin development and release packages
+/node_modules/
+/*.tgz

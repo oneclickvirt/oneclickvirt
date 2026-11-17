@@ -4,7 +4,7 @@ package constant
 // the release workflow to replace this value with a vYYYYMMDD-HHMMSS tag.
 // It must stay independent from the latest public release because this source
 // tree may contain changes that have not been released yet.
-const ServerVersion = "0.3.0"
+const ServerVersion = "0.3.1"
 
 // AgentReleaseVersion is the controller release tag containing the Agent
 // assets. It is separate from CompatibleAgentVersion: the latter is the

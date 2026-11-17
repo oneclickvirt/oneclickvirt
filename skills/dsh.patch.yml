@@ -1,0 +1,4 @@
+- insert:
+    - id: oneclickvirt
+      name: dsh-plugin-oneclickvirt
+      config: {}

@@ -318,6 +318,23 @@ Common overrides (prefer a controlled service environment file, then restart the
 | `ONECLICKVIRT_UPDATE_HEALTH_PORT` | Local `/api/v1/health` port after restart; defaults to the controller config or `8888`. |
 | `ONECLICKVIRT_UPDATE_ALLOW_UNVERIFIED=true` | Recovery-only opt-out for old Releases without `SHA256SUMS`; do not set it in production. |
 
+### DeepSeek Harness Plugin
+
+```bash
+dsh plugin --profile web add github:oneclickvirt/oneclickvirt
+```
+
+<details>
+<summary>Install and use the OneClickVirt page</summary>
+
+Requires DSH `>=0.2.2-rc.1 <0.3.0` and Node.js 22.6 or newer. In Desktop, use **Plugins → Add → Install third-party plugin** with the GitHub repository, or select `dsh-plugin-oneclickvirt-0.3.1.tgz` from [DSH releases](https://github.com/oneclickvirt/oneclickvirt/releases/tag/dsh-v0.3.1). The Desktop profile is managed by the app; the command above is for the Web profile.
+
+Open **OneClickVirt** in the sidebar and sign in to an existing deployment. Administrators and users can manage instances within their existing permissions, select node images and resource specifications, edit display aliases, and inspect tasks and monitoring. Switching DSH pages preserves this page. Remembered password sign-in creates a device API token; signing out clears it and revokes that device token. Existing API tokens keep their own expiry and are not revoked on sign-out. Passwords are never saved.
+
+The same native tools work in CLI/CI with `ONE_CLICK_VIRT_API_URL` and `ONE_CLICK_VIRT_API_TOKEN`; no Web UI or MCP binary is required. macOS, Windows and Linux use the same plugin. Installation does not change the running controller, database or hypervisor. See the [full guide](https://www.spiritlhl.net/en/guide/oneclickvirt/oneclickvirt_advanced_install.html#deepseek-harness-plugin) for installation, updates and credential storage.
+
+</details>
+
 ### Method 4: Build from Source
 
 <details>

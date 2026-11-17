@@ -1,0 +1,63 @@
+name: DSH Plugin
+
+on:
+  push:
+    branches: [main]
+    paths: ['skills/dsh*', 'skills/en.json', 'skills/zh.json', 'scripts/*dsh*', 'package*.json', '.github/workflows/dsh-plugin.yml']
+  pull_request:
+    paths: ['skills/dsh*', 'skills/en.json', 'skills/zh.json', 'scripts/*dsh*', 'package*.json', '.github/workflows/dsh-plugin.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dsh-plugin-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  validate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: npm ci --ignore-scripts
+      - run: npm run build -- --check
+      - run: npm run check
+      - run: npm test
+      - run: npm pack --ignore-scripts --json
+
+  native-host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        dsh: [0.2.2-rc.1, 0.2.2-rc.3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Prepare isolated official native host
+        env:
+          DSH_VERSION: ${{ matrix.dsh }}
+        run: |
+          npm install --prefix "$RUNNER_TEMP/dsh-host" --ignore-scripts --no-audit --no-fund @deepseek-ai/cordis@4.1.0 "@deepseek-ai/dsh-system-prompt@$DSH_VERSION" "@deepseek-ai/dsh-tools@$DSH_VERSION" "@deepseek-ai/dsh-tool-executor-native@$DSH_VERSION" "@deepseek-ai/dsh-credentials-local@$DSH_VERSION"
+      - name: Validate tools and credential recovery without Web UI
+        run: node scripts/check_dsh_host.mjs "$RUNNER_TEMP/dsh-host"

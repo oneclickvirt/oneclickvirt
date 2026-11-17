@@ -1,0 +1,84 @@
+name: Publish DSH Plugin
+
+on:
+  push:
+    tags: ['dsh-v*.*.*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Plugin tag, for example dsh-v0.3.1
+        required: true
+        type: string
+      publish_npm:
+        description: Publish with an already configured npm Trusted Publisher
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-dsh-plugin-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  release:
+    if: github.repository == 'oneclickvirt/oneclickvirt'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Validate release version
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: test "$RELEASE_TAG" = "dsh-v$(node -p "require('./package.json').version")"
+      - run: npm ci --ignore-scripts
+      - run: npm run build -- --check
+      - run: npm run check
+      - run: npm test
+      - name: Pack and publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          npm pack --ignore-scripts
+          sha256sum dsh-plugin-oneclickvirt-*.tgz > DSH-SHA256SUMS
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag --latest=false --title "OneClickVirt DSH Plugin ${RELEASE_TAG#dsh-v}" --notes 'OneClickVirt native DSH page and tools. Install the tgz in Desktop, or use the GitHub repository in the Web profile. Requires DSH >=0.2.2-rc.1 <0.3.0. Controller releases retain their existing timestamp tags.'
+          fi
+          gh release upload "$RELEASE_TAG" dsh-plugin-oneclickvirt-*.tgz DSH-SHA256SUMS --clobber
+
+  npm:
+    if: github.repository == 'oneclickvirt/oneclickvirt' && (vars.DSH_NPM_TRUSTED_PUBLISHING == 'true' || inputs.publish_npm == true)
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - run: npm ci --ignore-scripts
+      - run: npm run check
+      - run: npm publish --provenance --access public
