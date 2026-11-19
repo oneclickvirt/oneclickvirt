@@ -1,12 +1,72 @@
 package mcp
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 )
+
+func TestMCPStdioDoesNotRespondToNotifications(t *testing.T) {
+	s := NewMCPServer("http://127.0.0.1:8888", "")
+	input := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize"}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","method":"notifications/unknown"}
+{"jsonrpc":"2.0","id":0,"method":"tools/list"}
+{"jsonrpc":"2.0","id":null,"method":"initialized"}
+`)
+	var output bytes.Buffer
+	if err := s.runStdio(input, &output); err != nil {
+		t.Fatal(err)
+	}
+	decoder := json.NewDecoder(&output)
+	for _, id := range []string{"1", "0", "null"} {
+		var result struct {
+			ID     json.RawMessage `json:"id"`
+			Result json.RawMessage `json:"result"`
+		}
+		if err := decoder.Decode(&result); err != nil {
+			t.Fatal(err)
+		}
+		if string(result.ID) != id || len(result.Result) == 0 {
+			t.Fatalf("unexpected MCP response for ID %s: %+v", id, result)
+		}
+	}
+	if err := decoder.Decode(new(JSONRPCResponse)); err != io.EOF {
+		t.Fatalf("unexpected extra response: %v", err)
+	}
+}
+
+func TestMCPInstanceLogsAreScopedOperationRecords(t *testing.T) {
+	s := NewMCPServer("http://oneclickvirt.test", "test-token")
+	s.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if q := r.URL.Query(); r.URL.Path != "/api/v1/admin/tasks" || q.Get("instanceId") != "42" || q.Get("pageSize") != "100" {
+			t.Fatalf("unexpected task URL %s", r.URL)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{
+			"code":200,"data":{"list":[
+				{"id":1,"instanceId":42,"taskType":"create","status":"completed","progress":100,"taskData":"fixture-secret","errorMessage":"fixture-error"},
+				{"id":2,"instanceId":99,"taskType":"other-instance-task"}
+			]}
+		}`))}, nil
+	})}
+	result, err := s.getInstanceLogs(map[string]interface{}{"instance_id": 42, "lines": 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"source":"controller_tasks"`, `"taskType":"create"`, `"status":"completed"`} {
+		if !strings.Contains(result, want) {
+			t.Fatalf("missing %s in %s", want, result)
+		}
+	}
+	for _, omitted := range []string{"other-instance-task", "fixture-secret", "fixture-error"} {
+		if strings.Contains(result, omitted) {
+			t.Fatalf("included unscoped or sensitive task data: %s", result)
+		}
+	}
+}
 
 func TestMCPRegistersMetricsResourceAndPrompt(t *testing.T) {
 	s := NewMCPServer("http://127.0.0.1:8888", "token")

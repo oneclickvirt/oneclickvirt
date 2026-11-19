@@ -70,6 +70,7 @@ func UpdateTaskPoolStatus(c *gin.Context) {
 // @Param page query int false "页码" default(1)
 // @Param pageSize query int false "页大小" default(10)
 // @Param providerId query int false "Provider ID"
+// @Param instanceId query int false "实例 ID"
 // @Param username query string false "用户名"
 // @Param taskType query string false "任务类型"
 // @Param status query string false "任务状态"

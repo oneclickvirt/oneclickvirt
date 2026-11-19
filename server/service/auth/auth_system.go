@@ -155,7 +155,7 @@ func (s *AuthService) InitSystemWithUsers(adminInfo UserInfo, userInfo *UserInfo
 				Password: string(userPassword),
 				Email:    userInfo.Email,
 				UserType: "user",
-				Level:    global.GetAppConfig().Quota.DefaultLevel,
+				Level:    defaultConfiguredUserLevel(),
 				Status:   1,
 			}
 			if err := userquota.ApplyLimitFields(&user, user.Level); err != nil {

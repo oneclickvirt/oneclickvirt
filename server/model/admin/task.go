@@ -9,6 +9,7 @@ type AdminTaskListRequest struct {
 	Page         int    `json:"page" form:"page"`
 	PageSize     int    `json:"pageSize" form:"pageSize"`
 	ProviderID   uint   `json:"providerId" form:"providerId"`
+	InstanceID   uint   `json:"instanceId" form:"instanceId"`
 	Username     string `json:"username" form:"username"` // 用户名搜索
 	TaskType     string `json:"taskType" form:"taskType"`
 	Status       string `json:"status" form:"status"`

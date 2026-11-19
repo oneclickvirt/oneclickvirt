@@ -44,6 +44,21 @@ type JSONRPCResponse struct {
 	Error   *JSONRPCError `json:"error,omitempty"`
 }
 
+// Preserve the distinction between a missing ID and an explicit null on the wire.
+type inboundRPCRequest struct {
+	JSONRPCRequest
+	WireID json.RawMessage `json:"id"`
+}
+
+func (s *MCPServer) handleInbound(req inboundRPCRequest) *JSONRPCResponse {
+	if req.WireID == nil && req.JSONRPC == "2.0" && req.Method != "" {
+		return nil
+	}
+	req.JSONRPCRequest.ID = req.WireID
+	response := s.HandleRequest(req.JSONRPCRequest)
+	return &response
+}
+
 type JSONRPCError struct {
 	Code    int         `json:"code"`
 	Message string      `json:"message"`
@@ -249,12 +264,12 @@ func (s *MCPServer) registerTools() {
 		},
 		{
 			Name:        "get_instance_logs",
-			Description: "Get recent logs from an instance",
+			Description: "Get recent OneClickVirt operation records for an instance",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]interface{}{
 					"instance_id": map[string]interface{}{"type": "integer", "description": "Instance ID"},
-					"lines":       map[string]interface{}{"type": "integer", "description": "Number of log lines (default: 50)"},
+					"lines":       map[string]interface{}{"type": "integer", "description": "Number of operation records (default: 50, maximum: 100)"},
 				},
 				Required: []string{"instance_id"},
 			},
@@ -364,7 +379,7 @@ func (s *MCPServer) HandleRequest(req JSONRPCRequest) JSONRPCResponse {
 	switch req.Method {
 	case "initialize":
 		return s.handleInitialize(req)
-	case "initialized":
+	case "initialized", "notifications/initialized":
 		return JSONRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: struct{}{}}
 	case "tools/list":
 		return s.handleToolsList(req)
@@ -684,11 +699,54 @@ func (s *MCPServer) healthCheck(args map[string]interface{}) (string, error) {
 
 func (s *MCPServer) getInstanceLogs(args map[string]interface{}) (string, error) {
 	id := intArg(args, "instance_id", 0)
-	if id == 0 {
+	if id <= 0 {
 		return "", fmt.Errorf("instance_id is required")
 	}
-	lines := intArg(args, "lines", 50)
-	return fmt.Sprintf(`{"message":"Instance log retrieval is not exposed by the current HTTP API","instance_id":%d,"requested_lines":%d}`, id, lines), nil
+	limit := min(100, max(1, intArg(args, "lines", 50)))
+	path := fmt.Sprintf("/api/v1/admin/tasks?instanceId=%d&page=1&pageSize=%d", id, limit)
+	body, err := s.makeAPIRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return "", err
+	}
+
+	// Only expose the operation timeline, since raw task data and command
+	// output may contain instance credentials.
+	type record struct {
+		ID          uint       `json:"id"`
+		InstanceID  int        `json:"instanceId"`
+		TaskType    string     `json:"taskType"`
+		Status      string     `json:"status"`
+		Progress    int        `json:"progress"`
+		CreatedAt   time.Time  `json:"createdAt"`
+		CompletedAt *time.Time `json:"completedAt,omitempty"`
+	}
+	var result struct {
+		Code int `json:"code"`
+		Data struct {
+			List []record `json:"list"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("invalid task list response: %w", err)
+	}
+	if result.Code != http.StatusOK {
+		return "", fmt.Errorf("OneClickVirt rejected the task list request (code %d)", result.Code)
+	}
+	logs := make([]record, 0, min(len(result.Data.List), limit))
+	for _, task := range result.Data.List {
+		if task.InstanceID == id {
+			logs = append(logs, task)
+			if len(logs) == limit {
+				break
+			}
+		}
+	}
+	out, err := json.Marshal(map[string]interface{}{
+		"instance_id": id,
+		"source":      "controller_tasks",
+		"logs":        logs,
+	})
+	return string(out), err
 }
 
 func (s *MCPServer) getSystemStatus(args map[string]interface{}) (string, error) {
@@ -801,9 +859,12 @@ func stringArg(args map[string]interface{}, key, fallback string) string {
 
 // RunStdio runs the MCP server over stdin/stdout (for local AI tool integration)
 func (s *MCPServer) RunStdio() error {
-	reader := bufio.NewReader(os.Stdin)
-	writer := os.Stdout
+	return s.runStdio(os.Stdin, os.Stdout)
+}
 
+func (s *MCPServer) runStdio(input io.Reader, output io.Writer) error {
+	reader := bufio.NewReader(input)
+	writer := json.NewEncoder(output)
 	for {
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
@@ -816,7 +877,7 @@ func (s *MCPServer) RunStdio() error {
 			return err
 		}
 
-		var req JSONRPCRequest
+		var req inboundRPCRequest
 		if err := json.Unmarshal(line, &req); err != nil {
 			if global.APP_LOG != nil {
 				global.APP_LOG.Warn("MCP invalid JSON received", zap.Error(err))
@@ -824,9 +885,11 @@ func (s *MCPServer) RunStdio() error {
 			continue
 		}
 
-		resp := s.HandleRequest(req)
-		respBytes, _ := json.Marshal(resp)
-		fmt.Fprintf(writer, "%s\n", respBytes)
+		if resp := s.handleInbound(req); resp != nil {
+			if err := writer.Encode(resp); err != nil {
+				return err
+			}
+		}
 	}
 }
 
@@ -848,13 +911,17 @@ func (s *MCPServer) RunHTTP(addr string) error {
 			return
 		}
 
-		var req JSONRPCRequest
+		var req inboundRPCRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, `{"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error"}}`, http.StatusBadRequest)
 			return
 		}
 
-		resp := s.HandleRequest(req)
+		resp := s.handleInbound(req)
+		if resp == nil {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 	})

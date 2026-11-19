@@ -3,6 +3,7 @@ package kubevirt
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -116,7 +117,7 @@ func (p *KubeVirtProvider) Connect(ctx context.Context, config provider.NodeConf
 	global.APP_LOG.Info("KubeVirt provider连接成功",
 		zap.String("host", utils.TruncateString(config.Host, 50)),
 		zap.Int("port", config.Port),
-		zap.String("version", p.version))
+		zap.String("version", p.GetVersion()))
 
 	return nil
 }
@@ -219,20 +220,43 @@ func (p *KubeVirtProvider) getKubeVirtVersion() error {
 		return fmt.Errorf("SSH client not connected")
 	}
 
-	output, err := p.sshClient.Execute("kubectl get kubevirt -n kubevirt -o jsonpath='{.items[0].status.observedKubeVirtVersion}' 2>/dev/null || " + withKubeVirtKubeconfig("virtctl version --client 2>/dev/null"))
+	output, err := p.sshClient.Execute("kubectl get kubevirt -n kubevirt -o jsonpath='{.items[0].status.observedKubeVirtVersion}' 2>/dev/null")
+	version := parseKubeVirtVersion(output)
+	if err != nil || version == "" {
+		output, err = p.sshClient.Execute(withKubeVirtKubeconfig("virtctl version --client 2>/dev/null"))
+		version = parseKubeVirtVersion(output)
+		if err == nil && version == "" {
+			err = fmt.Errorf("unable to parse KubeVirt version")
+		}
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if err != nil {
 		p.version = "unknown"
 		return err
 	}
+	p.version = version
+	return nil
+}
 
+var (
+	kubeVirtVersionTag = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
+	kubeVirtGitVersion = regexp.MustCompile(`\bGitVersion:\s*"([^"]+)"`)
+)
+
+func parseKubeVirtVersion(output string) string {
 	version := strings.TrimSpace(output)
-	if version != "" {
-		p.version = version
-		return nil
+	if match := kubeVirtGitVersion.FindStringSubmatch(version); match != nil {
+		version = match[1]
+	} else {
+		version = strings.TrimSpace(strings.TrimPrefix(version, "Client Version:"))
 	}
-
-	p.version = "unknown"
-	return fmt.Errorf("unable to parse version")
+	// Provider health checks persist this value in providers.version (VARCHAR(32)).
+	if len(version) <= 32 && kubeVirtVersionTag.MatchString(version) {
+		return version
+	}
+	return ""
 }
 
 // ExecuteSSHCommand 执行SSH命令

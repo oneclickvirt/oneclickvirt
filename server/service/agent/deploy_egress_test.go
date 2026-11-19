@@ -260,6 +260,7 @@ func TestBuildDeployScriptInstallsFailClosedBootGuard(t *testing.T) {
 		"oneclickvirt-egress-guard.service",
 		"RequiredBy=network-pre.target",
 		"ExecStartPre=/usr/local/bin/oneclickvirt-egress-boot-guard",
+		"apt-get install -y -qq --no-upgrade iproute2 nftables wireguard-tools",
 		"chmod 600 \"$INSTALL_DIR/.env\"",
 	} {
 		if !strings.Contains(generated, expected) {
@@ -267,6 +268,10 @@ func TestBuildDeployScriptInstallsFailClosedBootGuard(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
+		"systemctl enable nftables",
+		"systemctl start nftables",
+		"systemctl restart nftables",
+		"systemctl reload nftables",
 		"ExecStart=/opt/oneclickvirt/agent/oneclickvirt-agent --secret",
 		"ExecStart=/opt/oneclickvirt/agent/oneclickvirt-agent --ws-url",
 	} {

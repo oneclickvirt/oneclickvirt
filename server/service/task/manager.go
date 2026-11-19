@@ -545,6 +545,9 @@ func (s *TaskService) GetAdminTasks(req adminModel.AdminTaskListRequest, ownerAd
 	if req.ProviderID != 0 {
 		query = query.Where("tasks.provider_id = ?", req.ProviderID)
 	}
+	if req.InstanceID != 0 {
+		query = query.Where("tasks.instance_id = ?", req.InstanceID)
+	}
 	if req.Username != "" {
 		// 通过用户名搜索，需要连接 users 表
 		query = query.Joins("LEFT JOIN users ON users.id = tasks.user_id").

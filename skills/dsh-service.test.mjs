@@ -29,6 +29,12 @@ test('password login persists a device token, survives restart and revokes only 
   assert.equal((await third.status()).connected, false)
   await assert.rejects(f.service.call('list_instances'), { code: 'SESSION_CHANGED' })
 })
+test('the plugin still accepts legacy success envelopes', async t => {
+  const f = await setup(t)
+  f.state.successCode = 0
+  assert.equal((await f.login()).connected, true)
+  assert.equal((await f.service.call('list_instances')).list[0].id, 7)
+})
 test('temporary outage keeps saved credentials; revoked login clears them', async t => {
   const f = await setup(t); await f.login()
   const restarted = new OneClickVirtService({ stateDir: f.directory, environment: {} }); t.after(() => restarted.dispose())

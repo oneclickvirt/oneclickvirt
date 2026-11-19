@@ -325,7 +325,7 @@ if [ -n "$EGRESS_MISSING" ]; then
     echo "  missing:$EGRESS_MISSING"
     EGRESS_INSTALL_OK=0
     if command -v apt-get >/dev/null 2>&1; then
-        if apt-get update -qq >/dev/null 2>&1 && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iproute2 nftables wireguard-tools >/dev/null 2>&1; then EGRESS_INSTALL_OK=1; fi
+        if apt-get update -qq >/dev/null 2>&1 && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-upgrade iproute2 nftables wireguard-tools >/dev/null 2>&1; then EGRESS_INSTALL_OK=1; fi
     elif command -v dnf >/dev/null 2>&1; then
         if dnf install -y -q iproute nftables wireguard-tools >/dev/null 2>&1; then EGRESS_INSTALL_OK=1; fi
     elif command -v yum >/dev/null 2>&1; then
@@ -372,7 +372,7 @@ else
     if ! command -v nft >/dev/null 2>&1; then
         echo "  nft command not found, installing nftables..."
         if command -v apt-get >/dev/null 2>&1; then
-            apt-get update -qq && apt-get install -y -qq nftables >/dev/null 2>&1
+            apt-get update -qq && apt-get install -y -qq --no-upgrade nftables >/dev/null 2>&1
         elif command -v dnf >/dev/null 2>&1; then
             dnf install -y -q nftables >/dev/null 2>&1
         elif command -v yum >/dev/null 2>&1; then
@@ -394,11 +394,8 @@ else
     else
         echo "  nftables already installed ($(nft -v 2>/dev/null || echo 'version unknown'))"
     fi
-    # Ensure nftables service is enabled and started
-    if command -v systemctl >/dev/null 2>&1; then
-        systemctl enable nftables 2>/dev/null || true
-        systemctl start nftables 2>/dev/null || true
-    fi
+    # The agent uses the nft command directly. Loading the system service here
+    # can apply a ruleset that clears live Docker and host firewall rules.
 fi
 echo "[OK] 1/6 dependency checked"
 

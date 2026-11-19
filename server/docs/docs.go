@@ -10786,6 +10786,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "integer",
+                        "description": "实例 ID",
+                        "name": "instanceId",
+                        "in": "query"
+                    },
+                    {
                         "type": "string",
                         "description": "用户名",
                         "name": "username",

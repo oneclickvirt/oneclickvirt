@@ -289,11 +289,10 @@ func (p *QEMUProvider) sshDeleteInstance(ctx context.Context, id string) error {
 	}
 
 	// 5. 删除VM定义和磁盘
-	if output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("virsh undefine %s --remove-all-storage 2>&1", shellSingleQuote(id))); err != nil {
-		if qemuDomainAlreadyGone(output, err) {
-			// Idempotent delete: the domain was already removed.
-		} else if fallbackOutput, fallbackErr := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("virsh undefine %s 2>&1", shellSingleQuote(id))); fallbackErr != nil && !qemuDomainAlreadyGone(fallbackOutput, fallbackErr) {
-			return fmt.Errorf("删除QEMU虚拟机定义失败: %w (output: %s; fallback: %s)", fallbackErr, utils.TruncateString(strings.TrimSpace(fallbackOutput), 1000), utils.TruncateString(strings.TrimSpace(output), 1000))
+	undefine := "LC_ALL=C virsh undefine " + shellSingleQuote(id)
+	if output, err := p.undefineDomain(ctx, undefine+" --remove-all-storage"); err != nil && !qemuDomainAlreadyGone(output, err) {
+		if fallbackOutput, fallbackErr := p.undefineDomain(ctx, undefine); fallbackErr != nil && !qemuDomainAlreadyGone(fallbackOutput, fallbackErr) {
+			return fmt.Errorf("删除QEMU虚拟机定义失败: %w (output: %s; fallback: %s)", fallbackErr, utils.TruncateString(strings.TrimSpace(output), 1000), utils.TruncateString(strings.TrimSpace(fallbackOutput), 1000))
 		}
 	}
 
@@ -321,6 +320,14 @@ func (p *QEMUProvider) sshDeleteInstance(ctx context.Context, id string) error {
 	}
 
 	return fmt.Errorf("VM %s still exists after deletion", id)
+}
+
+func (p *QEMUProvider) undefineDomain(ctx context.Context, command string) (string, error) {
+	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, command+" 2>&1")
+	if err != nil && strings.Contains(strings.ToLower(output+"\n"+err.Error()), "cannot undefine domain with nvram") {
+		return utils.ExecuteShellCommandContext(ctx, p.sshClient, command+" --nvram 2>&1")
+	}
+	return output, err
 }
 
 func qemuDomainAlreadyGone(output string, err error) bool {

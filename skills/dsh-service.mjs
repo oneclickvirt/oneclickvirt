@@ -67,7 +67,7 @@ export class OneClickVirtService {
       }
       let result
       try { result = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { throw new VirtError('INVALID_RESPONSE', 'The deployment did not return JSON; check its URL and proxy', 502) }
-      if (!response.ok || (typeof result.code === 'number' && result.code !== 0)) {
+      if (!response.ok || (typeof result.code === 'number' && result.code !== 200 && result.code !== 0)) {
         const unauthorized = response.status === 401 || result.code === 401
         if (unauthorized) throw new VirtError('UNAUTHORIZED', 'The login has expired or was revoked; sign in again', 401)
         let message = typeof result.msg === 'string' ? result.msg.slice(0, 300) : 'OneClickVirt rejected this operation'
@@ -264,8 +264,8 @@ export class OneClickVirtService {
     }
     if (name === 'tasks') {
       if (args.instance_id === undefined) return this.request('/' + area + '/tasks?' + query(), 'GET', undefined, signal)
-      // The current task API does not accept an instanceId filter. Filter a
-      // bounded set locally rather than presenting unrelated tasks as logs.
+      // Filter a bounded set for compatibility with user task lists and older
+      // controllers that do not support filtering by instance ID.
       const instanceId = id(), list = []; let scanned = 0, total = 0
       for (let page = 1; page <= 10; page++) {
         const result = await this.request('/' + area + '/tasks?page=' + page + '&pageSize=100', 'GET', undefined, signal)

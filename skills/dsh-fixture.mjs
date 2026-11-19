@@ -2,14 +2,14 @@
 import http from 'node:http'
 import { once } from 'node:events'
 export async function fixture() {
-  const state = { requests: [], tokens: new Map([['test-admin-token', 'admin'], ['test-user-token', 'user']]), nextToken: 0, instances: [{ id: 7, name: 'host-original', alias: 'Web VM', status: 'running', cpu: 2, memory: 1024, providerName: 'Lab', canStart: true, canStop: true, canRestart: true, canDelete: true }], failing: false, custom: null }
+  const state = { requests: [], tokens: new Map([['test-admin-token', 'admin'], ['test-user-token', 'user']]), nextToken: 0, instances: [{ id: 7, name: 'host-original', alias: 'Web VM', status: 'running', cpu: 2, memory: 1024, providerName: 'Lab', canStart: true, canStop: true, canRestart: true, canDelete: true }], successCode: 200, failing: false, custom: null }
   const server = http.createServer(async (req, res) => {
     try {
       const input = []; for await (const data of req) input.push(data)
       const body = input.length ? JSON.parse(Buffer.concat(input)) : undefined
       const url = new URL(req.url, 'http://localhost'), route = url.pathname.replace('/api/v1', ''), token = req.headers.authorization?.replace('Bearer ', '')
       state.requests.push({ route, method: req.method, query: Object.fromEntries(url.searchParams), body, token })
-      const send = (data, status = 200, msg = '') => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ code: status < 400 ? 0 : status, data, msg })) }
+      const send = (data, status = 200, msg = '') => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ code: status < 400 ? state.successCode : status, data, msg })) }
       if (state.custom && await state.custom({ req, res, route, token, body, send })) return
       if (state.failing) return send(null, 503, 'temporary outage')
       if (route === '/auth/captcha') return send({ captchaId: 'captcha-1', picPath: 'data:image/png;base64,aW1hZ2U=' })

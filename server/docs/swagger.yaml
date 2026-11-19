@@ -10558,6 +10558,10 @@ paths:
         in: query
         name: providerId
         type: integer
+      - description: 实例 ID
+        in: query
+        name: instanceId
+        type: integer
       - description: 用户名
         in: query
         name: username

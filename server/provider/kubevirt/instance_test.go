@@ -1,9 +1,59 @@
 package kubevirt
 
 import (
+	"errors"
 	"strings"
 	"testing"
+
+	"oneclickvirt/utils"
 )
+
+type versionExecutor struct {
+	utils.ShellExecutor
+	observed, client string
+	observedError    error
+	clientCalls      int
+}
+
+func (e *versionExecutor) Execute(command string) (string, error) {
+	if strings.Contains(command, "kubectl get kubevirt") {
+		return e.observed, e.observedError
+	}
+	if strings.Contains(command, "virtctl version --client") {
+		e.clientCalls++
+		return e.client, nil
+	}
+	return "", errors.New("unexpected version command")
+}
+
+func TestKubeVirtVersionIsSafeToPersist(t *testing.T) {
+	client := `Client Version: version.Info{Major:"1", Minor:"9", GitVersion:"v1.9.1", GitCommit:"abc", GitTreeState:"clean", BuildDate:"2026-11-17", GoVersion:"go1.26.10", Compiler:"gc", Platform:"linux/amd64"}`
+	for _, tc := range []struct {
+		name, observed, client, want string
+		observedError                error
+		fallback                     bool
+	}{
+		{name: "cluster version", observed: "v1.9.1-rc.0+abc\r\n", want: "v1.9.1-rc.0+abc"},
+		{name: "failed kubectl", observedError: errors.New("kube API unavailable"), client: client, want: "v1.9.1", fallback: true},
+		{name: "missing status", client: client, want: "v1.9.1", fallback: true},
+		{name: "plain client version", client: "Client Version: v1.9.1", want: "v1.9.1", fallback: true},
+		{name: "oversized tag", client: "v1.9.1-" + strings.Repeat("a", 40), want: "unknown", fallback: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			executor := &versionExecutor{observed: tc.observed, observedError: tc.observedError, client: tc.client}
+			p := &KubeVirtProvider{sshClient: utils.NewSafeShellExecutor(executor)}
+			if err := p.getKubeVirtVersion(); (err != nil) != (tc.want == "unknown") {
+				t.Fatalf("version query error = %v", err)
+			}
+			if got := p.GetVersion(); got != tc.want || len(got) > 32 {
+				t.Fatalf("stored version = %q, want %q", got, tc.want)
+			}
+			if (executor.clientCalls == 1) != tc.fallback {
+				t.Fatalf("client version called %d times", executor.clientCalls)
+			}
+		})
+	}
+}
 
 func TestKubeVirtDataVolumeYAMLUsesDefaultStorageClass(t *testing.T) {
 	yaml := kubeVirtDataVolumeYAML("vm-1-dv", "vm-1", "https://example.com/image.qcow2", 20, "")
