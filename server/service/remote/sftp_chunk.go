@@ -38,7 +38,7 @@ const (
 
 var (
 	ErrChunkSequence = errors.New("upload chunk does not match the next expected index or offset")
-	chunkFilePattern = regexp.MustCompile(`^(\.oneclickvirt-upload-[0-9a-f]{64})(?:-[0-9a-f]{64}\.(?:part|json)|\.commit)(?:\.new)?$`)
+	chunkFilePattern = regexp.MustCompile(`^(\.oneclickvirt-upload-[0-9a-f]{64})(?:-[0-9a-f]{64}\.(?:part|json)|\.commit)(?:\.(?:new|old))?$`)
 	chunkLocks       = func() [256]*semaphore.Weighted {
 		var locks [256]*semaphore.Weighted
 		for i := range locks {
@@ -108,6 +108,9 @@ type chunkProgress struct {
 func readChunkJSON(client *sftp.Client, name string, doc any) (bool, error) {
 	file, err := client.Open(name)
 	if os.IsNotExist(err) {
+		file, err = client.Open(name + ".old")
+	}
+	if os.IsNotExist(err) {
 		return false, nil
 	}
 	if err != nil {
@@ -124,13 +127,35 @@ func readChunkJSON(client *sftp.Client, name string, doc any) (bool, error) {
 	return true, json.Unmarshal(data, doc)
 }
 
-func replaceChunkFile(client *sftp.Client, from, to string) error {
+func replaceChunkFile(client *sftp.Client, from, to, backup string) error {
 	if _, available := client.HasExtension("posix-rename@openssh.com"); available {
 		return client.PosixRename(from, to)
 	}
-	// The server may implement replacement through Rename. If it refuses to
-	// overwrite an existing file, leave that file in place and return the error.
-	return client.Rename(from, to)
+	if err := client.Rename(from, to); err != nil {
+		var status *sftp.StatusError
+		if !errors.As(err, &status) || status.FxCode() != sftp.ErrSSHFxFailure {
+			return err
+		}
+		if existing, statErr := chunkFileInfo(client, to); statErr != nil || existing == nil {
+			return errors.Join(err, statErr)
+		}
+		if staged, statErr := chunkFileInfo(client, from); statErr != nil || staged == nil {
+			return errors.Join(err, statErr)
+		}
+		// Base SFTP rename may refuse to replace an existing file. Keep the
+		// previous contents in the same directory until publication succeeds.
+		if removeErr := client.Remove(backup); removeErr != nil && !os.IsNotExist(removeErr) {
+			return removeErr
+		}
+		if backupErr := client.Rename(to, backup); backupErr != nil {
+			return backupErr
+		}
+		if publishErr := client.Rename(from, to); publishErr != nil {
+			return errors.Join(publishErr, client.Rename(backup, to))
+		}
+	}
+	_ = client.Remove(backup)
+	return nil
 }
 
 func writeChunkJSON(client *sftp.Client, name string, doc any) error {
@@ -143,7 +168,7 @@ func writeChunkJSON(client *sftp.Client, name string, doc any) error {
 	if err := errors.Join(writeErr, file.Close()); err != nil {
 		return err
 	}
-	return replaceChunkFile(client, staged, name)
+	return replaceChunkFile(client, staged, name, name+".old")
 }
 
 func chunkFileInfo(client *sftp.Client, name string) (os.FileInfo, error) {
@@ -234,13 +259,28 @@ func AbortChunkUpload(ctx context.Context, client *sftp.Client, target *SSHAcces
 	}
 	defer lock.Release(1)
 
+	// A connection may have dropped between the two base SFTP renames.
+	backup := files.payload + ".old"
+	if info, err := chunkFileInfo(client, backup); err != nil {
+		return false, err
+	} else if info != nil {
+		if _, err := client.Lstat(remotePath); os.IsNotExist(err) {
+			if err := client.Rename(backup, remotePath); err != nil {
+				return false, err
+			}
+		} else if err != nil {
+			return false, err
+		} else if err := client.Remove(backup); err != nil && !os.IsNotExist(err) {
+			return false, err
+		}
+	}
 	if err := client.Remove(files.payload); err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
 		return false, err
 	}
-	for _, name := range []string{files.progress, files.progress + ".new"} {
+	for _, name := range []string{files.progress, files.progress + ".new", files.progress + ".old"} {
 		if err := client.Remove(name); err != nil && !os.IsNotExist(err) {
 			return true, err
 		}
@@ -259,7 +299,9 @@ func CleanupExpiredChunkParts(client *sftp.Client, target *SSHAccessTarget, remo
 	cutoff := time.Now().Add(-ttl)
 	cleaned := 0
 	for _, entry := range entries {
-		if !entry.Mode().IsRegular() || !entry.ModTime().Before(cutoff) {
+		// Keep a prior destination if an interrupted base SFTP rename may
+		// have left it as the only copy. A retry or abort handles recovery.
+		if !entry.Mode().IsRegular() || !entry.ModTime().Before(cutoff) || strings.HasSuffix(entry.Name(), ".part.old") {
 			continue
 		}
 		match := chunkFilePattern.FindStringSubmatch(entry.Name())
@@ -281,8 +323,8 @@ func CleanupExpiredChunkParts(client *sftp.Client, target *SSHAccessTarget, remo
 }
 
 // WriteSFTPChunk advances a contiguous checkpoint and installs the complete
-// staged file with a single rename. Replays of accepted chunks do not rewrite
-// the file. The destination is never removed before replacement.
+// staged file. Replays of accepted chunks do not rewrite the file, and the
+// previous destination is retained until its replacement is installed.
 func WriteSFTPChunk(ctx context.Context, client *sftp.Client, target *SSHAccessTarget, meta ChunkUploadMeta, chunk io.Reader) (int64, bool, error) {
 	if meta.TotalChunks <= 0 || meta.ChunkIndex < 0 || meta.ChunkIndex >= meta.TotalChunks ||
 		meta.Offset < 0 || (meta.ChunkIndex == 0 && meta.Offset != 0) ||
@@ -396,7 +438,7 @@ func publishChunkFile(client *sftp.Client, files chunkFiles, remotePath string) 
 	if err := writeChunkJSON(client, files.receipt, files.fingerprint); err != nil {
 		return err
 	}
-	return replaceChunkFile(client, files.payload, remotePath)
+	return replaceChunkFile(client, files.payload, remotePath, files.payload+".old")
 }
 
 // WriteSFTPFile keeps the legacy single-request upload usable on SFTP servers
@@ -417,6 +459,9 @@ func WriteSFTPFile(ctx context.Context, client *sftp.Client, target *SSHAccessTa
 		return err
 	}
 	if err := client.Remove(files.receipt); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := client.Remove(files.receipt + ".old"); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	file, err := client.Create(remotePath)

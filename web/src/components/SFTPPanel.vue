@@ -454,23 +454,29 @@ const handleFileChange = async (event) => {
     const api = getApi()
     const targetDir = currentPath.value || '/'
     const targetPath = `${targetDir.replace(/\/+$/, '')}/${file.name}`
-    const uploadId = createStableUploadId(file, targetDir)
+    const baseUploadId = createStableUploadId(file, targetDir)
+    let uploadId = baseUploadId
+    const freshUploadId = () => `${baseUploadId}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`
+    const readStatus = async (id) => (await api.uploadStatus(props.entityId, {
+      uploadId: id,
+      targetDir,
+      filename: file.name,
+      targetPath
+    }))?.data
 
     let uploadedBytes = 0
     try {
-      const statusResp = await api.uploadStatus(props.entityId, {
-        uploadId,
-        targetDir,
-        filename: file.name,
-        targetPath
-      })
-      uploadedBytes = Number(statusResp?.data?.uploadedBytes || 0)
-      const completed = !!statusResp?.data?.completed
-      if (completed) {
-        uploadProgress.value = 100
-        ElMessage.success(t('common.uploadAlreadyCompleted'))
-        await refresh()
-        return
+      let status = await readStatus(uploadId)
+      if (status?.completed) {
+        // A selection is a new upload even if its name, size and timestamp
+        // match the previous file. Keep a stable ID so replacements can resume.
+        uploadId = `${baseUploadId}-replacement`
+        status = await readStatus(uploadId)
+      }
+      if (status?.completed) {
+        uploadId = freshUploadId()
+      } else {
+        uploadedBytes = Number(status?.uploadedBytes || 0)
       }
 
       if (uploadedBytes > 0 && uploadedBytes < file.size) {
@@ -505,6 +511,7 @@ const handleFileChange = async (event) => {
       if (e instanceof Error && e.message === 'Upload canceled by user') {
         return
       }
+      uploadId = freshUploadId()
       uploadedBytes = 0
     }
 

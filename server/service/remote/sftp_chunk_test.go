@@ -14,12 +14,18 @@ import (
 	"github.com/pkg/sftp"
 )
 
-func testChunkClient(t *testing.T) *sftp.Client {
+func testChunkClient(t *testing.T, handlers *sftp.Handlers) *sftp.Client {
 	t.Helper()
 	conn, peer := net.Pipe()
-	server, err := sftp.NewServer(peer)
-	if err != nil {
-		t.Fatal(err)
+	var server interface{ Serve() error }
+	if handlers == nil {
+		var err error
+		server, err = sftp.NewServer(peer)
+		if err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		server = sftp.NewRequestServer(peer, *handlers)
 	}
 	done := make(chan struct{})
 	go func() {
@@ -41,7 +47,7 @@ func testChunkClient(t *testing.T) *sftp.Client {
 }
 
 func TestChunkedUploadRequiresContiguousChunksAndReplaysSafely(t *testing.T) {
-	client := testChunkClient(t)
+	client := testChunkClient(t, nil)
 	ctx := context.Background()
 	destination := filepath.Join(t.TempDir(), "report.txt")
 	if err := os.WriteFile(destination, []byte("previous"), 0600); err != nil {
@@ -94,7 +100,7 @@ func TestChunkedUploadRequiresContiguousChunksAndReplaysSafely(t *testing.T) {
 	expectFile("previous")
 
 	// Reconnect to check that progress and retries do not depend on a session.
-	client = testChunkClient(t)
+	client = testChunkClient(t, nil)
 	expectStatus(3, false)
 	if n, done, err := write(1, 3, "def", false); err != nil || n != 3 || done {
 		t.Fatalf("middle upload = %d, %t, %v", n, done, err)
@@ -140,7 +146,7 @@ func (r brokenChunkReader) Read(p []byte) (int, error) {
 }
 
 func TestChunkUploadRestartsFromCheckpointAfterInterruptedWrite(t *testing.T) {
-	client := testChunkClient(t)
+	client := testChunkClient(t, nil)
 	ctx := context.Background()
 	dest := filepath.Join(t.TempDir(), "resume")
 	meta := ChunkUploadMeta{RemotePath: dest, UploadID: "resume-id", TotalChunks: 2}
@@ -175,7 +181,7 @@ func TestChunkUploadRestartsFromCheckpointAfterInterruptedWrite(t *testing.T) {
 }
 
 func TestChunkUploadRetriesPublicationAndAllowsEmptyFile(t *testing.T) {
-	client := testChunkClient(t)
+	client := testChunkClient(t, nil)
 	ctx := context.Background()
 	dest := filepath.Join(t.TempDir(), "empty")
 	if err := os.Mkdir(dest, 0700); err != nil {
@@ -201,5 +207,81 @@ func TestChunkUploadRetriesPublicationAndAllowsEmptyFile(t *testing.T) {
 	status, err = QueryChunkUploadStatus(ctx, client, nil, dest, meta.UploadID)
 	if err != nil || !status.Completed || status.UploadedBytes != 0 {
 		t.Fatalf("empty file upload status = %+v, %v", status, err)
+	}
+}
+
+func TestChunkUploadWithoutPosixRename(t *testing.T) {
+	if err := sftp.SetSFTPExtensions(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := sftp.SetSFTPExtensions("hardlink@openssh.com", "posix-rename@openssh.com", "statvfs@openssh.com"); err != nil {
+			t.Error(err)
+		}
+	})
+	handlers := sftp.InMemHandler()
+	client := testChunkClient(t, &handlers)
+	ctx := context.Background()
+	destination := "/file"
+	if err := WriteSFTPFile(ctx, client, nil, destination, strings.NewReader("old")); err != nil {
+		t.Fatal(err)
+	}
+	meta := ChunkUploadMeta{RemotePath: destination, UploadID: "standard-rename", TotalChunks: 3}
+	if _, done, err := WriteSFTPChunk(ctx, client, nil, meta, strings.NewReader("new")); err != nil || done {
+		t.Fatalf("first chunk = %t, %v", done, err)
+	}
+	files, err := getChunkFiles(destination, meta.UploadID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a disconnect after the checkpoint was moved out of the way.
+	if err := client.Rename(files.progress, files.progress+".old"); err != nil {
+		t.Fatal(err)
+	}
+	status, err := QueryChunkUploadStatus(ctx, client, nil, destination, meta.UploadID)
+	if err != nil || status.UploadedBytes != 3 || status.Completed {
+		t.Fatalf("recover checkpoint: %+v, %v", status, err)
+	}
+	meta.ChunkIndex, meta.Offset = 1, 3
+	if _, done, err := WriteSFTPChunk(ctx, client, nil, meta, strings.NewReader(" ")); err != nil || done {
+		t.Fatalf("middle chunk = %t, %v", done, err)
+	}
+	meta.ChunkIndex, meta.Offset, meta.IsLastChunk = 2, 4, true
+	for range 2 {
+		if _, done, err := WriteSFTPChunk(ctx, client, nil, meta, strings.NewReader("file")); err != nil || !done {
+			t.Fatalf("publish or replay = %t, %v", done, err)
+		}
+	}
+	file, err := client.Open(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := io.ReadAll(file)
+	if err := errors.Join(err, file.Close()); err != nil || string(contents) != "new file" {
+		t.Fatalf("published file = %q, %v", contents, err)
+	}
+
+	meta = ChunkUploadMeta{RemotePath: destination, UploadID: "interrupted-replace", TotalChunks: 2}
+	if _, _, err := WriteSFTPChunk(ctx, client, nil, meta, strings.NewReader("discard")); err != nil {
+		t.Fatal(err)
+	}
+	files, err = getChunkFiles(destination, meta.UploadID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a disconnect after moving the old destination to its backup.
+	if err := client.Rename(destination, files.payload+".old"); err != nil {
+		t.Fatal(err)
+	}
+	if aborted, err := AbortChunkUpload(ctx, client, nil, destination, meta.UploadID); err != nil || !aborted {
+		t.Fatalf("abort after interrupted replacement = %t, %v", aborted, err)
+	}
+	file, err = client.Open(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err = io.ReadAll(file)
+	if err := errors.Join(err, file.Close()); err != nil || string(contents) != "new file" {
+		t.Fatalf("restored file = %q, %v", contents, err)
 	}
 }
