@@ -81,7 +81,7 @@ Available MCP tools:
 - `get_instance_detail` — Get detailed information about a specific instance
 - `list_providers` — List all virtualization provider nodes
 - `health_check` — Run a health check on a provider node
-- `get_instance_logs` — Get recent logs from an instance
+- `get_instance_logs` — Get recent OneClickVirt operation records for an instance
 - `get_system_status` — Get overall system status including instance counts and resource usage
 - `get_metrics` — Get monitoring metrics for the system, a provider, or an instance
 
