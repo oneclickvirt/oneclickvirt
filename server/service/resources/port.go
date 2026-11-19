@@ -11,7 +11,9 @@ import (
 	"oneclickvirt/service/taskgate"
 	"oneclickvirt/utils"
 	"strings"
+	"time"
 
+	mysqlDriver "github.com/go-sql-driver/mysql"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -604,7 +606,7 @@ func (s *PortMappingService) createDefaultPortMappings(ctx context.Context, inst
 	}
 
 	// 短事务仅负责锁定、二次数据库校验和批量写入，不执行远程操作。
-	err = db.Transaction(func(tx *gorm.DB) error {
+	reserve := func(tx *gorm.DB) error {
 		var createdPorts []provider.Port
 		var lockedProvider provider.Provider
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", providerID).First(&lockedProvider).Error; err != nil {
@@ -620,7 +622,7 @@ func (s *PortMappingService) createDefaultPortMappings(ctx context.Context, inst
 		if networkType != "" {
 			lockedProvider.NetworkType = networkType
 		}
-		providerInfo = lockedProvider
+		providerInfo := lockedProvider
 
 		var startPort int
 		var allocatedPorts []int
@@ -628,7 +630,7 @@ func (s *PortMappingService) createDefaultPortMappings(ctx context.Context, inst
 		if useControllerMapping {
 			startPort, err = s.allocateControllerPortInTx(tx, providerInfo.ID, controllerRange.Start, controllerRange.End, defaultPortCount)
 			if err != nil {
-				return fmt.Errorf("分配控制端连续端口区间失败: %v", err)
+				return fmt.Errorf("分配控制端连续端口区间失败: %w", err)
 			}
 			allocatedPorts = make([]int, defaultPortCount)
 			for i := 0; i < defaultPortCount; i++ {
@@ -637,7 +639,7 @@ func (s *PortMappingService) createDefaultPortMappings(ctx context.Context, inst
 		} else {
 			startPort, allocatedPorts, err = s.allocateConsecutivePortsInTx(tx, &providerInfo, defaultPortCount, scannedAvailablePorts)
 			if err != nil {
-				return fmt.Errorf("分配连续端口区间失败: %v", err)
+				return fmt.Errorf("分配连续端口区间失败: %w", err)
 			}
 		}
 
@@ -739,7 +741,7 @@ func (s *PortMappingService) createDefaultPortMappings(ctx context.Context, inst
 
 		// 批量插入端口映射
 		if err := tx.CreateInBatches(portRecords, 100).Error; err != nil {
-			return fmt.Errorf("批量创建端口映射失败: %v", err)
+			return fmt.Errorf("批量创建端口映射失败: %w", err)
 		}
 		createdPorts = append(createdPorts, portRecords...)
 
@@ -765,7 +767,22 @@ func (s *PortMappingService) createDefaultPortMappings(ctx context.Context, inst
 			zap.String("mapping_type", mappingType))
 
 		return nil
-	})
+	}
+	// Distinct providers can contend on the active-ports index. Retry the short
+	// transaction only for errors which roll it back, never an ambiguous
+	// connection failure after commit. The remote port scan stays outside.
+	for attempt := 0; ; attempt++ {
+		err = db.Transaction(reserve)
+		var sqlErr *mysqlDriver.MySQLError
+		if attempt == 3 || !errors.As(err, &sqlErr) || sqlErr.Number != 1213 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt+1) * 50 * time.Millisecond):
+		}
+	}
 	if err != nil {
 		return err
 	}

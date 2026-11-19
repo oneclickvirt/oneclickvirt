@@ -12,6 +12,7 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/utils"
 
+	mysqlDriver "github.com/go-sql-driver/mysql"
 	"go.uber.org/zap"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -299,5 +300,31 @@ func TestActivatePendingControllerMappingsPreservesPartialFailure(t *testing.T) 
 	}
 	if len(stopped) != 1 || stopped[0] != failingID {
 		t.Fatalf("stopped listeners = %#v, want failing port %d", stopped, failingID)
+	}
+}
+
+func TestDefaultPortReservationRetriesRolledBackDeadlock(t *testing.T) {
+	db, node, instance := setupControllerCreateTest(t, "nat_ipv4", "", 3)
+	attempts := 0
+	err := db.Callback().Create().Before("gorm:create").Register("test:port_insert_deadlock", func(tx *gorm.DB) {
+		if tx.Statement.Table == "ports" {
+			attempts++
+			if attempts == 1 {
+				_ = tx.AddError(&mysqlDriver.MySQLError{Number: 1213, Message: "fixture deadlock"})
+			}
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (&PortMappingService{}).ReserveDefaultPortMappingsForCreate(t.Context(), instance.ID, node.ID, instance.NetworkType); err != nil {
+		t.Fatal(err)
+	}
+	var ports []providerModel.Port
+	if err := db.Where("instance_id = ?", instance.ID).Order("host_port").Find(&ports).Error; err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 2 || len(ports) != 3 || !ports[0].IsSSH || ports[2].HostPort != ports[0].HostPort+2 {
+		t.Fatalf("reservation made %d insert attempts, ports = %+v", attempts, ports)
 	}
 }
