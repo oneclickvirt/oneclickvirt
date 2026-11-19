@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import os from 'node:os'
 import { SessionStore } from './dsh-store.mjs'
 
-export const VERSION = 'v20261119-062814'
+export const VERSION = 'v20261119-104512'
 const ADMIN_ROLES = new Set(['admin', 'normal_admin', 'super_admin'])
 const secretKey = /(?:password|passwd|privatekey|sshkey|secret|token|apikey|accesskey|authorization|cookie|taskdata)/i
 export class VirtError extends Error {

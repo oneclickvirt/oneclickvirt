@@ -2,7 +2,7 @@
 name: oneclickvirt
 description: OneClickVirt 操作 Skill，通过 MCP 管理容器、虚拟机、节点、健康检查和监控指标。
 metadata:
-  version: "20261119-062814"
+  version: "20261119-104512"
   author: oneclickvirt
   homepage: https://github.com/oneclickvirt/oneclickvirt
 ---
