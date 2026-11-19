@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-oneclickvirt",
-  "version": "20261117.90644.0",
+  "version": "20261119.62814.0",
   "description": "Manage OneClickVirt virtual machines, containers and provider nodes in DeepSeek Harness.",
   "type": "module",
   "license": "GPL-3.0-only",

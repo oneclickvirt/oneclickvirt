@@ -2,7 +2,7 @@ package constant
 
 // ServerVersion shares the vYYYYMMDD-HHMMSS release tag with the DSH plugin
 // and Skills. Source builds still carry the unofficial marker below.
-const ServerVersion = "v20261117-090644"
+const ServerVersion = "v20261119-062814"
 
 // AgentReleaseVersion is the controller release tag containing the Agent
 // assets. It is separate from CompatibleAgentVersion: the latter is the

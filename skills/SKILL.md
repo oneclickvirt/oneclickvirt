@@ -2,7 +2,7 @@
 name: oneclickvirt
 description: OneClickVirt operations skill for managing containers, virtual machines, provider nodes, health checks, and metrics through MCP.
 metadata:
-  version: "20261117-090644"
+  version: "20261119-062814"
   author: oneclickvirt
   homepage: https://github.com/oneclickvirt/oneclickvirt
 ---
