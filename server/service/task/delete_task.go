@@ -74,7 +74,6 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 	}
 
 	// 复制副本避免共享状态，立即创建Provider字段的本地副本
-	localProviderID := provider.ID
 	localProviderName := provider.Name
 
 	// 更新进度 (20%)
@@ -118,7 +117,7 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 		}
 
 		providerInstanceID := providerInstanceIdentifier(instance)
-		if err := providerApiService.DeleteInstanceByProviderID(ctx, localProviderID, providerInstanceID); err != nil {
+		if err := providerApiService.DeleteInstanceRecord(ctx, instance); err != nil {
 			lastErr = err
 			global.APP_LOG.Warn("Provider删除实例失败，准备重试",
 				zap.Uint("taskId", task.ID),

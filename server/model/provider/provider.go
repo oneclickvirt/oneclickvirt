@@ -477,6 +477,10 @@ type Instance struct {
 	Image        string `json:"image" gorm:"size:512"`                                                                                                                   // 使用的镜像名称（多容器场景可包含多个镜像）
 	InstanceType string `json:"instance_type" gorm:"size:16;default:container;index:idx_instance_type"`                                                                  // 实例类型：container, vm
 
+	// ContainerCreateToken matches the immutable runtime label for managed OCI guests.
+	// Imported and older instances have no token.
+	ContainerCreateToken string `json:"-" gorm:"size:36;not null;default:''"`
+
 	// 资源配置
 	CPU       int   `json:"cpu" gorm:"default:1"`        // CPU核心数
 	Memory    int64 `json:"memory" gorm:"default:512"`   // 内存大小（MB）
@@ -679,19 +683,20 @@ type ProviderImage struct {
 
 // ProviderInstanceConfig 实例配置
 type ProviderInstanceConfig struct {
-	Name         string            `json:"name"`
-	Image        string            `json:"image"`
-	ImageURL     string            `json:"image_url"`  // 镜像下载URL
-	ImagePath    string            `json:"image_path"` // 镜像文件路径
-	UseCDN       bool              `json:"use_cdn"`    // 是否使用CDN加速下载镜像
-	CPU          string            `json:"cpu"`
-	Memory       string            `json:"memory"`
-	Disk         string            `json:"disk"`
-	Network      string            `json:"network"`
-	Ports        []string          `json:"ports"`
-	Env          map[string]string `json:"env"`
-	Metadata     map[string]string `json:"metadata"`
-	InstanceType string            `json:"instance_type"` // container 或 vm
+	Name                 string            `json:"name"`
+	Image                string            `json:"image"`
+	ImageURL             string            `json:"image_url"`  // 镜像下载URL
+	ImagePath            string            `json:"image_path"` // 镜像文件路径
+	UseCDN               bool              `json:"use_cdn"`    // 是否使用CDN加速下载镜像
+	CPU                  string            `json:"cpu"`
+	Memory               string            `json:"memory"`
+	Disk                 string            `json:"disk"`
+	Network              string            `json:"network"`
+	Ports                []string          `json:"ports"`
+	Env                  map[string]string `json:"env"`
+	Metadata             map[string]string `json:"metadata"`
+	InstanceType         string            `json:"instance_type"` // container 或 vm
+	ContainerCreateToken string            `json:"-"`
 
 	// 容器特殊配置选项（仅适用于 LXD 和 Incus 的容器实例）
 	Privileged   *bool   `json:"privileged,omitempty"`   // 容器特权模式，使用指针以区分 false 和未设置

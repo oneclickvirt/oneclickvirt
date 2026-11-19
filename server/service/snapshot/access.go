@@ -535,6 +535,9 @@ func ensureInstanceSnapshotReady(inst providerModel.Instance) error {
 }
 
 func maxSnapshotsForUserInTx(tx *gorm.DB, userID uint) (int, error) {
+	if userID == 0 {
+		return 3, nil
+	}
 	var usr userModel.User
 	if err := tx.Select("id", "level").First(&usr, userID).Error; err != nil {
 		return 0, err

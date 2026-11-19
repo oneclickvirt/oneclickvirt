@@ -332,7 +332,7 @@ func (a *portMappingApplier) removeEndpoint(instance *providerModel.Instance, po
 	case *incusProvider.IncusProvider:
 		return providerInstance.RemovePortMappingForFamily(providerInstanceID, endpoint.host, endpoint.guest, endpoint.host, endpoint.guest, 1, port.Protocol, method, targetAddress, ipv6)
 	case *proxmoxProvider.ProxmoxProvider:
-		return providerInstance.RemovePortMapping(a.ctx, providerInstanceID, endpoint.host, port.Protocol, method)
+		return providerInstance.RemovePortMappingForFamily(providerInstanceID, endpoint.host, port.Protocol, targetAddress, ipv6)
 	default:
 		manager, err := a.getFirewallManager()
 		if err != nil {

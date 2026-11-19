@@ -175,7 +175,10 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	if err := utils.RequireRuntimeContainerAbsent(ctx, d.sshClient, d.runtime.CLI, config.Name); err != nil {
 		return err
 	}
-	createOwner := uuid.NewString()
+	createOwner := config.ContainerCreateToken
+	if createOwner == "" {
+		createOwner = uuid.NewString()
+	}
 
 	// 进度更新辅助函数
 	updateProgress := func(percentage int, message string) {
@@ -200,7 +203,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		zap.String("image", config.Image),
 		zap.String("providerHost", d.config.Host))
 
-	if handled, err := d.sshCreateSpecialRuntimeInstance(ctx, config, updateProgress); handled {
+	if handled, err := d.sshCreateSpecialRuntimeInstance(ctx, config, createOwner, updateProgress); handled {
 		return err
 	}
 

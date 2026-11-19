@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -114,6 +115,7 @@ func (p *ProxmoxProvider) cleanupInstancePortMappings(ctx context.Context, vmid 
 	}
 
 	// 2. 如果找到了实例名称，尝试从数据库获取端口映射进行清理
+	networkType := ""
 	if instanceName != "" {
 		global.APP_LOG.Debug("找到实例名称，开始清理数据库中的端口映射",
 			zap.String("vmid", vmid),
@@ -121,28 +123,38 @@ func (p *ProxmoxProvider) cleanupInstancePortMappings(ctx context.Context, vmid 
 
 		// 从数据库获取实例的端口映射
 		var instance providerModel.Instance
-		if err := global.APP_DB.Where("name = ?", instanceName).First(&instance).Error; err != nil {
+		providerID := p.providerID
+		if providerID == 0 {
+			providerID = p.config.ID
+		}
+		if err := global.APP_DB.Where("name = ? AND provider_id = ?", instanceName, providerID).
+			Where("(provider_vm_id IS NULL OR provider_vm_id IN ?)", []string{"", vmid, instanceName}).First(&instance).Error; err != nil {
 			global.APP_LOG.Warn("从数据库获取实例信息失败", zap.String("instanceName", instanceName), zap.Error(err))
 		} else {
+			networkType = instance.NetworkType
 			// 获取实例的所有端口映射
 			var portMappings []providerModel.Port
 			if err := global.APP_DB.Where("instance_id = ? AND status = 'active'", instance.ID).Find(&portMappings).Error; err != nil {
 				global.APP_LOG.Warn("获取端口映射失败", zap.String("instanceName", instanceName), zap.Error(err))
 			} else {
-				// 清理每个端口映射
-				for _, port := range portMappings {
-					if err := p.removePortMapping(ctx, instanceName, port.HostPort, port.Protocol, port.MappingMethod); err != nil {
-						global.APP_LOG.Warn("移除端口映射失败",
-							zap.String("instanceName", instanceName),
-							zap.Int("hostPort", port.HostPort),
-							zap.String("protocol", port.Protocol),
-							zap.Error(err))
-						cleanupErrors = append(cleanupErrors, fmt.Sprintf("端口 %d/%s: %v", port.HostPort, port.Protocol, err))
-					} else {
-						global.APP_LOG.Debug("端口映射清理成功",
-							zap.String("instanceName", instanceName),
-							zap.Int("hostPort", port.HostPort),
-							zap.String("protocol", port.Protocol))
+				for _, row := range portMappings {
+					if row.MappingType == "controller" {
+						continue
+					}
+					for _, port := range providerModel.ExpandPortMappingFamilies(row, networkType, "", "") {
+						ipv6 := port.IPv6Enabled || strings.TrimSpace(port.IPv6Address) != ""
+						address := instance.PrivateIP
+						if ipv6 {
+							address = port.IPv6Address
+							if address == "" {
+								address = instance.IPv6Address
+							}
+						}
+						// Older setup paths use the instance name and manual
+						// operations can use the canonical VMID as rule owner.
+						if err := p.removePortMappingForFamily([]string{instanceName, vmid}, port.HostPort, port.Protocol, address, ipv6); err != nil {
+							cleanupErrors = append(cleanupErrors, fmt.Sprintf("端口 %d/%s: %v", port.HostPort, port.Protocol, err))
+						}
 					}
 				}
 			}
@@ -150,7 +162,7 @@ func (p *ProxmoxProvider) cleanupInstancePortMappings(ctx context.Context, vmid 
 	}
 
 	// 3. 尝试基于推断的IP地址清理iptables规则（使用VMID到IP的映射函数）
-	if instanceType == "vm" || instanceType == "container" {
+	if networkType != "ipv6_only" && (instanceType == "vm" || instanceType == "container") {
 		vmidInt, err := strconv.Atoi(vmid)
 		if err == nil && vmidInt >= MinVMID && vmidInt <= MaxVMID {
 			inferredIP := p.vmidToInternalIP(vmidInt)
@@ -304,7 +316,8 @@ func (p *ProxmoxProvider) setupPortMappingWithIP(ctx context.Context, instanceNa
 	// Older reset tasks used the numeric PVE VMID as the firewall owner. Clean
 	// that alias once per mapping before expanding "both"; doing this inside
 	// the protocol loop would remove the TCP rule immediately before adding UDP.
-	if err := p.cleanupLegacyPortMappingOwner(instanceName, hostPort); err != nil {
+	ip := net.ParseIP(strings.TrimSpace(strings.SplitN(instanceIP, "/", 2)[0]))
+	if err := p.cleanupLegacyPortMappingOwner(instanceName, hostPort, ip != nil && ip.To4() == nil); err != nil {
 		return fmt.Errorf("清理旧端口映射归属失败: %w", err)
 	}
 
@@ -317,7 +330,7 @@ func (p *ProxmoxProvider) setupPortMappingWithIP(ctx context.Context, instanceNa
 	return nil
 }
 
-func (p *ProxmoxProvider) cleanupLegacyPortMappingOwner(instanceName string, hostPort int) error {
+func (p *ProxmoxProvider) cleanupLegacyPortMappingOwner(instanceName string, hostPort int, ipv6 bool) error {
 	providerID := p.providerID
 	if providerID == 0 {
 		providerID = p.config.ID
@@ -340,7 +353,7 @@ func (p *ProxmoxProvider) cleanupLegacyPortMappingOwner(instanceName string, hos
 		return err
 	}
 	prefix := fmt.Sprintf("pm:%s:%d:", legacyOwner, hostPort)
-	return fwMgr.DeleteRulesByCommentPrefix(prefix)
+	return fwMgr.DeleteRulesByCommentPrefixForFamily(prefix, ipv6)
 }
 
 // setupSinglePortMapping 设置单个协议的端口映射
@@ -398,54 +411,26 @@ func (p *ProxmoxProvider) setupIptablesMappingWithIP(ctx context.Context, instan
 	return nil
 }
 
-// removePortMapping 移除端口映射
-func (p *ProxmoxProvider) removePortMapping(ctx context.Context, instanceName string, hostPort int, protocol string, method string) error {
-	global.APP_LOG.Debug("移除端口映射",
-		zap.String("instance", instanceName),
-		zap.Int("hostPort", hostPort),
-		zap.String("protocol", protocol),
-		zap.String("method", method))
-
-	return p.removeIptablesMapping(ctx, instanceName, hostPort, protocol)
-}
-
-// removeIptablesMapping 移除防火墙端口映射（nft优先，iptables回退）
-func (p *ProxmoxProvider) removeIptablesMapping(ctx context.Context, instanceName string, hostPort int, protocol string) error {
-	instanceIP, err := p.getInstancePrivateIP(ctx, instanceName)
-	if err != nil {
-		return fmt.Errorf("获取实例IP失败: %w", err)
-	}
-
-	cleanInstanceIP := strings.TrimSpace(instanceIP)
-	if strings.Contains(cleanInstanceIP, "/") {
-		cleanInstanceIP = strings.Split(cleanInstanceIP, "/")[0]
-	}
-
+// removePortMappingForFamily limits the owner-prefix and old address-based
+// cleanup to the family being removed. An absent IPv6 NAT table is irrelevant
+// when this mapping only publishes IPv4.
+func (p *ProxmoxProvider) removePortMappingForFamily(owners []string, hostPort int, protocol, instanceIP string, ipv6 bool) error {
 	fwMgr := firewall.NewManager(p.sshClient, "proxmox", "")
 	if _, err := fwMgr.DetectBackend("/usr/local/bin/proxmox_fw_backend"); err != nil {
 		return fmt.Errorf("检测防火墙后端失败: %w", err)
 	}
 
-	// Port comments include the guest port, which this public method does not
-	// receive. Remove the exact host-port prefix for all protocols/guest ports;
-	// the prefix API is intentional and avoids silently passing a non-exact
-	// string to DeleteRulesByComment.
-	comment := fmt.Sprintf("pm:%s:%d:", instanceName, hostPort)
-	if err := fwMgr.DeleteRulesByCommentPrefix(comment); err != nil {
-		return fmt.Errorf("按端口映射归属清理规则失败: %w", err)
+	for _, owner := range owners {
+		comment := fmt.Sprintf("pm:%s:%d:", owner, hostPort)
+		if err := fwMgr.DeleteRulesByCommentPrefixForFamily(comment, ipv6); err != nil {
+			return fmt.Errorf("按端口映射归属清理规则失败: %w", err)
+		}
 	}
-	// Also remove untagged legacy rules when the guest address is known. New
-	// tagged rules were handled above; this fallback preserves compatibility
-	// with mappings created before owner comments were introduced.
-	if cleanInstanceIP != "" {
-		if err := fwMgr.RemoveSingleDNAT(cleanInstanceIP, hostPort, 0, protocol, ""); err != nil {
+	if strings.TrimSpace(instanceIP) != "" {
+		if err := fwMgr.RemoveSingleDNATForFamily(instanceIP, hostPort, 0, protocol, "", ipv6); err != nil {
 			return fmt.Errorf("清理未标记端口映射失败: %w", err)
 		}
 	}
-
-	global.APP_LOG.Debug("防火墙端口映射移除成功",
-		zap.String("instance", instanceName))
-
 	return nil
 }
 
@@ -515,5 +500,15 @@ func (p *ProxmoxProvider) SetupPortMappingWithIP(ctx context.Context, instanceNa
 
 // RemovePortMapping removes a node-side mapping before it is rebuilt.
 func (p *ProxmoxProvider) RemovePortMapping(ctx context.Context, instanceName string, hostPort int, protocol, method string) error {
-	return p.removePortMapping(ctx, instanceName, hostPort, protocol, method)
+	address, err := p.getInstancePrivateIP(ctx, instanceName)
+	if err != nil {
+		return fmt.Errorf("获取实例IP失败: %w", err)
+	}
+	return p.RemovePortMappingForFamily(instanceName, hostPort, protocol, address, false)
+}
+
+// RemovePortMappingForFamily removes one endpoint with its recorded target
+// address, even when a stopped guest no longer reports it through PVE.
+func (p *ProxmoxProvider) RemovePortMappingForFamily(owner string, hostPort int, protocol, address string, ipv6 bool) error {
+	return p.removePortMappingForFamily([]string{owner}, hostPort, protocol, address, ipv6)
 }

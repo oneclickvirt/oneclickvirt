@@ -244,7 +244,9 @@ func (p *QEMUProvider) sshCreateLXCContainer(ctx context.Context, config provide
 	p.sshClient.Execute(fmt.Sprintf("virsh -c lxc:/// autostart %s 2>/dev/null || true", shellSingleQuote(config.Name)))
 
 	logLine := fmt.Sprintf("%s %d *** %d %d 0 %d %d %s %s", config.Name, sshPort, cpu, memoryMB, startPort, endPort, systemName, containerIP)
-	p.sshClient.Execute(fmt.Sprintf("printf '%%s\\n' %s >> %s", shellSingleQuote(logLine), shellSingleQuote(VMLogDir)))
+	if output, err := p.sshClient.Execute(qemuAppendVMLogCommand(VMLogDir, logLine)); err != nil {
+		global.APP_LOG.Warn("写入QEMU/LXC实例日志失败", zap.Error(err), zap.String("output", utils.TruncateString(output, 1000)))
+	}
 
 	updateProgress(100, "QEMU/LXC容器创建完成")
 	global.APP_LOG.Info("QEMU/LXC容器创建成功", zap.String("name", config.Name), zap.String("ip", containerIP))
@@ -294,8 +296,8 @@ func (p *QEMUProvider) sshDeleteLXCContainer(ctx context.Context, id string) err
 	if output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("rm -rf %s 2>&1", shellSingleQuote(fmt.Sprintf("%s/%s", LXCBaseDir, qemuSafeFileComponent(id))))); err != nil {
 		return fmt.Errorf("清理QEMU/LXC容器文件失败: %w (output: %s)", err, utils.TruncateString(strings.TrimSpace(output), 1000))
 	}
-	if _, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("grep -v '^%s ' %s > %s.tmp 2>/dev/null && mv %s.tmp %s 2>/dev/null || true", utils.SanitizeShellArg(id), VMLogDir, VMLogDir, VMLogDir, VMLogDir)); err != nil && ctx.Err() != nil {
-		return ctx.Err()
+	if output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, qemuRemoveVMLogCommand(VMLogDir, id)); err != nil {
+		return fmt.Errorf("清理QEMU/LXC实例日志失败: %w (output: %s)", err, utils.TruncateString(strings.TrimSpace(output), 1000))
 	}
 	output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("virsh -c lxc:/// dominfo %s 2>&1", shellSingleQuote(id)))
 	if qemuDomainAlreadyGone(output, err) {

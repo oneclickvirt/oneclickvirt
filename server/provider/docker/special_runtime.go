@@ -21,7 +21,7 @@ type dockerSpecialRuntimeImage struct {
 	Version string
 }
 
-func (d *DockerProvider) sshCreateSpecialRuntimeInstance(ctx context.Context, config provider.InstanceConfig, updateProgress func(int, string)) (bool, error) {
+func (d *DockerProvider) sshCreateSpecialRuntimeInstance(ctx context.Context, config provider.InstanceConfig, createOwner string, updateProgress func(int, string)) (bool, error) {
 	specialImage, ok := detectDockerSpecialRuntimeImage(config)
 	if !ok {
 		return false, nil
@@ -60,8 +60,7 @@ func (d *DockerProvider) sshCreateSpecialRuntimeInstance(ctx context.Context, co
 	}
 
 	updateProgress(18, "准备特殊运行时镜像...")
-	cleanupCmd := fmt.Sprintf("%s rm -f %s 2>/dev/null || true", d.runtime.CLI, shellSingleQuote(config.Name))
-	_, _ = d.sshClient.Execute(cleanupCmd)
+	networkFlags += " --label " + shellSingleQuote("oneclickvirt.create-token="+createOwner)
 
 	switch specialImage.Kind {
 	case "windows":

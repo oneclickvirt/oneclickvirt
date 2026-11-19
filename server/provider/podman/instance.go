@@ -134,7 +134,10 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	if err := utils.RequireRuntimeContainerAbsent(ctx, p.sshClient, cliName, config.Name); err != nil {
 		return err
 	}
-	createOwner := uuid.NewString()
+	createOwner := config.ContainerCreateToken
+	if createOwner == "" {
+		createOwner = uuid.NewString()
+	}
 
 	updateProgress := func(percentage int, message string) {
 		if progressCallback != nil {

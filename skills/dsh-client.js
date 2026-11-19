@@ -222,7 +222,7 @@ window.__ModuleLoader__.load({
       }
       ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'oneclickvirt', locale: 'oneclickvirt' }, Seat))
       ctx.slots.inject('shell.overlay', () => ctx.slots.register({ name: 'shell.overlay', id: 'oneclickvirt-keeper', locale: 'oneclickvirt' }, Keeper))
-      ctx.slots.inject('sidebar.panellist.actions', () => ctx.slots.register({ name: 'sidebar.panellist.actions', id: 'oneclickvirt-open', order: 81 }, ({ onDismiss }) => h('button', { type: 'button', className: 'ocv-menu', onClick: () => { ctx.layout.selectPanel('oneclickvirt'); onDismiss() } }, t('restore'))))
+      ctx.slots.inject('sidebar.panellist.actions', () => ctx.slots.register({ name: 'sidebar.panellist.actions', id: 'oneclickvirt-open', order: 81 }, ({ onDismiss }) => h('button', { type: 'button', className: 'ocv-menu', onClick: () => { ctx.layout.selectPanel('oneclickvirt'); onDismiss?.() } }, t('restore'))))
       updateSidebar(saved.sidebar)
       ctx.effect(() => () => { disposed = true; updateSidebar = () => {}; if (typeof sidebarDispose === 'function') sidebarDispose() })
     } }

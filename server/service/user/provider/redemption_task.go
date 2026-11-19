@@ -20,6 +20,7 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // ProcessCreateRedemptionInstanceTask 处理兑换码实例创建任务（三阶段）
@@ -131,7 +132,7 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 
 		// 验证节点
 		var provider providerModel.Provider
-		if err := tx.Where("id = ?", taskReq.ProviderId).First(&provider).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&provider, taskReq.ProviderId).Error; err != nil {
 			return fmt.Errorf("节点不存在或不可用")
 		}
 		providerAvailable := (provider.ConnectionType == "agent" && provider.AgentStatus == "online") ||
@@ -147,6 +148,10 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 		}
 
 		instanceName := s.generateInstanceName(provider.Name)
+
+		if err := requireUnusedInstanceName(tx, provider.ID, instanceName); err != nil {
+			return err
+		}
 
 		expiredAt := determineInitialInstanceExpiryInTx(tx, &provider)
 		gpuEnabled := provider.GpuEnabled && taskReq.GpuEnabled && utils.SupportsContainerGPUProvider(provider.Type, instanceType)
@@ -167,27 +172,28 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 			bwMbps = bandwidthSpec.SpeedMbps
 		}
 		instance = providerModel.Instance{
-			Name:               instanceName,
-			Provider:           provider.Name,
-			ProviderID:         provider.ID,
-			Image:              imageName,
-			CPU:                cpuCores,
-			Memory:             memMB,
-			Disk:               diskMB,
-			Bandwidth:          bwMbps,
-			InstanceType:       instanceType,
-			UserID:             0, // 系统用户占位
-			Status:             "creating",
-			DesiredState:       providerModel.InstanceDesiredStateRunning,
-			OSType:             osType,
-			ExpiresAt:          expiredAt,
-			IsManualExpiry:     false,
-			MaxTraffic:         0,
-			TrafficLimited:     false,
-			TrafficLimitReason: "",
-			GpuEnabled:         gpuEnabled,
-			GpuDeviceIds:       gpuDeviceIDs,
-			NetworkType:        provider.NetworkType, // 继承Provider的网络类型
+			ContainerCreateToken: utils.NewContainerCreateToken(provider.Type),
+			Name:                 instanceName,
+			Provider:             provider.Name,
+			ProviderID:           provider.ID,
+			Image:                imageName,
+			CPU:                  cpuCores,
+			Memory:               memMB,
+			Disk:                 diskMB,
+			Bandwidth:            bwMbps,
+			InstanceType:         instanceType,
+			UserID:               0, // 系统用户占位
+			Status:               "creating",
+			DesiredState:         providerModel.InstanceDesiredStateRunning,
+			OSType:               osType,
+			ExpiresAt:            expiredAt,
+			IsManualExpiry:       false,
+			MaxTraffic:           0,
+			TrafficLimited:       false,
+			TrafficLimitReason:   "",
+			GpuEnabled:           gpuEnabled,
+			GpuDeviceIds:         gpuDeviceIDs,
+			NetworkType:          provider.NetworkType, // 继承Provider的网络类型
 		}
 		if err := tx.Create(&instance).Error; err != nil {
 			return fmt.Errorf("创建实例记录失败: %v", err)

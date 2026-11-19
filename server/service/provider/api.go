@@ -2,10 +2,12 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"oneclickvirt/service/images"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/taskgate"
+	"strings"
 	"time"
 
 	"oneclickvirt/global"
@@ -13,6 +15,7 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	resourceModel "oneclickvirt/model/resource"
 	"oneclickvirt/provider"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -354,6 +357,60 @@ func (s *ProviderApiService) RestartInstanceByProviderID(ctx context.Context, pr
 	return nil
 }
 
+// DeleteInstanceRecord uses the runtime's immutable ID when the controller
+// recorded a create token. A conflicting runtime is outside this record.
+func (s *ProviderApiService) DeleteInstanceRecord(ctx context.Context, instance providerModel.Instance) error {
+	prov, _, err := s.GetProviderByIDForOperation(instance.ProviderID, "delete")
+	if err != nil {
+		return err
+	}
+	if err := CheckProviderConnection(prov); err != nil {
+		return err
+	}
+	if instance.ContainerCreateToken == "" {
+		// Older controllers could persist duplicate names on the same node.
+		// There is no safe way to infer ownership of those OCI resources.
+		if utils.IsDockerFamilyProvider(prov.GetType()) {
+			var conflicts int64
+			if err := global.APP_DB.WithContext(ctx).Model(&providerModel.Instance{}).
+				Where("provider_id = ? AND name = ? AND id <> ?", instance.ProviderID, instance.Name, instance.ID).
+				Count(&conflicts).Error; err != nil {
+				return err
+			}
+			if conflicts != 0 {
+				return fmt.Errorf("节点上有多条同名实例记录 %q，无法确认容器归属", instance.Name)
+			}
+		}
+		return deleteInstanceFromProvider(ctx, prov, instance.ProviderID, instance.ProviderInstanceIdentifier())
+	}
+	var cli string
+	switch utils.NormalizeProviderType(prov.GetType()) {
+	case "docker", "orbstack":
+		cli = "docker"
+	case "podman":
+		cli = "podman"
+	case "containerd":
+		cli = "nerdctl"
+	default:
+		return fmt.Errorf("节点运行时与实例创建记录不一致")
+	}
+	id, err := utils.OwnedRuntimeContainerID(ctx, prov.ExecuteSSHCommand, cli, instance.Name, instance.ContainerCreateToken)
+	if errors.Is(err, utils.ErrRuntimeContainerOwnership) && strings.TrimSpace(instance.ProviderVMID) == "" {
+		global.APP_LOG.Warn("保留同名的其他容器", zap.Uint("instanceId", instance.ID))
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if id != "" {
+		if err := prov.DeleteInstance(ctx, id); err != nil {
+			return err
+		}
+	}
+	// The dedicated IPv4 unit is keyed by guest name, not runtime ID.
+	return provider.DedicatedIPv4Lifecycle(ctx, prov, instance.Name, true)
+}
+
 // DeleteInstanceByProviderID 根据Provider ID删除实例（确保使用正确的Provider）
 // 删除操作允许访问冻结的Provider
 func (s *ProviderApiService) DeleteInstanceByProviderID(ctx context.Context, providerID uint, instanceID string) error {
@@ -367,6 +424,10 @@ func (s *ProviderApiService) DeleteInstanceByProviderID(ctx context.Context, pro
 		return err
 	}
 
+	return deleteInstanceFromProvider(ctx, prov, providerID, instanceID)
+}
+
+func deleteInstanceFromProvider(ctx context.Context, prov provider.Provider, providerID uint, instanceID string) error {
 	if err := prov.DeleteInstance(ctx, instanceID); err != nil {
 		global.APP_LOG.Error("删除实例失败",
 			zap.Uint("providerId", providerID),

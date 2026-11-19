@@ -2,6 +2,7 @@ package provider
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"sort"
@@ -59,50 +60,60 @@ func (s *IPv4PoolService) SetIPv4Pool(providerID uint, text string) (added []str
 		return nil, invalidLines, fmt.Errorf("未解析到有效的IPv4地址")
 	}
 
-	// 查询已存在的地址（全量，用于去重）
-	var existing []string
-	if dbErr := global.APP_DB.Model(&providerModel.ProviderIPv4Pool{}).
-		Where("provider_id = ? AND deleted_at IS NULL", providerID).
-		Pluck("address", &existing).Error; dbErr != nil {
-		return nil, invalidLines, dbErr
-	}
-	existingSet := make(map[string]struct{}, len(existing))
-	for _, addr := range existing {
-		existingSet[addr] = struct{}{}
-	}
-
-	// 批量插入新地址
-	var newEntries []providerModel.ProviderIPv4Pool
-	for _, ip := range ips {
-		if _, ok := existingSet[ip]; ok {
+	// Address has a global unique index. Use normal batch inserts for new
+	// addresses. If a concurrent writer won an overlapping insert, retry only
+	// that batch by address so its disjoint addresses are still added.
+	db := global.APP_DB
+	const batchSize = 200
+	for start := 0; start < len(ips); start += batchSize {
+		addresses := ips[start:min(start+batchSize, len(ips))]
+		var existing []string
+		if err := db.Model(&providerModel.ProviderIPv4Pool{}).
+			Where("address IN ?", addresses).Pluck("address", &existing).Error; err != nil {
+			return added, invalidLines, err
+		}
+		existingSet := make(map[string]bool, len(existing))
+		for _, address := range existing {
+			existingSet[address] = true
+		}
+		batch := make([]providerModel.ProviderIPv4Pool, 0, len(addresses))
+		for _, address := range addresses {
+			if !existingSet[address] {
+				batch = append(batch, providerModel.ProviderIPv4Pool{ProviderID: providerID, Address: address})
+			}
+		}
+		if len(batch) == 0 {
 			continue
 		}
-		newEntries = append(newEntries, providerModel.ProviderIPv4Pool{
-			ProviderID:  providerID,
-			Address:     ip,
-			IsAllocated: false,
-		})
-	}
-
-	if len(newEntries) > 0 {
-		// 分批插入（每批200条）
-		batchSize := 200
-		for i := 0; i < len(newEntries); i += batchSize {
-			end := i + batchSize
-			if end > len(newEntries) {
-				end = len(newEntries)
+		if err := db.Create(&batch).Error; err != nil {
+			if !isIPv4PoolDuplicate(db, err) {
+				return added, invalidLines, fmt.Errorf("批量插入IPv4地址失败: %w", err)
 			}
-			batch := newEntries[i:end]
-			if dbErr := global.APP_DB.Create(&batch).Error; dbErr != nil {
-				return added, invalidLines, fmt.Errorf("批量插入IPv4地址失败: %w", dbErr)
-			}
-			for _, entry := range batch {
+			for _, row := range batch {
+				entry := providerModel.ProviderIPv4Pool{ProviderID: providerID, Address: row.Address}
+				if err := db.Create(&entry).Error; err != nil {
+					if isIPv4PoolDuplicate(db, err) {
+						continue
+					}
+					return added, invalidLines, fmt.Errorf("插入IPv4地址失败: %w", err)
+				}
 				added = append(added, entry.Address)
 			}
+			continue
+		}
+		for _, entry := range batch {
+			added = append(added, entry.Address)
 		}
 	}
 
 	return added, invalidLines, nil
+}
+
+func isIPv4PoolDuplicate(db *gorm.DB, err error) bool {
+	if translator, ok := db.Dialector.(gorm.ErrorTranslator); ok {
+		err = translator.Translate(err)
+	}
+	return errors.Is(err, gorm.ErrDuplicatedKey)
 }
 
 // ClearUnallocated 软删除所有未分配的IP地址

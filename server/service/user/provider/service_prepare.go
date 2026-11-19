@@ -17,6 +17,7 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // prepareInstanceCreation 阶段1: 数据库预处理（不依赖预留资源）
@@ -113,7 +114,7 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 		}
 
 		var provider providerModel.Provider
-		if err := tx.Where("id = ?", taskReq.ProviderId).First(&provider).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&provider, taskReq.ProviderId).Error; err != nil {
 			return fmt.Errorf("服务器不存在或不可用")
 		}
 		providerAvailable := (provider.ConnectionType == "agent" && provider.AgentStatus == "online") ||
@@ -158,31 +159,36 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 			}
 		}
 
+		if err := requireUnusedInstanceName(tx, provider.ID, instanceName); err != nil {
+			return err
+		}
+
 		// 创建实例记录
 		instance = providerModel.Instance{
-			Name:               instanceName,
-			Provider:           provider.Name,
-			ProviderID:         provider.ID,
-			Image:              imageName,
-			CPU:                cpuCores,
-			Memory:             memoryMB,
-			Disk:               diskMB,
-			Bandwidth:          bandwidthSpeedMbps,
-			InstanceType:       instanceType,
-			UserID:             task.UserID,
-			Status:             "creating",
-			DesiredState:       providerModel.InstanceDesiredStateRunning,
-			Username:           "root",
-			Password:           s.generatePassword(),
-			OSType:             osType,
-			NetworkType:        networkType, // 保存本实例选择的类型，节点默认值变化不会改写该快照
-			ExpiresAt:          expiredAt,
-			IsManualExpiry:     false,        // 默认非手动设置，跟随节点
-			MaxTraffic:         0,            // 默认为0，表示继承用户等级限制，不单独限制实例
-			TrafficLimited:     false,        // 显式设置为false，确保不会因流量误判为超限
-			TrafficLimitReason: "",           // 初始无限制原因
-			GpuEnabled:         gpuEnabled,   // GPU直通配置
-			GpuDeviceIds:       gpuDeviceIDs, // GPU设备ID列表
+			ContainerCreateToken: utils.NewContainerCreateToken(provider.Type),
+			Name:                 instanceName,
+			Provider:             provider.Name,
+			ProviderID:           provider.ID,
+			Image:                imageName,
+			CPU:                  cpuCores,
+			Memory:               memoryMB,
+			Disk:                 diskMB,
+			Bandwidth:            bandwidthSpeedMbps,
+			InstanceType:         instanceType,
+			UserID:               task.UserID,
+			Status:               "creating",
+			DesiredState:         providerModel.InstanceDesiredStateRunning,
+			Username:             "root",
+			Password:             s.generatePassword(),
+			OSType:               osType,
+			NetworkType:          networkType, // 保存本实例选择的类型，节点默认值变化不会改写该快照
+			ExpiresAt:            expiredAt,
+			IsManualExpiry:       false,        // 默认非手动设置，跟随节点
+			MaxTraffic:           0,            // 默认为0，表示继承用户等级限制，不单独限制实例
+			TrafficLimited:       false,        // 显式设置为false，确保不会因流量误判为超限
+			TrafficLimitReason:   "",           // 初始无限制原因
+			GpuEnabled:           gpuEnabled,   // GPU直通配置
+			GpuDeviceIds:         gpuDeviceIDs, // GPU设备ID列表
 		}
 
 		// 创建实例

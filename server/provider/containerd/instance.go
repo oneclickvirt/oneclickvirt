@@ -148,7 +148,10 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 	if err := utils.RequireRuntimeContainerAbsent(ctx, c.sshClient, cliName, config.Name); err != nil {
 		return err
 	}
-	createOwner := uuid.NewString()
+	createOwner := config.ContainerCreateToken
+	if createOwner == "" {
+		createOwner = uuid.NewString()
+	}
 
 	updateProgress := func(percentage int, message string) {
 		if progressCallback != nil {

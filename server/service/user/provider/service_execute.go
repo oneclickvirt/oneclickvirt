@@ -351,14 +351,15 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 
 	// 构建实例配置，使用实际数值而非ID
 	instanceConfig := provider.InstanceConfig{
-		Name:         instance.Name,
-		Image:        imageName,
-		CPU:          cpuValue,
-		Memory:       memoryValue,
-		Disk:         diskValue,
-		InstanceType: instance.InstanceType,
-		ImageURL:     imageURL, // 镜像URL用于下载
-		UseCDN:       useCDN,   // 传递CDN加速配置（仅GitHub链接启用）
+		Name:                 instance.Name,
+		ContainerCreateToken: instance.ContainerCreateToken,
+		Image:                imageName,
+		CPU:                  cpuValue,
+		Memory:               memoryValue,
+		Disk:                 diskValue,
+		InstanceType:         instance.InstanceType,
+		ImageURL:             imageURL, // 镜像URL用于下载
+		UseCDN:               useCDN,   // 传递CDN加速配置（仅GitHub链接启用）
 		Metadata: map[string]string{
 			"user_level":               fmt.Sprintf("%d", userLevel),          // 用户等级，用于带宽限制配置
 			"bandwidth_spec":           fmt.Sprintf("%d", bandwidthSpeedMbps), // 用户选择的带宽规格

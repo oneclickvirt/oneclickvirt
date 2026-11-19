@@ -11,10 +11,8 @@ import (
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
-	userModel "oneclickvirt/model/user"
 	providerSvc "oneclickvirt/service/provider"
 	"oneclickvirt/service/taskgate"
-	"oneclickvirt/service/userquota"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -773,21 +771,7 @@ func providerTypeForInstance(inst providerModel.Instance) string {
 }
 
 func maxSnapshotsForUser(userID uint) (int, error) {
-	if userID == 0 {
-		return 3, nil
-	}
-	var user userModel.User
-	if err := global.APP_DB.Select("id", "level").First(&user, userID).Error; err != nil {
-		return 0, err
-	}
-	limit, err := userquota.ResolveLevelLimit(user.Level)
-	if err != nil {
-		return 0, err
-	}
-	if limit.MaxSnapshots == 0 {
-		return 0, nil
-	}
-	return limit.MaxSnapshots, nil
+	return maxSnapshotsForUserInTx(global.APP_DB, userID)
 }
 
 func markSnapshotFailed(id uint, err error) {
@@ -825,7 +809,7 @@ func buildSnapshotCommand(action string, inst providerModel.Instance, snap provi
 	case "lxd":
 		return lxcSnapshotCommand("lxc", action, target, snapName), nil
 	case "incus":
-		return lxcSnapshotCommand("incus", action, target, snapName), nil
+		return incusSnapshotCommand(action, target, snapName), nil
 	case "proxmox":
 		tool := "pct"
 		if instanceType == "vm" {
@@ -862,6 +846,22 @@ func lxcSnapshotCommand(binary, action, instanceName, snapshotName string) strin
 		return fmt.Sprintf("%s delete %s/%s", binary, i, s)
 	case "restore":
 		return fmt.Sprintf("%s restore %s %s", binary, i, s)
+	default:
+		return ""
+	}
+}
+
+func incusSnapshotCommand(action, instanceName, snapshotName string) string {
+	switch action {
+	case "create", "delete", "restore":
+		// Older Incus versions have the LXD-style verbs. Inspect the command
+		// group up front so a failed mutation is never retried with another verb.
+		return fmt.Sprintf(`ocv_help=$(LC_ALL=C incus snapshot --help) || exit $?
+if printf '%%s\n' "$ocv_help" | grep -Eq '^[[:space:]]+%s[[:space:]]'; then
+	incus snapshot %s %s %s
+else
+	%s
+fi`, action, action, shellQuote(instanceName), shellQuote(snapshotName), lxcSnapshotCommand("incus", action, instanceName, snapshotName))
 	default:
 		return ""
 	}

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -47,5 +48,31 @@ func TestVMStoragePreservesStandaloneLogAndRepairsEmptyLegacyDirectory(t *testin
 				t.Fatal("existing log changed")
 			}
 		})
+	}
+}
+
+func TestQEMUVMLogRemovalKeepsEmptyAndExactNames(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("uses GNU file tools on provider nodes")
+	}
+	log := filepath.Join(t.TempDir(), "vmlog")
+	run := func(command string) {
+		t.Helper()
+		if output, err := exec.Command("sh", "-c", command).CombinedOutput(); err != nil {
+			t.Fatalf("vmlog command: %v: %s", err, output)
+		}
+	}
+	run(qemuRemoveVMLogCommand(log, "vm.7"))
+	run(qemuAppendVMLogCommand(log, "vm.7 2001"))
+	run(qemuAppendVMLogCommand(log, "vm17 2002"))
+	run(qemuRemoveVMLogCommand(log, "vm.7"))
+	remaining, err := os.ReadFile(log)
+	if err != nil || string(remaining) != "vm17 2002\n" {
+		t.Fatalf("unexpected remaining entries: %q, %v", remaining, err)
+	}
+	run(qemuRemoveVMLogCommand(log, "vm17"))
+	remaining, err = os.ReadFile(log)
+	if err != nil || len(remaining) != 0 {
+		t.Fatalf("last entry was not removed: %q, %v", remaining, err)
 	}
 }

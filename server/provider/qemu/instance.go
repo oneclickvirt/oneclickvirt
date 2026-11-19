@@ -552,8 +552,9 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	// 写入 vmlog（不写入密码）
 	logLine := fmt.Sprintf("%s %d %s %d %d %d %d %d %s %s",
 		config.Name, sshPort, "***", cpu, memoryMB, diskGB, startPort, endPort, system, vmIP)
-	logCmd := fmt.Sprintf("printf '%%s\\n' %s >> /root/vmlog", shellSingleQuote(logLine))
-	p.sshClient.Execute(logCmd)
+	if output, err := p.sshClient.Execute(qemuAppendVMLogCommand(VMLogDir, logLine)); err != nil {
+		global.APP_LOG.Warn("写入QEMU实例日志失败", zap.Error(err), zap.String("output", utils.TruncateString(output, 1000)))
+	}
 
 	updateProgress(100, "QEMU虚拟机创建完成")
 	return nil

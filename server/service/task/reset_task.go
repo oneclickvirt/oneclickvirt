@@ -126,27 +126,28 @@ func resetReplacementInstance(resetCtx *ResetTaskContext) providerModel.Instance
 		publicIPv4 = ""
 	}
 	return providerModel.Instance{
-		UUID:            resetCtx.Instance.UUID,
-		Name:            resetCtx.OldInstanceName,
-		Provider:        resetCtx.Provider.Name,
-		ProviderID:      resetCtx.Provider.ID,
-		Image:           resetCtx.Instance.Image,
-		InstanceType:    resetCtx.Instance.InstanceType,
-		CPU:             resetCtx.Instance.CPU,
-		Memory:          resetCtx.Instance.Memory,
-		Disk:            resetCtx.Instance.Disk,
-		Bandwidth:       resetCtx.Instance.Bandwidth,
-		UserID:          resetCtx.OriginalUserID,
-		Status:          "creating",
-		DesiredState:    resetCtx.Instance.DesiredState,
-		OSType:          resetCtx.Instance.OSType,
-		NetworkType:     resetCtx.Instance.NetworkType,
-		ExpiresAt:       resetCtx.OriginalExpiresAt,
-		IsManualExpiry:  resetCtx.OriginalIsManualExpiry,
-		PublicIP:        publicIPv4,
-		MaxTraffic:      int64(resetCtx.OriginalMaxTraffic),
-		ProviderVMID:    resetCtx.OldInstanceName,
-		EgressProfileID: resetCtx.Instance.EgressProfileID,
+		UUID:                 resetCtx.Instance.UUID,
+		ContainerCreateToken: utils.NewContainerCreateToken(resetCtx.Provider.Type),
+		Name:                 resetCtx.OldInstanceName,
+		Provider:             resetCtx.Provider.Name,
+		ProviderID:           resetCtx.Provider.ID,
+		Image:                resetCtx.Instance.Image,
+		InstanceType:         resetCtx.Instance.InstanceType,
+		CPU:                  resetCtx.Instance.CPU,
+		Memory:               resetCtx.Instance.Memory,
+		Disk:                 resetCtx.Instance.Disk,
+		Bandwidth:            resetCtx.Instance.Bandwidth,
+		UserID:               resetCtx.OriginalUserID,
+		Status:               "creating",
+		DesiredState:         resetCtx.Instance.DesiredState,
+		OSType:               resetCtx.Instance.OSType,
+		NetworkType:          resetCtx.Instance.NetworkType,
+		ExpiresAt:            resetCtx.OriginalExpiresAt,
+		IsManualExpiry:       resetCtx.OriginalIsManualExpiry,
+		PublicIP:             publicIPv4,
+		MaxTraffic:           int64(resetCtx.OriginalMaxTraffic),
+		ProviderVMID:         resetCtx.OldInstanceName,
+		EgressProfileID:      resetCtx.Instance.EgressProfileID,
 	}
 }
 
@@ -489,7 +490,7 @@ func (s *TaskService) resetTask_DeleteOldInstance(ctx context.Context, task *adm
 	}
 
 	// 直接调用Provider删除API
-	if err := providerApiService.DeleteInstanceByProviderID(ctx, resetCtx.Provider.ID, resetCtx.OldProviderInstanceID); err != nil {
+	if err := providerApiService.DeleteInstanceRecord(ctx, resetCtx.Instance); err != nil {
 		// 如果实例不存在，继续流程
 		errStr := err.Error()
 		if contains(errStr, "not found") || contains(errStr, "no such") {
@@ -738,13 +739,14 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 	// 准备创建请求（使用与正常创建完全相同的逻辑）
 	createReq := provider2.CreateInstanceRequest{
 		InstanceConfig: providerModel.ProviderInstanceConfig{
-			Name:         resetCtx.OldInstanceName,
-			Image:        resetCtx.Instance.Image,
-			InstanceType: resetCtx.Instance.InstanceType,
-			CPU:          fmt.Sprintf("%d", resetCtx.Instance.CPU),
-			Memory:       fmt.Sprintf("%dm", resetCtx.Instance.Memory),
-			Disk:         fmt.Sprintf("%dm", resetCtx.Instance.Disk),
-			Env:          map[string]string{"RESET_OPERATION": "true"},
+			Name:                 resetCtx.OldInstanceName,
+			ContainerCreateToken: newInstance.ContainerCreateToken,
+			Image:                resetCtx.Instance.Image,
+			InstanceType:         resetCtx.Instance.InstanceType,
+			CPU:                  fmt.Sprintf("%d", resetCtx.Instance.CPU),
+			Memory:               fmt.Sprintf("%dm", resetCtx.Instance.Memory),
+			Disk:                 fmt.Sprintf("%dm", resetCtx.Instance.Disk),
+			Env:                  map[string]string{"RESET_OPERATION": "true"},
 			Metadata: map[string]string{
 				"user_level":               fmt.Sprintf("%d", userLevel),
 				"bandwidth_spec":           fmt.Sprintf("%d", resetCtx.Instance.Bandwidth),

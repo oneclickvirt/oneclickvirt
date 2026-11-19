@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"errors"
 	"fmt"
 
 	adminModel "oneclickvirt/model/admin"
@@ -22,6 +23,22 @@ func lockRunningCreate(tx *gorm.DB, taskID uint) error {
 		return fmt.Errorf("创建任务已停止，当前状态: %s", current.Status)
 	}
 	return nil
+}
+
+// The caller holds the provider row lock. A locking read sees the most
+// recently committed reservation even after an earlier MySQL snapshot read.
+func requireUnusedInstanceName(tx *gorm.DB, providerID uint, name string) error {
+	var sibling providerModel.Instance
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").
+		Where("provider_id = ? AND name = ?", providerID, name).Take(&sibling).Error
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		return nil
+	case err != nil:
+		return err
+	default:
+		return fmt.Errorf("节点上已存在同名实例 %q", name)
+	}
 }
 
 // A provider error can leave a live guest behind. Keep IPs, ports and capacity

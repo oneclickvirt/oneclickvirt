@@ -2,9 +2,12 @@ package utils
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func runtimeQuote(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'" }
@@ -140,30 +143,57 @@ func RequireRuntimeContainerAbsent(ctx context.Context, exec ShellExecutor, cli,
 	return nil
 }
 
-// RemoveOwnedRuntimeContainer removes only the immutable ID created by this attempt.
-func RemoveOwnedRuntimeContainer(ctx context.Context, exec ShellExecutor, cli, name, owner string) error {
-	output, err := ExecuteShellCommandContext(ctx, exec, fmt.Sprintf("LC_ALL=C NO_COLOR=1 %s ps -a --no-trunc --format '{{.ID}}\\t{{.Names}}'", cli))
+// NewContainerCreateToken is recorded before creating a managed OCI guest.
+func NewContainerCreateToken(providerType string) string {
+	if !IsDockerFamilyProvider(providerType) {
+		return ""
+	}
+	return uuid.NewString()
+}
+
+var ErrRuntimeContainerOwnership = errors.New("container belongs to another create attempt")
+
+// OwnedRuntimeContainerID checks the label on the immutable ID returned by the
+// runtime so a later container with the same name cannot be deleted by a retry.
+func OwnedRuntimeContainerID(ctx context.Context, execute func(context.Context, string) (string, error), cli, name, owner string) (string, error) {
+	if owner == "" {
+		return "", fmt.Errorf("missing container creation token")
+	}
+	output, err := execute(ctx, fmt.Sprintf("LC_ALL=C NO_COLOR=1 %s ps -a --no-trunc --format '{{.ID}}\\t{{.Names}}'", cli))
 	if err != nil {
-		return fmt.Errorf("inspect failed create: %w", err)
+		return "", fmt.Errorf("inspect failed create: %w", err)
 	}
 	for _, line := range strings.Split(StripTerminalCSI(output), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
 		fields := strings.Split(strings.TrimSpace(line), "\t")
-		if len(fields) != 2 || strings.TrimPrefix(fields[1], "/") != name {
+		if len(fields) != 2 || !IsValidContainerRuntimeName(fields[0]) || !IsValidContainerRuntimeName(strings.TrimPrefix(fields[1], "/")) {
+			return "", fmt.Errorf("unexpected container identity in cleanup listing")
+		}
+		if strings.TrimPrefix(fields[1], "/") != name {
 			continue
 		}
 		id := fields[0]
-		if !IsValidContainerRuntimeName(id) {
-			return fmt.Errorf("invalid container ID during cleanup")
-		}
-		label, err := ExecuteShellCommandContext(ctx, exec, fmt.Sprintf("%s inspect %s --format '{{index .Config.Labels \"oneclickvirt.create-token\"}}'", cli, runtimeQuote(id)))
+		label, err := execute(ctx, fmt.Sprintf(`%s inspect %s --format '{{index .Config.Labels "oneclickvirt.create-token"}}'`, cli, runtimeQuote(id)))
 		if err != nil {
-			return fmt.Errorf("verify failed container ownership: %w", err)
+			return "", fmt.Errorf("verify failed container ownership: %w", err)
 		}
 		if strings.TrimSpace(StripTerminalCSI(label)) != owner {
-			return fmt.Errorf("container %s belongs to another create attempt; preserving it", name)
+			return "", fmt.Errorf("%w: %s", ErrRuntimeContainerOwnership, name)
 		}
-		_, err = ExecuteShellCommandContext(ctx, exec, fmt.Sprintf("%s rm -f %s", cli, runtimeQuote(id)))
+		return id, nil
+	}
+	return "", nil
+}
+
+func RemoveOwnedRuntimeContainer(ctx context.Context, exec ShellExecutor, cli, name, owner string) error {
+	id, err := OwnedRuntimeContainerID(ctx, func(ctx context.Context, command string) (string, error) {
+		return ExecuteShellCommandContext(ctx, exec, command)
+	}, cli, name, owner)
+	if err != nil || id == "" {
 		return err
 	}
-	return nil
+	_, err = ExecuteShellCommandContext(ctx, exec, fmt.Sprintf("%s rm -f %s", cli, runtimeQuote(id)))
+	return err
 }

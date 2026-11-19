@@ -305,8 +305,8 @@ func (p *QEMUProvider) sshDeleteInstance(ctx context.Context, id string) error {
 	}
 
 	// 7. 清理 vmlog 记录
-	if _, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, fmt.Sprintf("grep -v '^%s ' /root/vmlog > /root/vmlog.tmp && mv /root/vmlog.tmp /root/vmlog 2>/dev/null || true", utils.SanitizeShellArg(id))); err != nil && ctx.Err() != nil {
-		return ctx.Err()
+	if output, err := utils.ExecuteShellCommandContext(ctx, p.sshClient, qemuRemoveVMLogCommand(VMLogDir, id)); err != nil {
+		return fmt.Errorf("清理QEMU实例日志失败: %w (output: %s)", err, utils.TruncateString(strings.TrimSpace(output), 1000))
 	}
 
 	// 验证删除
@@ -377,4 +377,24 @@ func (p *QEMUProvider) removeDHCPReservation(ctx context.Context, vmName, vmIP s
 		}
 	}
 	return nil
+}
+
+func qemuAppendVMLogCommand(logFile, row string) string {
+	return fmt.Sprintf("( flock -w 15 9 && printf '%%s\\n' %s >> %s ) 9>>%s", shellSingleQuote(row), shellSingleQuote(logFile), shellSingleQuote(logFile+".lock"))
+}
+
+// Keep the empty result when removing the last record. The shared lock also
+// protects concurrent appends from other controller-driven creates.
+func qemuRemoveVMLogCommand(logFile, id string) string {
+	return fmt.Sprintf(`set -eu
+log=%s
+exec 9>>"$log.lock"
+flock -w 15 9
+if [ ! -e "$log" ]; then exit 0; fi
+test -f "$log"
+temp=$(mktemp -- "$log.XXXXXX")
+trap 'rm -f -- "$temp"' EXIT
+OCV_VM_NAME=%s awk '$1 != ENVIRON["OCV_VM_NAME"]' "$log" > "$temp"
+chmod --reference="$log" -- "$temp"
+mv -f -- "$temp" "$log"`, shellSingleQuote(logFile), shellSingleQuote(id))
 }

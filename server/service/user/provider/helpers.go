@@ -123,7 +123,7 @@ func (s *Service) cleanupFailedInstanceDirect(instanceID uint) error {
 		return fmt.Errorf("暂停失败实例域名代理失败: %w", err)
 	}
 	providerApiService := &providerService.ProviderApiService{}
-	if err := providerApiService.DeleteInstanceByProviderID(cleanupCtx, instance.ProviderID, instance.ProviderInstanceIdentifier()); err != nil {
+	if err := providerApiService.DeleteInstanceRecord(cleanupCtx, instance); err != nil {
 		restoreErr := domainSvc.RestoreInstanceDomainsAfterDeleteFailure(instance.ID)
 		global.APP_LOG.Warn("直接清理失败实例时Provider删除失败，保留本地记录等待重试",
 			zap.Uint("instanceId", instance.ID),
