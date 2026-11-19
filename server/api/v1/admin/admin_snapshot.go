@@ -126,6 +126,8 @@ func GetSnapshotTask(c *gin.Context) {
 // @Success 200 {object} common.Response{data=object} "创建实例 快照成功"
 // @Failure 400 {object} common.Response "参数错误"
 // @Failure 500 {object} common.Response "创建实例 快照失败"
+// @Failure 403 {object} common.Response "当前用户等级未开放快照配额"
+// @Failure 409 {object} common.Response "实例快照配额已用满"
 // @Router /admin/instances/{id}/snapshots [post]
 func CreateInstanceSnapshot(c *gin.Context) {
 	instanceID, ok := parsePathUint(c, "id")

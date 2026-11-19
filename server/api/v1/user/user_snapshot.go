@@ -53,6 +53,8 @@ func GetUserInstanceSnapshots(c *gin.Context) {
 // @Success 200 {object} common.Response{data=object} "创建用户 实例 快照成功"
 // @Failure 400 {object} common.Response "参数错误"
 // @Failure 500 {object} common.Response "创建用户 实例 快照失败"
+// @Failure 403 {object} common.Response "当前用户等级未开放快照配额"
+// @Failure 409 {object} common.Response "实例快照配额已用满"
 // @Router /user/instances/{id}/snapshots [post]
 func CreateUserInstanceSnapshot(c *gin.Context) {
 	userID, err := getUserID(c)
@@ -180,6 +182,8 @@ func DownloadUserSnapshot(c *gin.Context) {
 // @Success 200 {object} common.Response{data=object} "上传用户 快照成功"
 // @Failure 400 {object} common.Response "参数错误"
 // @Failure 500 {object} common.Response "上传用户 快照失败"
+// @Failure 403 {object} common.Response "当前用户等级未开放快照配额"
+// @Failure 409 {object} common.Response "实例快照配额已用满"
 // @Router /user/instances/{id}/snapshots/upload [post]
 func UploadUserSnapshot(c *gin.Context) {
 	if err := taskgate.EnsureAccepting(); err != nil {

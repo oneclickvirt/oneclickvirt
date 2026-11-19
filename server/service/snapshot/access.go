@@ -10,6 +10,7 @@ import (
 	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
+	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/service/taskgate"
@@ -17,6 +18,7 @@ import (
 	"oneclickvirt/service/userquota"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const maxBatchSnapshotInstances = 100
@@ -84,19 +86,21 @@ func (s *Service) ImportUserSnapshotManifest(instanceID uint, userID uint, paylo
 
 	var imported providerModel.InstanceSnapshot
 	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
-		if err := taskgate.EnsureAcceptingInTx(tx); err != nil {
+		inst, err := lockSnapshotInstance(tx, instanceID)
+		if err != nil {
 			return err
 		}
-
-		var inst providerModel.Instance
-		if err := tx.Where("id = ? AND user_id = ?", instanceID, userID).First(&inst).Error; err != nil {
-			return fmt.Errorf("实例不存在或无权限")
+		if inst.UserID != userID {
+			return common.NewError(common.CodeNotFound, "实例不存在或无权限")
+		}
+		if err := taskgate.EnsureAcceptingInTx(tx); err != nil {
+			return err
 		}
 
 		if err := ensureInstanceSnapshotReady(inst); err != nil {
 			return err
 		}
-		providerType := providerTypeForInstance(inst)
+		providerType := lookupProviderType(tx, inst)
 		instanceType := strings.ToLower(strings.TrimSpace(inst.InstanceType))
 		if manifest.ProviderID != 0 && manifest.ProviderID != inst.ProviderID {
 			return fmt.Errorf("快照清单所属节点与当前实例不一致")
@@ -114,21 +118,8 @@ func (s *Service) ImportUserSnapshotManifest(instanceID uint, userID uint, paylo
 			return fmt.Errorf("快照清单实例名称与当前实例不一致")
 		}
 
-		quota, err := maxSnapshotsForUserInTx(tx, userID)
-		if err != nil {
+		if err := ensureSnapshotQuotaInTx(tx, inst); err != nil {
 			return err
-		}
-		if quota <= 0 {
-			return fmt.Errorf("当前用户等级未开放快照配额")
-		}
-		var count int64
-		if err := tx.Model(&providerModel.InstanceSnapshot{}).
-			Where("instance_id = ? AND status IN ?", inst.ID, []string{StatusCreating, StatusAvailable}).
-			Count(&count).Error; err != nil {
-			return err
-		}
-		if int(count) >= quota {
-			return fmt.Errorf("快照数量已达用户等级配额上限 %d", quota)
 		}
 
 		snapshotName := sanitizeName(manifest.Name)
@@ -188,21 +179,6 @@ func (s *Service) startCreateSnapshotTaskForLoaded(inst *providerModel.Instance,
 	if err := ensureInstanceSnapshotReady(*inst); err != nil {
 		return nil, err
 	}
-	quota, err := maxSnapshotsForUser(inst.UserID)
-	if err != nil {
-		return nil, err
-	}
-	if quota <= 0 {
-		return nil, fmt.Errorf("当前用户等级未开放快照配额")
-	}
-	var count int64
-	if err := global.APP_DB.Model(&providerModel.InstanceSnapshot{}).
-		Where("instance_id = ? AND status IN ?", inst.ID, []string{StatusCreating, StatusAvailable}).Count(&count).Error; err != nil {
-		return nil, err
-	}
-	if int(count) >= quota {
-		return nil, fmt.Errorf("快照数量已达用户等级配额上限 %d", quota)
-	}
 	if providerTypeOverride == "" {
 		providerTypeOverride = providerTypeForInstance(*inst)
 	}
@@ -253,24 +229,21 @@ func (s *Service) startCreateSnapshotTaskPrepared(inst *providerModel.Instance, 
 	}
 	var adminTask *adminModel.Task
 	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
-		if err := taskgate.EnsureAcceptingInTx(tx); err != nil {
-			return err
-		}
-		quota, err := maxSnapshotsForUserInTx(tx, inst.UserID)
+		current, err := lockSnapshotInstance(tx, inst.ID)
 		if err != nil {
 			return err
 		}
-		if quota <= 0 {
-			return fmt.Errorf("当前用户等级未开放快照配额")
+		if current.UserID != inst.UserID || current.ProviderID != inst.ProviderID {
+			return common.NewError(common.CodeConflict, "实例归属已变更，请重试")
 		}
-		var currentCount int64
-		if err := tx.Model(&providerModel.InstanceSnapshot{}).
-			Where("instance_id = ? AND status IN ?", inst.ID, []string{StatusCreating, StatusAvailable}).
-			Count(&currentCount).Error; err != nil {
+		if err := ensureInstanceSnapshotReady(current); err != nil {
 			return err
 		}
-		if int(currentCount) >= quota {
-			return fmt.Errorf("快照数量已达用户等级配额上限 %d", quota)
+		if err := taskgate.EnsureAcceptingInTx(tx); err != nil {
+			return err
+		}
+		if err := ensureSnapshotQuotaInTx(tx, current); err != nil {
+			return err
 		}
 		if err := tx.Create(snapshot).Error; err != nil {
 			return err
@@ -530,6 +503,35 @@ func ensureInstanceSnapshotReady(inst providerModel.Instance) error {
 	}
 	if !constant.IsDetailAvailableStatus(inst.Status) {
 		return fmt.Errorf("实例当前状态不允许快照操作: %s", inst.Status)
+	}
+	return nil
+}
+
+// Acquire this lock before the transaction's first consistent read. On MySQL
+// and MariaDB, a waiter must establish its read snapshot after the preceding
+// reservation commits so that it counts that reservation.
+func lockSnapshotInstance(tx *gorm.DB, instanceID uint) (providerModel.Instance, error) {
+	var inst providerModel.Instance
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&inst, instanceID).Error
+	return inst, err
+}
+
+func ensureSnapshotQuotaInTx(tx *gorm.DB, inst providerModel.Instance) error {
+	quota, err := maxSnapshotsForUserInTx(tx, inst.UserID)
+	if err != nil {
+		return err
+	}
+	if quota <= 0 {
+		return common.NewError(common.CodeForbidden, "当前用户等级未开放快照配额")
+	}
+	var currentCount int64
+	if err := tx.Model(&providerModel.InstanceSnapshot{}).
+		Where("instance_id = ? AND status IN ?", inst.ID, []string{StatusCreating, StatusAvailable}).
+		Count(&currentCount).Error; err != nil {
+		return err
+	}
+	if currentCount >= int64(quota) {
+		return common.NewError(common.CodeConflict, fmt.Sprintf("快照数量已达用户等级配额上限 %d", quota))
 	}
 	return nil
 }

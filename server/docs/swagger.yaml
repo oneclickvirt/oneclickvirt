@@ -5818,7 +5818,7 @@ paths:
     post:
       consumes:
       - multipart/form-data
-      description: 上传本地文件到管理员实例远程目录
+      description: 上传本地文件到管理员实例远程目录。分片按顺序和偏移接收，末片重试可安全重复提交。
       parameters:
       - description: 实例ID
         in: path
@@ -5829,6 +5829,26 @@ paths:
         in: formData
         name: targetDir
         type: string
+      - description: 分片上传 ID
+        in: formData
+        name: uploadId
+        type: string
+      - description: 分片序号，从 0 开始
+        in: formData
+        name: chunkIndex
+        type: integer
+      - description: 分片总数
+        in: formData
+        name: totalChunks
+        type: integer
+      - description: 分片字节偏移
+        in: formData
+        name: offset
+        type: integer
+      - description: 是否为最后一个分片
+        in: formData
+        name: isLastChunk
+        type: boolean
       - description: 上传文件
         in: formData
         name: file
@@ -5839,6 +5859,10 @@ paths:
       responses:
         "200":
           description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+        "409":
+          description: 分片顺序或偏移与上传进度冲突
           schema:
             $ref: '#/definitions/common.Response'
       summary: 管理员实例SFTP上传
@@ -5996,6 +6020,14 @@ paths:
               type: object
         "400":
           description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 当前用户等级未开放快照配额
+          schema:
+            $ref: '#/definitions/common.Response'
+        "409":
+          description: 实例快照配额已用满
           schema:
             $ref: '#/definitions/common.Response'
         "500":
@@ -9027,7 +9059,7 @@ paths:
     post:
       consumes:
       - multipart/form-data
-      description: 上传本地文件到管理员连接到节点宿主机上的远程目录
+      description: 上传本地文件到节点宿主机的远程目录。分片按顺序和偏移接收，末片重试可安全重复提交。
       parameters:
       - description: Provider ID
         in: path
@@ -9038,6 +9070,26 @@ paths:
         in: formData
         name: targetDir
         type: string
+      - description: 分片上传 ID
+        in: formData
+        name: uploadId
+        type: string
+      - description: 分片序号，从 0 开始
+        in: formData
+        name: chunkIndex
+        type: integer
+      - description: 分片总数
+        in: formData
+        name: totalChunks
+        type: integer
+      - description: 分片字节偏移
+        in: formData
+        name: offset
+        type: integer
+      - description: 是否为最后一个分片
+        in: formData
+        name: isLastChunk
+        type: boolean
       - description: 上传文件
         in: formData
         name: file
@@ -9048,6 +9100,10 @@ paths:
       responses:
         "200":
           description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+        "409":
+          description: 分片顺序或偏移与上传进度冲突
           schema:
             $ref: '#/definitions/common.Response'
       summary: 管理员节点SFTP上传
@@ -13005,8 +13061,8 @@ paths:
   /public/instance-shares/{token}/sftp/upload:
     post:
       consumes:
-      - application/json
-      description: 创建共享d SFTP Upload
+      - multipart/form-data
+      description: 上传本地文件到共享实例远程目录。分片按顺序和偏移接收，末片重试可安全重复提交。
       produces:
       - application/json
       responses:
@@ -13023,11 +13079,15 @@ paths:
           description: 参数错误
           schema:
             $ref: '#/definitions/common.Response'
+        "409":
+          description: 分片顺序或偏移与上传进度冲突
+          schema:
+            $ref: '#/definitions/common.Response'
         "500":
           description: 共享d SFTP Upload失败
           schema:
             $ref: '#/definitions/common.Response'
-      summary: 共享d SFTP Upload
+      summary: 共享实例 SFTP 上传
       tags:
       - 公开接口
   /public/instance-shares/{token}/sftp/upload/abort:
@@ -14644,7 +14704,7 @@ paths:
     post:
       consumes:
       - multipart/form-data
-      description: 上传本地文件到用户实例远程目录
+      description: 上传本地文件到用户实例远程目录。分片按顺序和偏移接收，末片重试可安全重复提交。
       parameters:
       - description: 实例ID
         in: path
@@ -14655,6 +14715,26 @@ paths:
         in: formData
         name: targetDir
         type: string
+      - description: 分片上传 ID
+        in: formData
+        name: uploadId
+        type: string
+      - description: 分片序号，从 0 开始
+        in: formData
+        name: chunkIndex
+        type: integer
+      - description: 分片总数
+        in: formData
+        name: totalChunks
+        type: integer
+      - description: 分片字节偏移
+        in: formData
+        name: offset
+        type: integer
+      - description: 是否为最后一个分片
+        in: formData
+        name: isLastChunk
+        type: boolean
       - description: 上传文件
         in: formData
         name: file
@@ -14665,6 +14745,10 @@ paths:
       responses:
         "200":
           description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+        "409":
+          description: 分片顺序或偏移与上传进度冲突
           schema:
             $ref: '#/definitions/common.Response'
       summary: 用户实例SFTP上传
@@ -14824,6 +14908,14 @@ paths:
           description: 参数错误
           schema:
             $ref: '#/definitions/common.Response'
+        "403":
+          description: 当前用户等级未开放快照配额
+          schema:
+            $ref: '#/definitions/common.Response'
+        "409":
+          description: 实例快照配额已用满
+          schema:
+            $ref: '#/definitions/common.Response'
         "500":
           description: 创建用户 实例 快照失败
           schema:
@@ -14852,6 +14944,14 @@ paths:
               type: object
         "400":
           description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 当前用户等级未开放快照配额
+          schema:
+            $ref: '#/definitions/common.Response'
+        "409":
+          description: 实例快照配额已用满
           schema:
             $ref: '#/definitions/common.Response'
         "500":

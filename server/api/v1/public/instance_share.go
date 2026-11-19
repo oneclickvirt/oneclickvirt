@@ -578,14 +578,15 @@ func SharedSFTPDownload(c *gin.Context) {
 	userAPI.UserSFTPDownload(c)
 }
 
-// @Summary 共享d SFTP Upload
-// @Description 创建共享d SFTP Upload
+// @Summary 共享实例 SFTP 上传
+// @Description 上传本地文件到共享实例远程目录。分片按顺序和偏移接收，末片重试可安全重复提交。
 // @Tags 公开接口
-// @Accept json
+// @Accept multipart/form-data
 // @Produce json
 // @Success 200 {object} common.Response{data=object} "共享d SFTP Upload成功"
 // @Failure 400 {object} common.Response "参数错误"
 // @Failure 500 {object} common.Response "共享d SFTP Upload失败"
+// @Failure 409 {object} common.Response "分片顺序或偏移与上传进度冲突"
 // @Router /public/instance-shares/{token}/sftp/upload [post]
 func SharedSFTPUpload(c *gin.Context) {
 	if _, _, ok := loadSharedInstance(c); !ok {

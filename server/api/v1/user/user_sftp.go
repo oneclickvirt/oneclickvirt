@@ -1,6 +1,7 @@
 package user
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -115,6 +116,9 @@ func UserSFTPList(c *gin.Context) {
 
 	result := make([]sftpEntry, 0, len(entries))
 	for _, entry := range entries {
+		if remote.IsSFTPChunkFile(entry.Name()) {
+			continue
+		}
 		result = append(result, sftpEntry{
 			Name:    entry.Name(),
 			Path:    path.Join(remotePath, entry.Name()),
@@ -201,14 +205,20 @@ func UserSFTPDownload(c *gin.Context) {
 
 // UserSFTPUpload godoc
 // @Summary 用户实例SFTP上传
-// @Description 上传本地文件到用户实例远程目录
+// @Description 上传本地文件到用户实例远程目录。分片按顺序和偏移接收，末片重试可安全重复提交。
 // @Tags 用户/实例
 // @Accept multipart/form-data
 // @Produce json
 // @Param id path uint true "实例ID"
 // @Param targetDir formData string false "远程目标目录"
+// @Param uploadId formData string false "分片上传 ID"
+// @Param chunkIndex formData int false "分片序号，从 0 开始"
+// @Param totalChunks formData int false "分片总数"
+// @Param offset formData int false "分片字节偏移"
+// @Param isLastChunk formData bool false "是否为最后一个分片"
 // @Param file formData file true "上传文件"
 // @Success 200 {object} common.Response
+// @Failure 409 {object} common.Response "分片顺序或偏移与上传进度冲突"
 // @Router /user/instances/{id}/sftp/upload [post]
 func UserSFTPUpload(c *gin.Context) {
 	if err := taskgate.EnsureAccepting(); err != nil {
@@ -281,12 +291,6 @@ func UserSFTPUpload(c *gin.Context) {
 	}
 	defer cleanup()
 
-	if mkErr := sftpClient.MkdirAll(remoteDir); mkErr != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, fmt.Sprintf("创建远程目录失败: %v", mkErr)))
-		return
-	}
-	_, _ = remote.CleanupExpiredChunkParts(sftpClient, remoteDir, remote.DefaultChunkPartTTL)
-
 	src, err := fileHeader.Open()
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, fmt.Sprintf("读取上传文件失败: %v", err)))
@@ -295,10 +299,7 @@ func UserSFTPUpload(c *gin.Context) {
 	defer src.Close()
 
 	if uploadID != "" {
-		if totalChunks <= 0 {
-			totalChunks = 1
-		}
-		written, committed, wErr := remote.WriteSFTPChunk(sftpClient, remote.ChunkUploadMeta{
+		written, committed, wErr := remote.WriteSFTPChunk(c.Request.Context(), sftpClient, target, remote.ChunkUploadMeta{
 			RemotePath:  remotePath,
 			UploadID:    uploadID,
 			ChunkIndex:  chunkIndex,
@@ -307,6 +308,10 @@ func UserSFTPUpload(c *gin.Context) {
 			IsLastChunk: isLastChunk,
 		}, src)
 		if wErr != nil {
+			if errors.Is(wErr, remote.ErrChunkSequence) {
+				common.ResponseWithError(c, common.NewError(common.CodeConflict, "上传分片与已保存的进度不符，请查询进度后重试"))
+				return
+			}
 			common.ResponseWithError(c, common.NewError(common.CodeInternalError, fmt.Sprintf("上传分片失败: %v", wErr)))
 			return
 		}
@@ -320,14 +325,7 @@ func UserSFTPUpload(c *gin.Context) {
 		return
 	}
 
-	dst, err := sftpClient.Create(remotePath)
-	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, fmt.Sprintf("创建远程文件失败: %v", err)))
-		return
-	}
-	defer dst.Close()
-
-	if _, err = io.Copy(dst, src); err != nil {
+	if err := remote.WriteSFTPFile(c.Request.Context(), sftpClient, target, remotePath, src); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, fmt.Sprintf("上传文件失败: %v", err)))
 		return
 	}
@@ -387,12 +385,12 @@ func UserSFTPUploadStatus(c *gin.Context) {
 	}
 	defer cleanup()
 
-	status, err := remote.QueryChunkUploadStatus(sftpClient, remotePath, uploadID)
+	cleanedParts, _ := remote.CleanupExpiredChunkParts(sftpClient, target, path.Dir(remotePath), remote.DefaultChunkPartTTL)
+	status, err := remote.QueryChunkUploadStatus(c.Request.Context(), sftpClient, target, remotePath, uploadID)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, fmt.Sprintf("查询上传状态失败: %v", err)))
 		return
 	}
-	cleanedParts, _ := remote.CleanupExpiredChunkParts(sftpClient, path.Dir(remotePath), remote.DefaultChunkPartTTL)
 
 	common.ResponseSuccess(c, gin.H{
 		"uploadId":      uploadID,
@@ -467,7 +465,7 @@ func UserSFTPUploadAbort(c *gin.Context) {
 	}
 	defer cleanup()
 
-	removed, err := remote.AbortChunkUpload(sftpClient, remotePath, uploadID)
+	removed, err := remote.AbortChunkUpload(c.Request.Context(), sftpClient, target, remotePath, uploadID)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, fmt.Sprintf("清理上传分片失败: %v", err)))
 		return

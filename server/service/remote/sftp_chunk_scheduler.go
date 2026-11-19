@@ -187,7 +187,7 @@ func runSFTPChunkCleanupOnceContext(ctx context.Context, ttl time.Duration) {
 
 		totalCleaned := 0
 		for _, dir := range item.dirs {
-			cleaned, cErr := CleanupExpiredChunkParts(sftpClient, dir, ttl)
+			cleaned, cErr := CleanupExpiredChunkParts(sftpClient, &item.target, dir, ttl)
 			if cErr != nil {
 				if global.APP_LOG != nil {
 					global.APP_LOG.Debug("SFTP分片后台清理目录失败",

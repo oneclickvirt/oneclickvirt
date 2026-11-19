@@ -30,7 +30,10 @@ func TestResetReplacementInstancePreservesLogicalNetworkIdentity(t *testing.T) {
 		OriginalMaxTraffic:     4096,
 	}
 
-	replacement := resetReplacementInstance(resetCtx)
+	replacement := resetReplacementInstance(resetCtx, "当前备注")
+	if replacement.Alias != "当前备注" {
+		t.Fatalf("replacement lost the current alias: %q", replacement.Alias)
+	}
 	if replacement.UUID != resetCtx.Instance.UUID || replacement.EgressProfileID != "exit-a" {
 		t.Fatalf("logical identity was not preserved: %#v", replacement)
 	}
@@ -50,11 +53,11 @@ func TestResetIPv6OnlyNeverInheritsNodeIPv4(t *testing.T) {
 		Instance: providerModel.Instance{NetworkType: "ipv6_only", PublicIP: "127.0.0.1"},
 		Provider: providerModel.Provider{Endpoint: "198.51.100.1"},
 	}
-	if got := resetReplacementInstance(ctx).PublicIP; got != "" {
+	if got := resetReplacementInstance(ctx, "").PublicIP; got != "" {
 		t.Fatalf("IPv6-only replacement inherited node IPv4: %q", got)
 	}
 	ctx.Instance.PublicIP = ""
-	if got := resetReplacementInstance(ctx).PublicIP; got != "" {
+	if got := resetReplacementInstance(ctx, "").PublicIP; got != "" {
 		t.Fatalf("IPv6-only replacement fell back to node IPv4: %q", got)
 	}
 }

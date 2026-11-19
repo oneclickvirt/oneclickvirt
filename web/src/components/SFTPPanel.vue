@@ -466,7 +466,7 @@ const handleFileChange = async (event) => {
       })
       uploadedBytes = Number(statusResp?.data?.uploadedBytes || 0)
       const completed = !!statusResp?.data?.completed
-      if (completed || uploadedBytes >= file.size) {
+      if (completed) {
         uploadProgress.value = 100
         ElMessage.success(t('common.uploadAlreadyCompleted'))
         await refresh()

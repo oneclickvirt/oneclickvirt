@@ -114,7 +114,7 @@ func validateResetRoutedIPv6(providerType, networkType, allocatedIPv6 string, al
 	return nil
 }
 
-func resetReplacementInstance(resetCtx *ResetTaskContext) providerModel.Instance {
+func resetReplacementInstance(resetCtx *ResetTaskContext, alias string) providerModel.Instance {
 	publicIPv4 := strings.TrimSpace(resetCtx.Instance.PublicIP)
 	if strings.TrimSpace(resetCtx.OldAllocatedIPv4) != "" {
 		publicIPv4 = strings.TrimSpace(resetCtx.OldAllocatedIPv4)
@@ -129,6 +129,7 @@ func resetReplacementInstance(resetCtx *ResetTaskContext) providerModel.Instance
 		UUID:                 resetCtx.Instance.UUID,
 		ContainerCreateToken: utils.NewContainerCreateToken(resetCtx.Provider.Type),
 		Name:                 resetCtx.OldInstanceName,
+		Alias:                alias,
 		Provider:             resetCtx.Provider.Name,
 		ProviderID:           resetCtx.Provider.ID,
 		Image:                resetCtx.Instance.Image,
@@ -594,6 +595,13 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 			}
 		}
 
+		// The provider operations preceding this transaction can take a while.
+		// Copy the latest alias under the same row lock as the replacement.
+		var oldInstance providerModel.Instance
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("alias").First(&oldInstance, resetCtx.OldInstanceID).Error; err != nil {
+			return fmt.Errorf("读取旧实例备注失败: %w", err)
+		}
+
 		deletedName := fmt.Sprintf("%s_deleted_%d", resetCtx.Instance.Name, time.Now().UnixNano())
 		if err := tx.Model(&providerModel.Instance{}).Where("id = ?", resetCtx.OldInstanceID).
 			Updates(map[string]interface{}{"name": deletedName, "uuid": uuid.New().String()}).Error; err != nil {
@@ -611,7 +619,7 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 			return fmt.Errorf("重置任务已停止")
 		}
 		// 创建新实例记录
-		newInstance = resetReplacementInstance(resetCtx)
+		newInstance = resetReplacementInstance(resetCtx, oldInstance.Alias)
 
 		if err := tx.Create(&newInstance).Error; err != nil {
 			return fmt.Errorf("创建新实例记录失败: %v", err)

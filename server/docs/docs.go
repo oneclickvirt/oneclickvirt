@@ -3209,7 +3209,7 @@ const docTemplate = `{
         },
         "/admin/instances/{id}/sftp/upload": {
             "post": {
-                "description": "上传本地文件到管理员实例远程目录",
+                "description": "上传本地文件到管理员实例远程目录。分片按顺序和偏移接收，末片重试可安全重复提交。",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -3235,6 +3235,36 @@ const docTemplate = `{
                         "in": "formData"
                     },
                     {
+                        "type": "string",
+                        "description": "分片上传 ID",
+                        "name": "uploadId",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "分片序号，从 0 开始",
+                        "name": "chunkIndex",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "分片总数",
+                        "name": "totalChunks",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "分片字节偏移",
+                        "name": "offset",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "是否为最后一个分片",
+                        "name": "isLastChunk",
+                        "in": "formData"
+                    },
+                    {
                         "type": "file",
                         "description": "上传文件",
                         "name": "file",
@@ -3245,6 +3275,12 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "分片顺序或偏移与上传进度冲突",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -3504,6 +3540,18 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "当前用户等级未开放快照配额",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "实例快照配额已用满",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -8780,7 +8828,7 @@ const docTemplate = `{
         },
         "/admin/providers/{id}/sftp/upload": {
             "post": {
-                "description": "上传本地文件到管理员连接到节点宿主机上的远程目录",
+                "description": "上传本地文件到节点宿主机的远程目录。分片按顺序和偏移接收，末片重试可安全重复提交。",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -8806,6 +8854,36 @@ const docTemplate = `{
                         "in": "formData"
                     },
                     {
+                        "type": "string",
+                        "description": "分片上传 ID",
+                        "name": "uploadId",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "分片序号，从 0 开始",
+                        "name": "chunkIndex",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "分片总数",
+                        "name": "totalChunks",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "分片字节偏移",
+                        "name": "offset",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "是否为最后一个分片",
+                        "name": "isLastChunk",
+                        "in": "formData"
+                    },
+                    {
                         "type": "file",
                         "description": "上传文件",
                         "name": "file",
@@ -8816,6 +8894,12 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "分片顺序或偏移与上传进度冲突",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -14793,9 +14877,9 @@ const docTemplate = `{
         },
         "/public/instance-shares/{token}/sftp/upload": {
             "post": {
-                "description": "创建共享d SFTP Upload",
+                "description": "上传本地文件到共享实例远程目录。分片按顺序和偏移接收，末片重试可安全重复提交。",
                 "consumes": [
-                    "application/json"
+                    "multipart/form-data"
                 ],
                 "produces": [
                     "application/json"
@@ -14803,7 +14887,7 @@ const docTemplate = `{
                 "tags": [
                     "公开接口"
                 ],
-                "summary": "共享d SFTP Upload",
+                "summary": "共享实例 SFTP 上传",
                 "responses": {
                     "200": {
                         "description": "共享d SFTP Upload成功",
@@ -14825,6 +14909,12 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "分片顺序或偏移与上传进度冲突",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -17632,7 +17722,7 @@ const docTemplate = `{
         },
         "/user/instances/{id}/sftp/upload": {
             "post": {
-                "description": "上传本地文件到用户实例远程目录",
+                "description": "上传本地文件到用户实例远程目录。分片按顺序和偏移接收，末片重试可安全重复提交。",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -17658,6 +17748,36 @@ const docTemplate = `{
                         "in": "formData"
                     },
                     {
+                        "type": "string",
+                        "description": "分片上传 ID",
+                        "name": "uploadId",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "分片序号，从 0 开始",
+                        "name": "chunkIndex",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "分片总数",
+                        "name": "totalChunks",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "分片字节偏移",
+                        "name": "offset",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "是否为最后一个分片",
+                        "name": "isLastChunk",
+                        "in": "formData"
+                    },
+                    {
                         "type": "file",
                         "description": "上传文件",
                         "name": "file",
@@ -17668,6 +17788,12 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "分片顺序或偏移与上传进度冲突",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -17931,6 +18057,18 @@ const docTemplate = `{
                             "$ref": "#/definitions/common.Response"
                         }
                     },
+                    "403": {
+                        "description": "当前用户等级未开放快照配额",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "实例快照配额已用满",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
                     "500": {
                         "description": "创建用户 实例 快照失败",
                         "schema": {
@@ -17979,6 +18117,18 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "当前用户等级未开放快照配额",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "实例快照配额已用满",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }

@@ -457,52 +457,43 @@ func (s *Service) finishSnapshotTask(taskID uint, status string, err error) {
 }
 
 func (s *Service) CreateSnapshot(ctx context.Context, instanceID uint, req SnapshotRequest, createdBy uint, source string) (*providerModel.InstanceSnapshot, error) {
-	inst, err := loadInstance(instanceID)
-	if err != nil {
-		return nil, err
-	}
-	if err := ensureInstanceSnapshotReady(*inst); err != nil {
-		return nil, err
-	}
-	quota, err := maxSnapshotsForUser(inst.UserID)
-	if err != nil {
-		return nil, err
-	}
-	if quota <= 0 {
-		return nil, fmt.Errorf("当前用户等级未开放快照配额")
-	}
-	var count int64
-	if err := global.APP_DB.Model(&providerModel.InstanceSnapshot{}).
-		Where("instance_id = ? AND status IN ?", inst.ID, []string{StatusCreating, StatusAvailable}).Count(&count).Error; err != nil {
-		return nil, err
-	}
-	if int(count) >= quota {
-		return nil, fmt.Errorf("快照数量已达用户等级配额上限 %d", quota)
-	}
-
 	snapshotName := sanitizeName(req.Name)
 	if snapshotName == "" {
 		snapshotName = fmt.Sprintf("snap-%s", time.Now().Format("20060102150405"))
 	}
-	providerType := providerTypeForInstance(*inst)
-	snapshot := &providerModel.InstanceSnapshot{
-		ProviderID:   inst.ProviderID,
-		InstanceID:   inst.ID,
-		UserID:       inst.UserID,
-		ProviderType: providerType,
-		InstanceType: strings.ToLower(strings.TrimSpace(inst.InstanceType)),
-		InstanceName: inst.Name,
-		Name:         snapshotName,
-		Description:  req.Description,
-		Status:       StatusCreating,
-		Source:       source,
-		CreatedBy:    createdBy,
-	}
-	if err := global.APP_DB.Create(snapshot).Error; err != nil {
+	var inst providerModel.Instance
+	snapshot := &providerModel.InstanceSnapshot{}
+	if err := global.APP_DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		current, err := lockSnapshotInstance(tx, instanceID)
+		if err != nil {
+			return err
+		}
+		if err := ensureInstanceSnapshotReady(current); err != nil {
+			return err
+		}
+		if err := ensureSnapshotQuotaInTx(tx, current); err != nil {
+			return err
+		}
+		inst = current
+		*snapshot = providerModel.InstanceSnapshot{
+			ProviderID:   inst.ProviderID,
+			InstanceID:   inst.ID,
+			UserID:       inst.UserID,
+			ProviderType: lookupProviderType(tx, inst),
+			InstanceType: strings.ToLower(strings.TrimSpace(inst.InstanceType)),
+			InstanceName: inst.Name,
+			Name:         snapshotName,
+			Description:  req.Description,
+			Status:       StatusCreating,
+			Source:       source,
+			CreatedBy:    createdBy,
+		}
+		return tx.Create(snapshot).Error
+	}); err != nil {
 		return nil, err
 	}
 
-	cmd, err := buildSnapshotCommand("create", *inst, *snapshot)
+	cmd, err := buildSnapshotCommand("create", inst, *snapshot)
 	if err != nil {
 		markSnapshotFailed(snapshot.ID, err)
 		return snapshot, err
@@ -763,15 +754,15 @@ func loadInstance(id uint) (*providerModel.Instance, error) {
 }
 
 func providerTypeForInstance(inst providerModel.Instance) string {
+	return lookupProviderType(global.APP_DB, inst)
+}
+
+func lookupProviderType(db *gorm.DB, inst providerModel.Instance) string {
 	var dbProvider providerModel.Provider
-	if err := global.APP_DB.Select("type").First(&dbProvider, inst.ProviderID).Error; err == nil {
+	if err := db.Select("type").First(&dbProvider, inst.ProviderID).Error; err == nil {
 		return strings.ToLower(strings.TrimSpace(dbProvider.Type))
 	}
 	return strings.ToLower(strings.TrimSpace(inst.Provider))
-}
-
-func maxSnapshotsForUser(userID uint) (int, error) {
-	return maxSnapshotsForUserInTx(global.APP_DB, userID)
 }
 
 func markSnapshotFailed(id uint, err error) {
