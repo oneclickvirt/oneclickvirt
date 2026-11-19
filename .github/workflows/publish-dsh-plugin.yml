@@ -58,7 +58,7 @@ jobs:
         with:
           ref: ${{ steps.release.outputs.tag }}
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           package-manager-cache: false
@@ -101,7 +101,7 @@ jobs:
         with:
           ref: ${{ needs.release.outputs.tag }}
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
