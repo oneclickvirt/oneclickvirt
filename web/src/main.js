@@ -44,14 +44,14 @@ const initLanguage = async () => {
       // 只有当后端明确返回了语言设置时才设置（包括空字符串）
       // 如果API返回空对象（没有default_language字段），将使用浏览器语言检测
       if (defaultLang !== undefined) {
-        languageStore.setSystemConfigLanguage(defaultLang)
+        languageStore.setSystemConfigLanguage(defaultLang, response.data.default_language_revision)
       }
     }
   } catch (error) {
     console.warn('获取系统语言配置失败，将使用浏览器语言检测:', error)
   }
   
-  // 初始化语言（会根据优先级自动选择：用户设置 > 系统配置 > 浏览器语言）
+  // 应用当前系统默认语言对应的用户偏好、系统默认或浏览器语言
   const effectiveLanguage = languageStore.initLanguage()
   i18n.global.locale.value = effectiveLanguage
 }

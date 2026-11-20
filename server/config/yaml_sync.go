@@ -18,7 +18,7 @@ func (cm *ConfigManager) RestoreConfigFromDatabase() error {
 
 	// 从数据库读取所有新格式配置（key 含"."，排除旧下划线格式遗留数据）
 	var configs []SystemConfig
-	if err := cm.db.Where("`key` LIKE ?", "%.%").Find(&configs).Error; err != nil {
+	if err := cm.db.Where("`key` LIKE ?", "%.%").Order("updated_at ASC, id ASC").Find(&configs).Error; err != nil {
 		cm.logger.Error("从数据库读取配置失败", zap.Error(err))
 		return fmt.Errorf("从数据库读取配置失败: %v", err)
 	}

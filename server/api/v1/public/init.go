@@ -464,78 +464,60 @@ func GetRegisterConfig(c *gin.Context) {
 
 // GetPublicSystemConfig 获取公开的系统配置信息
 // @Summary 获取公开的系统配置信息
-// @Description 获取系统公开配置信息（不需要认证），如默认语言等，从内存配置读取
+// @Description 获取公开系统配置（无需认证）。default_language 表示默认语言，空字符串表示跟随浏览器。default_language_revision 在有已修改的语言设置时返回。响应不缓存。
 // @Tags 系统配置
 // @Accept json
 // @Produce json
 // @Success 200 {object} common.Response{data=object} "获取成功"
 // @Router /public/system-config [get]
 func GetPublicSystemConfig(c *gin.Context) {
-	// 从内存配置读取公开的系统配置，避免依赖数据库
-	// 这样可以确保在数据库未初始化时前端仍然能正常工作
-	result := make(map[string]interface{})
-
-	// 检查数据库是否可用
-	dbAvailable := false
-	if global.APP_DB != nil {
-		sqlDB, err := global.APP_DB.DB()
-		if err == nil && sqlDB.Ping() == nil {
-			dbAvailable = true
-		}
+	c.Header("Cache-Control", "no-store")
+	other := global.GetAppConfig().Other
+	defaultLanguage := other.DefaultLanguage
+	if defaultLanguage == "" {
+		defaultLanguage = "zh-CN"
+	}
+	result := map[string]interface{}{"default_language": defaultLanguage}
+	if other.LogoURL != "" {
+		result["logo_url"] = other.LogoURL
+	}
+	if other.SiteName != "" {
+		result["site_name"] = other.SiteName
 	}
 
-	// 如果数据库可用，尝试从数据库读取配置
-	if dbAvailable {
-		var configs []struct {
-			Key   string `json:"key"`
-			Value string `json:"value"`
-		}
-
-		if err := global.APP_DB.Table("system_configs").
-			Select("`key`, `value`").
-			Where("is_public = ? AND deleted_at IS NULL", true).
+	if global.APP_DB != nil {
+		var configs []config.SystemConfig
+		if err := global.APP_DB.WithContext(c.Request.Context()).
+			Select("`key`", "`value`", "created_at", "updated_at").
+			Where("is_public = ?", true).
+			Order("updated_at ASC, id ASC").
 			Find(&configs).Error; err == nil {
-			global.APP_LOG.Debug("从数据库查询到的公开配置数量", zap.Int("count", len(configs)))
-
-			// 转换为map格式并进行字段映射
-			for _, config := range configs {
-				switch config.Key {
-				case "other.default-language":
-					result["default_language"] = config.Value
+			var languageConfig *config.SystemConfig
+			for i := range configs {
+				item := &configs[i]
+				switch item.Key {
+				case "other.default-language", "default_language":
+					if item.Key == "other.default-language" || languageConfig == nil {
+						languageConfig = item
+					}
 				case "other.logo-url":
-					result["logo_url"] = config.Value
+					result["logo_url"] = item.Value
 				case "other.site-name":
-					result["site_name"] = config.Value
+					result["site_name"] = item.Value
 				default:
-					result[config.Key] = config.Value
+					result[item.Key] = item.Value
+				}
+			}
+			if languageConfig != nil {
+				result["default_language"] = languageConfig.Value
+				// A seeded setting shares the first-run language scope.
+				if languageConfig.UpdatedAt.After(languageConfig.CreatedAt) {
+					result["default_language_revision"] = languageConfig.UpdatedAt.UTC().Format(time.RFC3339Nano)
 				}
 			}
 		} else {
-			global.APP_LOG.Warn("从数据库获取公开系统配置失败，使用默认配置", zap.Error(err))
+			global.APP_LOG.Debug("从数据库获取公开系统配置失败，使用默认配置", zap.Error(err))
 		}
-	} else {
-		global.APP_LOG.Debug("数据库不可用，使用默认配置")
-	}
-
-	// 如果数据库不可用或未配置，提供默认值
-	if len(result) == 0 {
-		// 从配置中读取默认值
-		if global.GetAppConfig().Other.DefaultLanguage != "" {
-			result["default_language"] = global.GetAppConfig().Other.DefaultLanguage
-		} else {
-			result["default_language"] = "zh" // 默认中文
-		}
-
-		if global.GetAppConfig().Other.LogoURL != "" {
-			result["logo_url"] = global.GetAppConfig().Other.LogoURL
-		}
-
-		if global.GetAppConfig().Other.SiteName != "" {
-			result["site_name"] = global.GetAppConfig().Other.SiteName
-		}
-
-		global.APP_LOG.Debug("使用默认配置",
-			zap.String("default_language", result["default_language"].(string)))
 	}
 
 	common.ResponseSuccess(c, result)

@@ -3,14 +3,13 @@ import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { getAdminConfig, updateAdminConfig } from '@/api/config'
 import { getInstanceTypePermissions, updateInstanceTypePermissions } from '@/api/admin'
-import { useLanguageStore } from '@/pinia/modules/language'
+import { normalizeLanguage } from '@/pinia/modules/language'
 import { useSiteStore } from '@/pinia/modules/site'
 import { useFeatureStore } from '@/pinia/modules/feature'
 import { DEFAULT_QUOTA_LEVEL_LIMITS, normalizeLevelLimits, formatLevelLimitsForBackend, getSortedLevelKeys } from '@/utils/levels'
 
 export function useConfigManagement() {
-  const { t, locale } = useI18n()
-  const languageStore = useLanguageStore()
+  const { t } = useI18n()
   const siteStore = useSiteStore()
   const featureStore = useFeatureStore()
 
@@ -86,8 +85,8 @@ export function useConfigManagement() {
           config.value.inviteCode = { ...config.value.inviteCode, ...response.data.inviteCode }
         }
         if (response.data.other) {
-          config.value.other = { ...config.value.other, ...response.data.other }
-          systemConfigLanguage.value = config.value.other.defaultLanguage || ''
+          systemConfigLanguage.value = normalizeLanguage(response.data.other.defaultLanguage)
+          config.value.other = { ...config.value.other, ...response.data.other, defaultLanguage: systemConfigLanguage.value }
         }
         if (response.data.captcha) {
           config.value.captcha = { ...config.value.captcha, ...response.data.captcha }
@@ -166,8 +165,6 @@ export function useConfigManagement() {
       await featureStore.refresh()
 
       if (languageChanged) {
-        const effectiveLanguage = languageStore.forceApplySystemLanguage(newLanguage)
-        locale.value = effectiveLanguage
         ElNotification({ title: t('common.success'), message: t('admin.config.languageChangedRefreshing'), type: 'success', duration: 2000 })
         setTimeout(() => { window.location.reload() }, 2000)
       } else {

@@ -9,7 +9,6 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 // 配置标志文件路径和配置状态常量
@@ -396,6 +395,12 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 	oldValues := make(map[string]interface{})
 	var configsToSave []SystemConfig
 	for key, value := range flatConfig {
+		if key == "other.default-language" {
+			// Keep the language revision when a settings save doesn't change the language.
+			if language, ok := value.(string); ok && cm.configCache[key] == language {
+				continue
+			}
+		}
 		oldValues[key] = cm.configCache[key]
 		cm.configCache[key] = value
 
@@ -412,18 +417,9 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 		configsToSave = append(configsToSave, config)
 	}
 
-	// 使用短事务批量保存
+	// 使用兼容旧数据库索引和软删除记录的批量写入。
 	transactionErr := cm.db.Transaction(func(tx *gorm.DB) error {
-		// 批量保存配置（使用真正的批量 UPSERT）
-		if len(configsToSave) > 0 {
-			if err := tx.Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "category"}, {Name: "key"}},
-				DoUpdates: clause.AssignmentColumns([]string{"value", "is_public", "updated_at"}),
-			}).CreateInBatches(configsToSave, 50).Error; err != nil {
-				return fmt.Errorf("批量保存配置失败: %v", err)
-			}
-		}
-		return nil
+		return persistSystemConfigBatch(tx, configsToSave, false)
 	})
 
 	if transactionErr != nil {

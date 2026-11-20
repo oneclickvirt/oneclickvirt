@@ -130,7 +130,7 @@ export default {
   browserLanguage: "跟随浏览器语言",
   defaultLanguageHint: "设置系统的默认语言。留空时将根据浏览器语言自动选择（非中文时显示英文，检测不到时默认显示中文）",
   languageForceNote: "语言设置说明",
-  languageForceDesc: "系统默认语言仅对未手动切换过语言的用户生效。当用户手动切换语言后，将优先使用用户的选择。选择\"跟随浏览器语言\"时，新用户将根据其浏览器语言自动显示对应界面",
+  languageForceDesc: "修改默认语言后，浏览器会在下次打开或刷新页面时应用新设置。用户仍可自行切换。选择「跟随浏览器语言」时，界面按浏览器语言设置显示。",
   logoSettings: "Logo 设置",
   customLogoURL: "自定义 Logo URL",
   customLogoURLPlaceholder: "请输入图片第三方 URL，例如：https://example.com/logo.png",

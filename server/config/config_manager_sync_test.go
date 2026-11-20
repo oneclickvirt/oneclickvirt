@@ -1,9 +1,13 @@
 package config
 
 import (
+	"path/filepath"
 	"testing"
+	"time"
 
 	"go.uber.org/zap"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestRegisterChangeCallbackOnceDeduplicatesLifecycleCallback(t *testing.T) {
@@ -51,5 +55,50 @@ func TestSyncToGlobalConfigUsesFullCacheSnapshot(t *testing.T) {
 	}
 	if registrationEnabled, ok := authConfig["enable-public-registration"].(bool); !ok || registrationEnabled {
 		t.Fatalf("expected auth.enable-public-registration=false in callback payload, got %#v", authConfig["enable-public-registration"])
+	}
+}
+
+func TestUpdateConfigKeepsLanguageRevisionOnUnchangedSave(t *testing.T) {
+	t.Chdir(t.TempDir())
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "config.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&SystemConfig{}); err != nil {
+		t.Fatal(err)
+	}
+
+	const key = "other.default-language"
+	seededAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	seed := SystemConfig{Key: key, Value: "zh", IsPublic: true, CreatedAt: seededAt, UpdatedAt: seededAt}
+	if err := db.Create(&seed).Error; err != nil {
+		t.Fatal(err)
+	}
+	cm := NewConfigManager(db, zap.NewNop())
+	cm.configCache[key] = "zh"
+	update := map[string]interface{}{"other": map[string]interface{}{"defaultLanguage": "en-US"}}
+	read := func() SystemConfig {
+		t.Helper()
+		var rows []SystemConfig
+		if err := db.Where("`key` = ?", key).Find(&rows).Error; err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 1 || rows[0].ID != seed.ID || rows[0].Value != "en-US" {
+			t.Fatalf("unexpected language rows: %+v", rows)
+		}
+		return rows[0]
+	}
+	if err := cm.UpdateConfig(update); err != nil {
+		t.Fatal(err)
+	}
+	revision := read().UpdatedAt
+	if !revision.After(seededAt) {
+		t.Fatal("changing the language should advance the revision")
+	}
+	if err := cm.UpdateConfig(update); err != nil {
+		t.Fatal(err)
+	}
+	if !read().UpdatedAt.Equal(revision) {
+		t.Fatal("saving the same language should retain the revision")
 	}
 }

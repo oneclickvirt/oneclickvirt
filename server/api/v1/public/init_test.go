@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"oneclickvirt/config"
 	"oneclickvirt/global"
@@ -116,5 +117,60 @@ func TestCheckInitWaitsForPersistentJWTSecret(t *testing.T) {
 	ready := callCheckInit(t)
 	if ready.Data.NeedInit || !ready.Data.Ready || ready.Data.State != "ready" {
 		t.Fatalf("JWT-ready status: %+v", ready.Data)
+	}
+}
+
+func TestPublicSystemConfigUsesCurrentLanguageAndDisablesCaching(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "config.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&config.SystemConfig{}); err != nil {
+		t.Fatal(err)
+	}
+	oldDB, oldLog, oldConfig := global.APP_DB, global.APP_LOG, global.GetAppConfig()
+	global.APP_DB, global.APP_LOG = db, zap.NewNop()
+	global.UpdateAppConfig(func(cfg *config.Server) {
+		cfg.Other.DefaultLanguage = "en-US"
+	})
+	t.Cleanup(func() {
+		global.APP_DB, global.APP_LOG = oldDB, oldLog
+		global.SetAppConfig(oldConfig)
+	})
+	gin.SetMode(gin.TestMode)
+
+	readConfig := func() map[string]string {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/public/system-config", nil)
+		GetPublicSystemConfig(ctx)
+		if recorder.Code != http.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("unexpected response: %d %v", recorder.Code, recorder.Header())
+		}
+		var response struct{ Data map[string]string }
+		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		return response.Data
+	}
+	if err := db.Create(&config.SystemConfig{Key: "other.site-name", Value: "Demo", IsPublic: true}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if result := readConfig(); result["default_language"] != "en-US" || result["site_name"] != "Demo" {
+		t.Fatalf("unexpected config fallback: %v", result)
+	}
+
+	savedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	rows := []config.SystemConfig{
+		{Key: "default_language", Value: "zh", IsPublic: true},
+		{Key: "other.default-language", Value: "", IsPublic: true, CreatedAt: savedAt.Add(-time.Hour), UpdatedAt: savedAt},
+		{Key: "other.default-language", Value: "zh", IsPublic: true, CreatedAt: savedAt.Add(-time.Hour), UpdatedAt: savedAt.Add(-time.Minute)},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if result := readConfig(); result["default_language"] != "" || result["default_language_revision"] != savedAt.Format(time.RFC3339Nano) {
+		t.Fatalf("unexpected saved language: %v", result)
 	}
 }

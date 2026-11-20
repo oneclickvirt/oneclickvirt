@@ -3,6 +3,14 @@
     <div class="init-container">
       <div class="init-bg-pattern" />
       <div class="init-card">
+        <el-button
+          class="init-language"
+          text
+          :title="t('navbar.switchLanguage')"
+          @click="locale = languageStore.toggleLanguage()"
+        >
+          {{ languageStore.currentLanguage === 'zh-CN' ? 'English' : '中文' }}
+        </el-button>
         <!-- Header -->
         <div class="init-header">
           <div class="init-logo">
@@ -388,7 +396,9 @@ import InitProgressPanel from './components/InitProgressPanel.vue'
 import useInit from './useInit'
 import { useI18n } from 'vue-i18n'
 import AppFooter from '@/view/layout/components/AppFooter.vue'
-const { t } = useI18n()
+import { useLanguageStore } from '@/pinia/modules/language'
+const { t, locale } = useI18n()
+const languageStore = useLanguageStore()
 
 const {
   adminFormRef, userFormRef, databaseFormRef,
@@ -452,6 +462,12 @@ const {
 .init-header {
   text-align: center;
   margin-bottom: 24px;
+}
+
+.init-language {
+  position: absolute;
+  inset-block-start: 12px;
+  inset-inline-end: 12px;
 }
 
 .init-logo {

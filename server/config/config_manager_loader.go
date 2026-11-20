@@ -133,7 +133,7 @@ func (cm *ConfigManager) handleDatabaseFirst() error {
 
 	// 3. 重新从数据库加载，确保configCache包含原有DB值和新合并的YAML值
 	var configs []SystemConfig
-	if err := cm.db.Where("`key` LIKE ?", "%.%").Find(&configs).Error; err != nil {
+	if err := cm.db.Where("`key` LIKE ?", "%.%").Order("updated_at ASC, id ASC").Find(&configs).Error; err != nil {
 		cm.logger.Error("重新加载配置失败", zap.Error(err))
 		return err
 	}

@@ -1,19 +1,29 @@
 <template>
   <div id="app">
-    <router-view />
-    <GlobalSSHManager />
+    <el-config-provider :locale="locale === 'en-US' ? en : zhCn">
+      <router-view />
+      <GlobalSSHManager />
+    </el-config-provider>
   </div>
 </template>
 
 <script setup>
 import { onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+import en from 'element-plus/es/locale/lang/en'
+import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import { checkSystemInit } from '@/api/init'
 import GlobalSSHManager from '@/components/GlobalSSHManager.vue'
 import { useSiteStore } from '@/pinia/modules/site'
 
 const router = useRouter()
 const siteStore = useSiteStore()
+const { locale } = useI18n()
+
+watch(locale, language => {
+  document.documentElement.lang = language
+}, { immediate: true })
 
 // 动态更新浏览器 tab favicon
 function updateFavicon(url) {

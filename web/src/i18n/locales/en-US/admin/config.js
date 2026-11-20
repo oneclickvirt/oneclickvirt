@@ -130,7 +130,7 @@ export default {
   browserLanguage: "Follow Browser Language",
   defaultLanguageHint: "Set the default language for the system. When left empty, it will automatically follow the browser language (display English for non-Chinese, default to Chinese if detection fails)",
   languageForceNote: "Language Setting Notice",
-  languageForceDesc: "The system default language only applies to users who have not manually switched languages. Once a user manually switches the language, their choice will be prioritized. When \"Follow Browser Language\" is selected, new users will see the interface in their browser language",
+  languageForceDesc: "When the default changes, browsers apply the new language on the next visit or refresh. Users can still switch languages for themselves. Follow Browser Language uses the browser's language preference.",
   logoSettings: "Logo Settings",
   customLogoURL: "Custom Logo URL",
   customLogoURLPlaceholder: "Enter third-party image URL, e.g.: https://example.com/logo.png",
