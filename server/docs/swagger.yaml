@@ -13341,7 +13341,8 @@ paths:
     get:
       consumes:
       - application/json
-      description: 获取公开系统配置（无需认证）。default_language 表示默认语言，空字符串表示跟随浏览器。default_language_revision 在有已修改的语言设置时返回。响应不缓存。
+      description: 获取公开系统配置（无需认证）。default_language 表示默认语言，空字符串表示跟随浏览器。default_language_revision
+        在有已修改的语言设置时返回。响应不缓存。
       produces:
       - application/json
       responses:
